@@ -1,0 +1,113 @@
+@model Contract
+@{
+    ViewData["Title"] = $"Hợp đồng {Model.Code}";
+    var (st, css) = Ui.Status(Model.Status);
+    bool canSign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
+}
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h5 class="fw-bold mb-1">@Model.Title</h5>
+                        <div class="text-muted small">Số @Model.Code · @(Model.Type?.Name ?? "—") · tạo @Model.CreatedAt.ToString("dd/MM/yyyy")</div>
+                    </div>
+                    <span class="badge bg-@css fs-6">@st</span>
+                </div>
+                <div class="mb-2"><span class="text-muted small">Giá trị:</span> <b>@Model.Value.ToString("N0") đ</b></div>
+                <div class="p-3 rounded" style="background:#f6faf9;white-space:pre-wrap">@Model.Body</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h6 class="fw-bold mb-3">Các bên & chữ ký</h6>
+                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                {
+                    var sig = Model.Signatures.FirstOrDefault(s => s.PartyId == p.Id);
+                    <div class="border rounded p-3 mb-2">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <span class="badge bg-secondary me-1">@Ui.Role(p.Role)</span>
+                                <b>@p.Name</b> @if (p.Email != null) { <span class="text-muted small">· @p.Email</span> }
+                                @if (p.HasSigned)
+                                {
+                                    <div class="text-success small mt-1"><i class="bi bi-patch-check-fill me-1"></i>Đã ký @(sig != null ? "bằng " + Ui.Method(sig.Method) : "") lúc @p.SignedAt?.ToString("dd/MM/yyyy HH:mm")
+                                        @if (sig?.CertSubject != null) { <div class="text-muted" style="font-size:11px">CTS: @sig.CertSubject</div> }
+                                        @if (sig?.SignatureValue != null) { <div class="text-muted text-truncate" style="font-size:10px;max-width:420px" title="@sig.SignatureValue">Chữ ký: @sig.SignatureValue</div> }
+                                    </div>
+                                }
+                                else { <span class="text-muted small ms-1">· chưa ký</span> }
+                            </div>
+                            @if (canSign && !p.HasSigned)
+                            {
+                                <div class="d-flex gap-2 align-items-center">
+                                    <form asp-action="SignCks" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="partyId" value="@p.Id" />
+                                        <button class="btn btn-sm btn-primary"><i class="bi bi-pen me-1"></i>Ký số (CKS)</button>
+                                    </form>
+                                    <form asp-action="OtpGenerate" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="partyId" value="@p.Id" />
+                                        <button class="btn btn-sm btn-outline-primary" title="Gửi OTP"><i class="bi bi-shield-lock"></i> OTP</button>
+                                    </form>
+                                    <form asp-action="SignOtp" method="post" class="d-inline d-flex gap-1">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="partyId" value="@p.Id" />
+                                        <input name="otp" class="form-control form-control-sm" style="width:90px" placeholder="mã OTP" />
+                                        <button class="btn btn-sm btn-outline-success">Xác nhận</button>
+                                    </form>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="fw-bold mb-3">Thao tác</h6>
+                <div class="mb-2 small text-muted">Tiến độ ký: <b>@Model.SignedCount/@Model.Parties.Count</b></div>
+                <div class="progress mb-3" style="height:8px">
+                    <div class="progress-bar bg-success" style="width:@(Model.Parties.Count == 0 ? 0 : Model.SignedCount * 100 / Model.Parties.Count)%"></div>
+                </div>
+
+                @if (Model.Status == ContractStatus.Draft)
+                {
+                    <form asp-action="Send" method="post" class="mb-2">
+                        @Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Id" />
+                        <button class="btn btn-primary w-100"><i class="bi bi-send me-1"></i>Gửi các bên ký</button>
+                    </form>
+                }
+                <a href="/Contract/Pdf/@Model.Id" class="btn btn-outline-primary w-100 mb-2" target="_blank"><i class="bi bi-file-pdf me-1"></i>Tải bản thể hiện (PDF)</a>
+                @if (Model.Status != ContractStatus.Completed && Model.Status != ContractStatus.Cancelled)
+                {
+                    <form asp-action="Cancel" method="post" onsubmit="return confirm('Hủy hợp đồng này?')">
+                        @Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Id" />
+                        <button class="btn btn-outline-danger w-100"><i class="bi bi-x-circle me-1"></i>Hủy hợp đồng</button>
+                    </form>
+                }
+                @if (Model.Status == ContractStatus.Completed)
+                {
+                    <div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Hoàn tất lúc @Model.CompletedAt?.ToString("dd/MM/yyyy HH:mm") — đủ chữ ký các bên.</div>
+                }
+            </div>
+        </div>
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-2">Dòng thời gian</h6>
+            <ul class="list-unstyled small mb-0">
+                <li class="mb-1"><i class="bi bi-circle-fill text-secondary me-1" style="font-size:7px"></i>Tạo: @Model.CreatedAt.ToString("dd/MM HH:mm")</li>
+                @if (Model.SentAt != null) { <li class="mb-1"><i class="bi bi-circle-fill text-info me-1" style="font-size:7px"></i>Gửi ký: @Model.SentAt?.ToString("dd/MM HH:mm")</li> }
+                @foreach (var p in Model.Parties.Where(x => x.HasSigned).OrderBy(x => x.SignedAt))
+                { <li class="mb-1"><i class="bi bi-circle-fill text-success me-1" style="font-size:7px"></i>@p.Name ký: @p.SignedAt?.ToString("dd/MM HH:mm")</li> }
+                @if (Model.CompletedAt != null) { <li class="mb-1"><i class="bi bi-circle-fill text-success me-1" style="font-size:7px"></i>Hoàn tất: @Model.CompletedAt?.ToString("dd/MM HH:mm")</li> }
+            </ul>
+        </div></div>
+    </div>
+</div>

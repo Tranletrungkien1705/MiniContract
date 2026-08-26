@@ -1,0 +1,62 @@
+@{
+    ViewData["Title"] = "Soạn hợp đồng";
+    var types = (List<ContractType>)ViewBag.Types;
+}
+
+<div class="card">
+    <div class="card-body">
+        <form asp-action="Create" method="post" id="frm">
+            @Html.AntiForgeryToken()
+            <div class="row g-3">
+                <div class="col-md-8">
+                    <label class="form-label small text-muted">Tiêu đề hợp đồng *</label>
+                    <input name="title" class="form-control" placeholder="VD: Hợp đồng đại lý khu vực..." required />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Giá trị (đ)</label>
+                    <input name="value" type="number" step="1000" value="0" class="form-control" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Loại hợp đồng</label>
+                    <select name="typeId" class="form-select" id="typeSel">
+                        <option value="">— Chọn loại —</option>
+                        @foreach (var t in types) { <option value="@t.Id" data-body="@t.BodyTemplate">@t.Name</option> }
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small text-muted">Nội dung</label>
+                    <textarea name="body" id="body" class="form-control" rows="4" placeholder="Nội dung điều khoản..."></textarea>
+                </div>
+            </div>
+
+            <hr class="my-4" />
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="fw-semibold mb-2"><span class="badge bg-secondary me-1">Bên A</span> (bên đề nghị)</div>
+                    <input name="partyAName" class="form-control mb-2" placeholder="Tên Bên A *" required />
+                    <input name="partyAEmail" type="email" class="form-control" placeholder="Email Bên A" />
+                </div>
+                <div class="col-md-6">
+                    <div class="fw-semibold mb-2"><span class="badge bg-secondary me-1">Bên B</span> (bên nhận)</div>
+                    <input name="partyBName" class="form-control mb-2" placeholder="Tên Bên B *" required />
+                    <input name="partyBEmail" type="email" class="form-control" placeholder="Email Bên B" />
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Tạo hợp đồng nháp</button>
+                <a href="/Contract" class="btn btn-outline-secondary">Hủy</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    document.getElementById('typeSel').addEventListener('change', function () {
+        var body = this.options[this.selectedIndex].getAttribute('data-body');
+        var ta = document.getElementById('body');
+        if (body && !ta.value.trim()) ta.value = body;
+    });
+</script>
+}

@@ -1,0 +1,44 @@
+@using MiniContract.Services
+@{
+    ViewData["Title"] = "Bảng điều khiển";
+    var d = (ContractDash)ViewBag.Dash;
+    var recent = (List<Contract>)ViewBag.Recent;
+}
+
+<div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body">
+        <div class="text-muted small">Tổng hợp đồng</div><div class="stat-num">@d.Total</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body">
+        <div class="text-muted small">Chờ ký</div><div class="stat-num text-warning">@d.AwaitingSign</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body">
+        <div class="text-muted small">Hoàn tất</div><div class="stat-num text-success">@d.Completed</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body">
+        <div class="text-muted small">Giá trị đã ký</div><div class="stat-num" style="font-size:20px">@d.TotalValue.ToString("N0") đ</div></div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="fw-bold mb-0">Hợp đồng gần đây</h6>
+            <a href="/Contract/Create" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Soạn hợp đồng</a>
+        </div>
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Số HĐ</th><th>Tiêu đề</th><th>Loại</th><th class="text-end">Giá trị</th><th>Các bên</th><th>Trạng thái</th></tr></thead>
+            <tbody>
+            @foreach (var c in recent.Take(8))
+            {
+                var (st, css) = Ui.Status(c.Status);
+                <tr style="cursor:pointer" onclick="location.href='/Contract/Detail/@c.Id'">
+                    <td class="fw-semibold">@c.Code</td>
+                    <td>@c.Title</td>
+                    <td class="small text-muted">@(c.Type?.Name ?? "—")</td>
+                    <td class="text-end">@c.Value.ToString("N0")</td>
+                    <td class="small">@c.SignedCount/@c.Parties.Count đã ký</td>
+                    <td><span class="badge bg-@css">@st</span></td>
+                </tr>
+            }
+            @if (recent.Count == 0) { <tr><td colspan="6" class="text-center text-muted py-4">Chưa có hợp đồng nào.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
