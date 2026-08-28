@@ -2,12 +2,15 @@ using Microsoft.EntityFrameworkCore;
 using MiniContract.Data;
 using MiniContract.Models;
 using MiniContract.Services;
+using Serilog;
 
 // Npgsql: DateTime Kind Local/Unspecified → timestamp without time zone
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+FleetObs.ConfigureLogger("minicontract");
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog();
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
@@ -22,11 +25,14 @@ builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddSingleton<ISignatureService, SignatureService>();
 builder.Services.AddSingleton<OtpService>();
 builder.Services.AddScoped<IContractService, ContractService>();
+builder.Services.AddFleetObs();
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 using (var scope = app.Services.CreateScope())
     await Seeder.SeedAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+
+app.UseFleetObs();
 
 // Multi-tenant: org = cookie org_key (UI) hoặc header X-Api-Key (API). Đặt TRƯỚC khi dựng AppDbContext.
 app.Use(async (ctx, next) =>
