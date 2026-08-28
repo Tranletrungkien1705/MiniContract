@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>MiniContract</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="MiniContract.Tests/**/*.cs" />
+    <Content Remove="MiniContract.Tests/**/*" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
