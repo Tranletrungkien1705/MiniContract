@@ -77,9 +77,27 @@ app.MapPost("/api/contracts", async (CreateContractDto dto, IContractService svc
     return Results.Ok(new { id, code = created!.Code, status = created.Status.ToString() });
 });
 
+// Import hàng loạt hợp đồng nguyên tắc đại lý thật từ Dlr_Contract (SQL nguồn 2010.HTC). Dedupe theo Title=DlrContractNo.
+app.MapPost("/api/import/contracts", async (List<ImportContractDto> rows, AppDbContext db, IContractService svc) =>
+{
+    if (rows is null || rows.Count == 0) return Results.BadRequest(new { error = "Không có dữ liệu import." });
+    int added = 0, skipped = 0;
+    foreach (var r in rows)
+    {
+        if (string.IsNullOrWhiteSpace(r.DlrContractNo) || string.IsNullOrWhiteSpace(r.DealerCode)) { skipped++; continue; }
+        if (await db.Contracts.AnyAsync(c => c.Title == r.DlrContractNo)) { skipped++; continue; }
+        var c = new Contract { Title = r.DlrContractNo, Body = r.Note ?? "", Value = 0, CreatedBy = "import" };
+        var parties = new List<ContractParty> { new() { Name = r.DealerCode, Role = PartyRole.PartyB } };
+        await svc.CreateAsync(c, parties);
+        added++;
+    }
+    return Results.Ok(new { added, skipped, total = rows.Count });
+});
+
 app.MapControllerRoute(name: "default", pattern: "{controller=Home}/{action=Index}/{id?}");
 app.Run();
 
 record RegisterOrgDto(string Name);
 record CreateContractDto(string Title, string? Body, decimal Value, List<PartyDto>? Parties);
 record PartyDto(string Name, string? Email, string? TaxCode, string? Role);
+record ImportContractDto(string? DlrContractNo, string? DealerCode, string? Note);
