@@ -85,13 +85,14 @@ public sealed class SignatureService : ISignatureService
 /// <summary>Sinh & xác thực OTP ký hợp đồng (demo: lưu in-memory theo party). Production: gửi SMS/Zalo/Email.</summary>
 public sealed class OtpService
 {
-    private readonly Dictionary<int, (string code, DateTime exp)> _store = new();
+    private const int MaxAttempts = 5;
+    private readonly Dictionary<int, (string code, DateTime exp, int attempts)> _store = new();
     private readonly object _lock = new();
 
     public string Generate(int partyId)
     {
         var code = Random.Shared.Next(100000, 999999).ToString();
-        lock (_lock) _store[partyId] = (code, DateTime.UtcNow.AddMinutes(5));
+        lock (_lock) _store[partyId] = (code, DateTime.UtcNow.AddMinutes(5), 0);
         return code;   // demo: trả thẳng ra UI (thực tế gửi SMS/Zalo)
     }
 
@@ -101,9 +102,11 @@ public sealed class OtpService
         {
             if (!_store.TryGetValue(partyId, out var v)) return false;
             if (DateTime.UtcNow > v.exp) { _store.Remove(partyId); return false; }
+            if (v.attempts >= MaxAttempts) { _store.Remove(partyId); return false; }
             var ok = v.code == code?.Trim();
-            if (ok) _store.Remove(partyId);
-            return ok;
+            if (ok) { _store.Remove(partyId); return true; }
+            _store[partyId] = (v.code, v.exp, v.attempts + 1);
+            return false;
         }
     }
 }
