@@ -22,7 +22,7 @@ public sealed class SignatureService : ISignatureService
     private static readonly Lazy<X509Certificate2> _cert = new(() =>
     {
         using var rsa = RSA.Create(2048);
-        var req = new CertificateRequest("CN=MiniContract Demo CA, O=idocNet Labs, C=VN", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var req = new CertificateRequest("CN=MiniContract Demo CA, O=Fleet Labs, C=VN", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(3));
     });
 
