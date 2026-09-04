@@ -33,6 +33,7 @@ using (var scope = app.Services.CreateScope())
     await Seeder.SeedAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
 
 app.UseFleetObs();
+FleetObs.ReportLicense(Environment.GetEnvironmentVariable("SSO_AUTHORITY") ?? "https://minisso.onrender.com", "minicontract");
 
 // Multi-tenant: org = cookie org_key (UI) hoặc header X-Api-Key (API). Đặt TRƯỚC khi dựng AppDbContext.
 app.Use(async (ctx, next) =>
