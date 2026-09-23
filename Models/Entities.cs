@@ -968,3 +968,83 @@ public class ChannelZaloConfig : IOrgOwned
     public string CreatedBy { get; set; } = "";                  // LogLUBy
     public ChannelConfig ChannelConfig { get; set; } = null!;
 }
+
+// ── Mẫu nội dung gửi (Mst_SubmissionForm) ────────────────────────────
+/// <summary>
+/// Mẫu nội dung gửi (biểu mẫu) — port từ Mst_SubmissionForm (QContract).
+/// Mỗi mẫu gắn 1 tổ chức (OrgID) với 1 kênh gửi (ChannelType: EMAIL/SMS/ZALO)
+/// và 1 loại bản tin (BulletinType: CONTRACT/OTP), kèm mã ZNS (IDZNS) khi gửi qua Zalo.
+/// Khóa nghiệp vụ là SubFormCode (mã mẫu) — dùng làm SubFormCodeEmailContract/OTP/AccessKey
+/// trong cấu hình kênh (Mst_ChannelEmail/SMS/Zalo).
+/// Luật cốt lõi (Mst_SubmissionForm_CheckDB / _SaveX):
+///  - SubFormCode bắt buộc (nếu rỗng → lỗi InvalidSubFormCode);
+///  - khi tạo, SubFormCode KHÔNG được trùng (SubFormCodeExisted);
+///  - khi lưu, ChannelType phải tồn tại & đang hiệu lực (Mst_ChannelType_CheckDB);
+///  - BulletinType phải tồn tại & đang hiệu lực (Mst_BulletinType_CheckDB);
+///  - xóa mẫu thì xóa kèm nội dung (Message) + tham số ZNS của mẫu.
+/// </summary>
+public class SubmissionForm : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string SubFormCode { get; set; } = "";     // SubFormCode — mã mẫu gửi
+    public string SubFormName { get; set; } = "";     // SubFormName — tên mẫu gửi
+    public ChannelType ChannelType { get; set; } = ChannelType.Email;      // ChannelType — loại kênh
+    public BulletinType BulletinType { get; set; } = BulletinType.Contract; // BulletinType — loại bản tin
+    public string? IdZns { get; set; }                 // IDZNS — mã mẫu ZNS (khi gửi qua Zalo)
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+
+    public List<SubmissionFormMessage> Messages { get; set; } = [];  // nội dung mẫu (tiêu đề + thân)
+    public List<SubmissionFormZns> ZnsParams { get; set; } = [];     // tham số ZNS của mẫu
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string ChannelLabel => ChannelConfig.ChannelLabel(ChannelType);
+    public string BulletinLabel => BulletinType == BulletinType.Otp ? "OTP" : "Hợp đồng";
+    public int MessageCount => Messages.Count;
+    public int ZnsParamCount => ZnsParams.Count;
+}
+
+// ── Nội dung mẫu gửi (Mst_SubmissionFormMessage) ─────────────────────
+/// <summary>
+/// Nội dung (tiêu đề + thân) của một mẫu gửi — port từ Mst_SubmissionFormMessage (QContract).
+/// Mỗi dòng gắn 1 mẫu (SubFormCode) với tiêu đề (SubTitle) và nội dung (Message).
+/// </summary>
+public class SubmissionFormMessage : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int SubmissionFormId { get; set; }          // FK tới mẫu gửi
+    public string SubFormCode { get; set; } = "";     // SubFormCode — mã mẫu (tra cứu nhanh)
+    public string? SubTitle { get; set; }              // SubTitle — tiêu đề mẫu
+    public string Message { get; set; } = "";         // Message — nội dung mẫu
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    public SubmissionForm SubmissionForm { get; set; } = null!;
+}
+
+// ── Tham số ZNS của mẫu gửi (Mst_SubmissionFormZNS) ──────────────────
+/// <summary>
+/// Tham số Zalo ZNS của một mẫu gửi — port từ Mst_SubmissionFormZNS (QContract).
+/// Mỗi dòng gắn 1 mẫu (SubFormCode) với 1 tham số ZNS (ParamContractCodeZNS),
+/// nguồn dữ liệu (SourceDataType), mã tham số hệ thống (ParamContractCode) và giá trị (ParamValue).
+/// Luật cốt lõi: ParamContractCode phải tồn tại & đang hiệu lực (Mst_ParamContractSubmissForm_CheckDB).
+/// </summary>
+public class SubmissionFormZns : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int SubmissionFormId { get; set; }          // FK tới mẫu gửi
+    public string SubFormCode { get; set; } = "";     // SubFormCode — mã mẫu (tra cứu nhanh)
+    public string ParamContractCodeZns { get; set; } = "";  // ParamContractCodeZNS — tham số ZNS
+    public string? SourceDataType { get; set; }        // SourceDataType — nguồn dữ liệu
+    public string ParamContractCode { get; set; } = "";     // ParamContractCode — mã tham số hệ thống
+    public string? ParamValue { get; set; }            // ParamValue — giá trị
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    public SubmissionForm SubmissionForm { get; set; } = null!;
+}
+

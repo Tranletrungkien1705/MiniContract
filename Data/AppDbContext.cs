@@ -35,6 +35,9 @@ public class AppDbContext : DbContext
     public DbSet<ChannelEmailConfig> ChannelEmails => Set<ChannelEmailConfig>();
     public DbSet<ChannelSmsConfig> ChannelSms => Set<ChannelSmsConfig>();
     public DbSet<ChannelZaloConfig> ChannelZalo => Set<ChannelZaloConfig>();
+    public DbSet<SubmissionForm> SubmissionForms => Set<SubmissionForm>();
+    public DbSet<SubmissionFormMessage> SubmissionFormMessages => Set<SubmissionFormMessage>();
+    public DbSet<SubmissionFormZns> SubmissionFormZns => Set<SubmissionFormZns>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -216,6 +219,25 @@ public class AppDbContext : DbContext
         b.Entity<ChannelZaloConfig>(e =>
         {
             e.HasOne(x => x.ChannelConfig).WithOne(x => x.Zalo).HasForeignKey<ChannelZaloConfig>(x => x.ChannelConfigId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<SubmissionForm>(e =>
+        {
+            e.Ignore(x => x.ChannelLabel);
+            e.Ignore(x => x.BulletinLabel);
+            e.Ignore(x => x.MessageCount);
+            e.Ignore(x => x.ZnsParamCount);
+            e.HasIndex(x => new { x.OrgId, x.SubFormCode }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<SubmissionFormMessage>(e =>
+        {
+            e.HasOne(x => x.SubmissionForm).WithMany(x => x.Messages).HasForeignKey(x => x.SubmissionFormId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<SubmissionFormZns>(e =>
+        {
+            e.HasOne(x => x.SubmissionForm).WithMany(x => x.ZnsParams).HasForeignKey(x => x.SubmissionFormId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

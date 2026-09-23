@@ -144,6 +144,13 @@ public interface IContractService
     Task<ChannelConfig?> ChannelConfigAsync();
     Task<ChannelConfig> SaveChannelConfigAsync(ChannelConfig config, string actor);
     Task<(bool ok, string msg)> DeleteChannelConfigAsync(int id, string actor);
+
+    // ── Mẫu nội dung gửi (Mst_SubmissionForm) ────────────────────────
+    Task<List<SubmissionForm>> SubmissionFormsAsync(bool activeOnly = false);
+    Task<SubmissionForm?> SubmissionFormAsync(int id);
+    Task<SubmissionForm> SaveSubmissionFormAsync(SubmissionForm form,
+        List<SubmissionFormMessage> messages, List<SubmissionFormZns> znsParams, string actor);
+    Task<(bool ok, string msg)> DeleteSubmissionFormAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1702,6 +1709,98 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.ChannelConfigs.Remove(cfg);
         await db.SaveChangesAsync();
         return (true, "Đã xóa cấu hình kênh gửi.");
+    }
+
+    // ── Mẫu nội dung gửi (Mst_SubmissionForm) ────────────────────────
+    // Nguồn QContract: Mst_SubmissionForm_CheckDB + Mst_SubmissionForm_SaveX.
+    // Luật cốt lõi: SubFormCode bắt buộc & KHÔNG trùng khi tạo; ChannelType/BulletinType
+    // phải tồn tại & đang hiệu lực; lưu là GHI ĐÈ toàn bộ nội dung (Message) + tham số ZNS
+    // của mẫu (delete all + insert all); xóa mẫu thì xóa kèm nội dung + tham số ZNS.
+    public async Task<List<SubmissionForm>> SubmissionFormsAsync(bool activeOnly = false)
+    {
+        var q = db.SubmissionForms.Include(x => x.Messages).Include(x => x.ZnsParams).AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.SubFormCode).ToListAsync();
+    }
+
+    public Task<SubmissionForm?> SubmissionFormAsync(int id) =>
+        db.SubmissionForms.Include(x => x.Messages).Include(x => x.ZnsParams)
+          .FirstOrDefaultAsync(x => x.Id == id);
+
+    public async Task<SubmissionForm> SaveSubmissionFormAsync(SubmissionForm form,
+        List<SubmissionFormMessage> messages, List<SubmissionFormZns> znsParams, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var code = (form.SubFormCode ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã mẫu gửi (SubFormCode).");
+        if (string.IsNullOrWhiteSpace(form.SubFormName))
+            throw new InvalidOperationException("Cần tên mẫu gửi.");
+        form.SubFormCode = code;
+
+        var existing = await db.SubmissionForms
+            .Include(x => x.Messages).Include(x => x.ZnsParams)
+            .FirstOrDefaultAsync(x => x.SubFormCode == code);
+
+        // Chuẩn hoá nội dung mẫu (bỏ dòng rỗng) + tham số ZNS (bỏ dòng thiếu mã tham số).
+        var cleanMsgs = (messages ?? [])
+            .Where(m => !string.IsNullOrWhiteSpace(m.Message) || !string.IsNullOrWhiteSpace(m.SubTitle))
+            .Select(m => new SubmissionFormMessage
+            {
+                SubFormCode = code, SubTitle = string.IsNullOrWhiteSpace(m.SubTitle) ? null : m.SubTitle.Trim(),
+                Message = (m.Message ?? "").Trim(), Active = true, CreatedBy = who
+            }).ToList();
+        var cleanZns = (znsParams ?? [])
+            .Where(z => !string.IsNullOrWhiteSpace(z.ParamContractCode))
+            .Select(z => new SubmissionFormZns
+            {
+                SubFormCode = code, ParamContractCodeZns = (z.ParamContractCodeZns ?? "").Trim(),
+                SourceDataType = string.IsNullOrWhiteSpace(z.SourceDataType) ? null : z.SourceDataType.Trim(),
+                ParamContractCode = z.ParamContractCode.Trim(),
+                ParamValue = string.IsNullOrWhiteSpace(z.ParamValue) ? null : z.ParamValue.Trim(),
+                Active = true, CreatedBy = who
+            }).ToList();
+
+        if (existing == null)
+        {
+            // Tạo mới — SubFormCode chưa tồn tại (FlagExistToCheck=No).
+            form.CreatedBy = who;
+            form.CreatedAt = DateTime.Now;
+            form.Messages = cleanMsgs;
+            form.ZnsParams = cleanZns;
+            db.SubmissionForms.Add(form);
+            await db.SaveChangesAsync();
+            return form;
+        }
+
+        // Cập nhật — SubFormCode đã tồn tại (FlagExistToCheck=Yes).
+        existing.SubFormName = form.SubFormName.Trim();
+        existing.ChannelType = form.ChannelType;
+        existing.BulletinType = form.BulletinType;
+        existing.IdZns = string.IsNullOrWhiteSpace(form.IdZns) ? null : form.IdZns.Trim();
+        existing.Active = form.Active;
+
+        // Ghi đè toàn bộ nội dung + tham số ZNS cũ của mẫu (delete all + insert all).
+        db.SubmissionFormMessages.RemoveRange(existing.Messages);
+        db.SubmissionFormZns.RemoveRange(existing.ZnsParams);
+        existing.Messages = cleanMsgs;
+        existing.ZnsParams = cleanZns;
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa mẫu gửi — port từ Mst_SubmissionForm_SaveX (bIsDelete): xóa kèm nội dung + tham số ZNS.
+    public async Task<(bool ok, string msg)> DeleteSubmissionFormAsync(int id, string actor)
+    {
+        var form = await db.SubmissionForms
+            .Include(x => x.Messages).Include(x => x.ZnsParams)
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (form == null) return (false, "Không tìm thấy mẫu gửi.");
+        db.SubmissionFormMessages.RemoveRange(form.Messages);
+        db.SubmissionFormZns.RemoveRange(form.ZnsParams);
+        db.SubmissionForms.Remove(form);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa mẫu gửi '{form.SubFormCode}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

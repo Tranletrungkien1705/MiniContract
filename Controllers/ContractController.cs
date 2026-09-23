@@ -837,4 +837,65 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(ChannelConfigs));
     }
+
+    // ── Mẫu nội dung gửi (Mst_SubmissionForm) ────────────────────────
+    // Danh mục mẫu nội dung gửi theo kênh (Email/SMS/Zalo) + loại bản tin (HĐ/OTP) —
+    // port từ Mst_SubmissionForm (QContract). Mỗi mẫu gồm nội dung (tiêu đề + thân)
+    // và tham số ZNS (khi gửi qua Zalo).
+    public async Task<IActionResult> SubmissionForms()
+    {
+        return View(await svc.SubmissionFormsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveSubmissionForm(int id, string subFormCode, string subFormName,
+        ChannelType channelType, BulletinType bulletinType, string? idZns, bool active,
+        string? messages, string? znsParams)
+    {
+        try
+        {
+            // Nội dung mẫu: mỗi dòng "tiêu đề | nội dung".
+            var msgs = new List<SubmissionFormMessage>();
+            foreach (var line in (messages ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Split('|', 2);
+                var title = parts[0].Trim();
+                var body = parts.Length > 1 ? parts[1].Trim() : "";
+                if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(body)) continue;
+                msgs.Add(new SubmissionFormMessage { SubTitle = title, Message = body });
+            }
+            // Tham số ZNS: mỗi dòng "mã tham số ZNS | nguồn dữ liệu | mã tham số hệ thống | giá trị".
+            var zns = new List<SubmissionFormZns>();
+            foreach (var line in (znsParams ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Split('|');
+                if (parts.Length < 3) continue;
+                zns.Add(new SubmissionFormZns
+                {
+                    ParamContractCodeZns = parts[0].Trim(),
+                    SourceDataType = parts.Length > 1 ? parts[1].Trim() : null,
+                    ParamContractCode = parts[2].Trim(),
+                    ParamValue = parts.Length > 3 ? parts[3].Trim() : null
+                });
+            }
+            var form = new SubmissionForm
+            {
+                Id = id, SubFormCode = subFormCode, SubFormName = subFormName,
+                ChannelType = channelType, BulletinType = bulletinType,
+                IdZns = idZns, Active = active
+            };
+            await svc.SaveSubmissionFormAsync(form, msgs, zns, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật mẫu gửi." : "Đã thêm mẫu gửi.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(SubmissionForms));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteSubmissionForm(int id)
+    {
+        var (ok, msg) = await svc.DeleteSubmissionFormAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(SubmissionForms));
+    }
 }
