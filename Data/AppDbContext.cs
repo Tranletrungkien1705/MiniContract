@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Org> Orgs => Set<Org>();
     public DbSet<ContractType> ContractTypes => Set<ContractType>();
+    public DbSet<ContractNumberRule> NumberRules => Set<ContractNumberRule>();
     public DbSet<Contract> Contracts => Set<Contract>();
     public DbSet<ContractParty> Parties => Set<ContractParty>();
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
@@ -29,6 +30,13 @@ public class AppDbContext : DbContext
         b.Entity<Org>().HasIndex(x => x.ApiKey).IsUnique();
 
         b.Entity<ContractType>().HasQueryFilter(x => x.OrgId == _orgId);
+        b.Entity<ContractNumberRule>(e =>
+        {
+            e.Ignore(x => x.TypefixLabel);
+            e.HasIndex(x => new { x.OrgId, x.TypeId }).IsUnique();
+            e.HasOne(x => x.Type).WithOne(x => x.NumberRule).HasForeignKey<ContractNumberRule>(x => x.TypeId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
         b.Entity<Contract>(e =>
         {
             e.Property(x => x.Value).HasPrecision(18, 2);

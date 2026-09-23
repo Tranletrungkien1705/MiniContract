@@ -221,6 +221,42 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
+    // Danh mục quy tắc sinh số hợp đồng cho từng loại — port từ Mst_ContractTypeContractNo (QContract).
+    public async Task<IActionResult> NumberRules()
+    {
+        ViewBag.Types = await svc.TypesAsync();
+        return View(await svc.NumberRulesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveNumberRule(int typeId, Typefix typefixCode, string? typefixInput, int seqNumberLength, int numberStart, bool active)
+    {
+        if (typeId <= 0)
+        {
+            TempData["Error"] = "Cần chọn loại hợp đồng.";
+            return RedirectToAction(nameof(NumberRules));
+        }
+        try
+        {
+            await svc.SaveNumberRuleAsync(new ContractNumberRule
+            {
+                TypeId = typeId, TypefixCode = typefixCode, TypefixInput = typefixInput?.Trim() ?? "",
+                SeqNumberLength = seqNumberLength, NumberStart = numberStart, Active = active
+            });
+            TempData["Success"] = "Đã lưu quy tắc đánh số.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(NumberRules));
+    }
+
+    // Xem trước các số hợp đồng kế tiếp của 1 loại — port từ Seq_ContractNo_Get (QContract).
+    public async Task<IActionResult> PreviewNumbers(int typeId, int amount = 5)
+    {
+        var numbers = await svc.PreviewNumbersAsync(typeId, amount);
+        return Json(new { success = true, numbers });
+    }
+
     // ── Phụ lục hợp đồng ─────────────────────────────
     public async Task<IActionResult> CreateAnnex(int id)
     {

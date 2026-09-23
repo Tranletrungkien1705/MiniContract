@@ -62,6 +62,11 @@ public interface IContractService
     Task<List<ContractSendHist>> SendHistoryAsync(int contractId, BulletinType? bulletin = null);
     Task<ContractSendHist> AddSendHistAsync(int contractId, int? partyId, ChannelType channel, BulletinType bulletin, string? infoReceive, string? remark, string actor);
     Task<(bool ok, string msg)> ResendAsync(int contractId, List<int> sendHistIds, string actor);
+
+    // ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
+    Task<List<ContractNumberRule>> NumberRulesAsync();
+    Task<ContractNumberRule> SaveNumberRuleAsync(ContractNumberRule rule);
+    Task<List<string>> PreviewNumbersAsync(int typeId, int amount);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -83,8 +88,7 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
 
     public async Task<int> CreateAsync(Contract c, List<ContractParty> parties)
     {
-        var count = await db.Contracts.CountAsync();
-        c.Code = $"HD{DateTime.Now:yyMM}-{count + 1:D4}";
+        c.Code = await NextCodeAsync(c.TypeId);
         c.Status = ContractStatus.Draft;
         int order = 1;
         foreach (var p in parties.Where(p => !string.IsNullOrWhiteSpace(p.Name)))
@@ -592,6 +596,82 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         await db.SaveChangesAsync();
         await LogAsync(c.Id, HistoryAction.Remark, who, $"Gửi lại {src.Count} bản tin cho các bên");
         return (true, $"Đã gửi lại {src.Count} bản tin.");
+    }
+
+    // ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
+    // Nguồn QContract: Mst_ContractTypeContractNo + Seq_ContractNo_Get (ghép tiền/hậu tố + số zero-pad).
+    public Task<List<ContractNumberRule>> NumberRulesAsync() =>
+        db.NumberRules.Include(x => x.Type).OrderBy(x => x.TypeId).ToListAsync();
+
+    // Lưu (thêm/cập nhật) quy tắc đánh số cho 1 loại hợp đồng — mỗi loại chỉ có 1 quy tắc.
+    public async Task<ContractNumberRule> SaveNumberRuleAsync(ContractNumberRule rule)
+    {
+        var type = await db.ContractTypes.FirstOrDefaultAsync(t => t.Id == rule.TypeId)
+            ?? throw new InvalidOperationException("Không tìm thấy loại hợp đồng.");
+        if (rule.SeqNumberLength <= 0) rule.SeqNumberLength = 4;
+        if (rule.NumberStart <= 0) rule.NumberStart = 1;
+        rule.TypefixInput ??= "";
+
+        var existing = await db.NumberRules.FirstOrDefaultAsync(x => x.TypeId == rule.TypeId);
+        if (existing == null)
+        {
+            db.NumberRules.Add(rule);
+            existing = rule;
+        }
+        else
+        {
+            existing.TypefixCode = rule.TypefixCode;
+            existing.TypefixInput = rule.TypefixInput;
+            existing.SeqNumberLength = rule.SeqNumberLength;
+            existing.NumberStart = rule.NumberStart;
+            existing.Active = rule.Active;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xem trước các số hợp đồng kế tiếp của 1 loại — port từ Seq_ContractNo_Get (sinh N số liên tiếp).
+    public async Task<List<string>> PreviewNumbersAsync(int typeId, int amount)
+    {
+        if (amount <= 0) amount = 5;
+        var rule = await db.NumberRules.FirstOrDefaultAsync(x => x.TypeId == typeId);
+        if (rule == null) return [];
+        var start = await NextNumberAsync(rule);
+        return Enumerable.Range(0, amount).Select(i => rule.Build(start + i)).ToList();
+    }
+
+    // Sinh số hợp đồng kế tiếp cho 1 loại: nếu có quy tắc thì dùng quy tắc, ngược lại dùng mã mặc định HDyyMM-nnnn.
+    // Nguồn QContract: Contract_Contract_CountByContractType_Get (đếm theo loại) + Seq_ContractNo_Get.
+    private async Task<string> NextCodeAsync(int? typeId)
+    {
+        if (typeId.HasValue)
+        {
+            var rule = await db.NumberRules.FirstOrDefaultAsync(x => x.TypeId == typeId.Value && x.Active);
+            if (rule != null)
+            {
+                var start = await NextNumberAsync(rule);
+                var code = rule.Build(start);
+                // Tránh trùng nếu số đã tồn tại (VD do xóa/tạo lại) — tăng dần cho tới khi trống.
+                while (await db.Contracts.AnyAsync(c => c.Code == code))
+                    code = rule.Build(++start);
+                return code;
+            }
+        }
+        var count = await db.Contracts.CountAsync();
+        return $"HD{DateTime.Now:yyMM}-{count + 1:D4}";
+    }
+
+    // Số thứ tự kế tiếp = số lớn nhất đã dùng của loại + 1 (tối thiểu NumberStart).
+    private async Task<long> NextNumberAsync(ContractNumberRule rule)
+    {
+        var codes = await db.Contracts.Where(c => c.TypeId == rule.TypeId).Select(c => c.Code).ToListAsync();
+        long max = rule.NumberStart - 1;
+        foreach (var code in codes)
+        {
+            var digits = new string(code.Where(char.IsDigit).ToArray());
+            if (long.TryParse(digits, out var n) && n > max) max = n;
+        }
+        return max + 1;
     }
 
     // ── helpers ──────────────────────────────────────────────────────

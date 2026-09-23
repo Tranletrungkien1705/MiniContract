@@ -85,6 +85,12 @@ public enum ElementType { Electronic = 0, Short = 1, Digital = 2 }
 /// </summary>
 public enum CheckerStatus { None = 0, Pending = 1, OnProcess = 2 }
 
+/// <summary>
+/// Kiểu ghép tiền tố/hậu tố khi sinh số hợp đồng — port từ TConst.Mst_Typefix (QContract):
+/// PREFIX = tiền tố đứng trước số (VD: HD-0001), POSTFIX = hậu tố đứng sau số (VD: 0001/2026).
+/// </summary>
+public enum Typefix { Prefix = 0, Postfix = 1 }
+
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
 {
@@ -93,6 +99,42 @@ public class ContractType : IOrgOwned
     public string Name { get; set; } = "";
     public string? Code { get; set; }
     public string? BodyTemplate { get; set; }   // mẫu nội dung mặc định
+
+    public ContractNumberRule? NumberRule { get; set; }   // quy tắc đánh số của loại này (nếu có)
+}
+
+// ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
+/// <summary>
+/// Quy tắc sinh số hợp đồng cho một loại hợp đồng — port từ Mst_ContractTypeContractNo (QContract).
+/// Mỗi loại có: kiểu ghép (TypefixCode: PREFIX/POSTFIX), chuỗi tiền/hậu tố (TypefixInput),
+/// độ dài số (SeqNumberLength — zero-pad) và số bắt đầu (NumberStart).
+/// Nguồn QContract: Seq_ContractNo_Get → Seq_ContractNo_GetX (ghép {TypefixInput}{số} hoặc {số}{TypefixInput})
+/// + Contract_Contract_CountByContractType_Get (đếm hợp đồng theo loại để lấy số kế tiếp).
+/// </summary>
+public class ContractNumberRule : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int TypeId { get; set; }                 // ContractType — loại hợp đồng áp dụng
+    public Typefix TypefixCode { get; set; } = Typefix.Prefix;  // TypefixCode
+    public string TypefixInput { get; set; } = "";  // TypefixInput — tiền/hậu tố (VD: "HD-")
+    public int SeqNumberLength { get; set; } = 4;   // SeqNumberLength — độ dài số (zero-pad)
+    public int NumberStart { get; set; } = 1;       // NumberStart — số bắt đầu
+    public bool Active { get; set; } = true;        // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    public ContractType? Type { get; set; }
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string TypefixLabel => TypefixCode == Typefix.Postfix ? "Hậu tố" : "Tiền tố";
+
+    /// <summary>Sinh 1 số hợp đồng từ số thứ tự — port từ Seq_ContractNo_GetX + To10Mask (QContract).</summary>
+    public string Build(long number)
+    {
+        var len = SeqNumberLength <= 0 ? 1 : SeqNumberLength;
+        var padded = number.ToString().PadLeft(len, '0');
+        return TypefixCode == Typefix.Postfix ? $"{padded}{TypefixInput}" : $"{TypefixInput}{padded}";
+    }
 }
 
 // ── Danh mục lý do kết thúc hợp đồng (Mst_FinishedContractReason) ────
