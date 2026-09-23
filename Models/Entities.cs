@@ -358,6 +358,7 @@ public class Contract : IOrgOwned
     public List<ContractUserInContract> UserAssignments { get; set; } = [];  // người dùng được phân quyền
     public List<ContractSigner> Signers { get; set; } = [];   // người ký của hợp đồng (theo bên)
     public List<ContractSendHist> SendHistory { get; set; } = [];   // lịch sử gửi cho các bên
+    public List<ContractDetail> Details { get; set; } = [];   // chi tiết hàng hóa/dịch vụ (Contract_ContractDtl)
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
@@ -391,6 +392,11 @@ public class Contract : IOrgOwned
     public bool AllSignersConfirmed => Signers.Count > 0 && Signers.All(s => s.IsConfirmed);
     public int PartyConfirmedCount => Parties.Count(p => p.IsConfirmed);   // số bên đã ký hợp đồng
     public bool AllPartiesConfirmed => Parties.Count > 0 && Parties.All(p => p.IsConfirmed);
+    // ── chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────
+    public decimal DetailTotal => Details.Sum(d => d.ValContract);          // tổng thành tiền các dòng
+    public decimal DetailTaxTotal => Details.Sum(d => d.ValTax);            // tổng tiền thuế
+    public decimal DetailDiscountTotal => Details.Sum(d => d.ValDiscount);  // tổng tiền chiết khấu
+    public decimal DetailGrandTotal => DetailTotal - DetailDiscountTotal + DetailTaxTotal;  // tổng thanh toán
 }
 
 // ── Các bên tham gia ─────────────────────────────────────────────────
@@ -444,6 +450,48 @@ public class ContractParty : IOrgOwned
     public bool IsCancelled => Status == PartyStatus.Cancelled;
     public bool IsConfirmed => Status == PartyStatus.Confirmed;      // da ky hop dong
     public bool HasValue => ValContract > 0;                         // da co gia tri hop dong
+}
+
+// ── Chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────────
+/// <summary>
+/// Dòng chi tiết (hàng hóa/dịch vụ) của hợp đồng — port từ Contract_ContractDtl (QContract).
+/// Mỗi dòng gắn 1 hợp đồng (ContractCode) với 1 mặt hàng (SpecCode/SpecName), đơn vị tính
+/// (UnitCode/UnitName), đơn giá (UnitPrice), số lượng (Qty), thuế suất (VATRate/VATRateCode)
+/// và chiết khấu (DiscountRate). Các giá trị tiền được tính theo công thức của QContract
+/// (SignMulti.cshtml):
+///  - ValContract (thành tiền) = Qty × UnitPrice;
+///  - ValDiscount (tiền chiết khấu) = ValContract × DiscountRate / 100;
+///  - ValTax (tiền thuế) = (ValContract − ValDiscount) × VATRate / 100.
+/// Nguồn QContract: Contract_ContractDtl (insert trong Contract_Contract_SaveX) +
+/// luồng tính toán ở Website Contract_Contract/SignMulti.cshtml.
+/// </summary>
+public class ContractDetail : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int Idx { get; set; } = 1;               // Idx — thứ tự dòng
+    public string SpecCode { get; set; } = "";      // SpecCode — mã hàng hóa/dịch vụ
+    public string SpecName { get; set; } = "";      // SpecName — tên hàng hóa/dịch vụ
+    public string? VATRateCode { get; set; }         // VATRateCode — mã thuế suất
+    public decimal VATRate { get; set; }             // VATRate — thuế suất (%)
+    public string? UnitCode { get; set; }            // UnitCode — mã đơn vị tính
+    public string? UnitName { get; set; }            // UnitName — tên đơn vị tính
+    public decimal UnitPrice { get; set; }           // UnitPrice — đơn giá
+    public decimal Qty { get; set; }                 // Qty — số lượng
+    public decimal ValContract { get; set; }         // ValContract — thành tiền (Qty × UnitPrice)
+    public decimal ValTax { get; set; }              // ValTax — tiền thuế
+    public decimal DiscountRate { get; set; }        // DiscountRate — tỉ lệ chiết khấu (%)
+    public decimal ValDiscount { get; set; }         // ValDiscount — tiền chiết khấu
+    public string? Remark { get; set; }              // Remark — ghi chú
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";     // LogLUBy
+
+    public Contract Contract { get; set; } = null!;
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public decimal LineTotal => ValContract - ValDiscount + ValTax;   // tổng dòng (sau chiết khấu + thuế)
+    public string UnitLabel => string.IsNullOrWhiteSpace(UnitName) ? (UnitCode ?? "—") : UnitName;
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────

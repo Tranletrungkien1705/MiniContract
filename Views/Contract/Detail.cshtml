@@ -16,6 +16,8 @@
     var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
     var verifyOtps = (List<ContractVerifyOtp>)(ViewBag.VerifyOtps ?? new List<ContractVerifyOtp>());
     var psStats = (PartySignStats)(ViewBag.PartySignStats ?? new PartySignStats(0, 0, 0, false));
+    var details = (List<ContractDetail>)(ViewBag.Details ?? new List<ContractDetail>());
+    var dtStats = (DetailStats)(ViewBag.DetailStats ?? new DetailStats(0, 0, 0, 0, 0));
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
@@ -26,6 +28,7 @@
     bool canSigner = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canPartySign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
     bool canUpdAfterApproved = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned or ContractStatus.Completed;
+    bool canEditDetails = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -772,6 +775,96 @@
                     <div class="col-md-2"><input name="fileVersion" class="form-control form-control-sm" value="@Model.FileVersion" placeholder="Phiên bản" /></div>
                     <div class="col-md-2"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-save me-1"></i>Lưu file</button></div>
                 </form>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-1"></i>Chi tiết hợp đồng (hàng hóa/dịch vụ) <span class="badge bg-secondary">@dtStats.Lines</span></h6>
+                    <span class="small text-muted">Tổng thanh toán: <b class="text-success">@dtStats.GrandTotal.ToString("N0") đ</b></span>
+                </div>
+                @if (details.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có dòng chi tiết nào.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:36px">#</th>
+                                    <th>Hàng hóa/dịch vụ</th>
+                                    <th class="text-end">SL</th>
+                                    <th class="text-end">Đơn giá</th>
+                                    <th class="text-end">Thành tiền</th>
+                                    <th class="text-end">Thuế</th>
+                                    <th class="text-end">Chiết khấu</th>
+                                    <th class="text-end">Tổng dòng</th>
+                                    @if (canEditDetails) { <th style="width:44px"></th> }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in details)
+                                {
+                                    <tr>
+                                        <td class="text-muted">@d.Idx</td>
+                                        <td>
+                                            <div class="fw-semibold">@d.SpecName</div>
+                                            <div class="text-muted" style="font-size:11px">@d.SpecCode · ĐVT: @d.UnitLabel@(d.VATRate > 0 ? $" · VAT {d.VATRate:N0}%" : "")@(d.Remark != null ? " · " + d.Remark : "")</div>
+                                        </td>
+                                        <td class="text-end">@d.Qty.ToString("N0")</td>
+                                        <td class="text-end">@d.UnitPrice.ToString("N0")</td>
+                                        <td class="text-end">@d.ValContract.ToString("N0")</td>
+                                        <td class="text-end">@d.ValTax.ToString("N0")</td>
+                                        <td class="text-end">@d.ValDiscount.ToString("N0")</td>
+                                        <td class="text-end fw-semibold">@d.LineTotal.ToString("N0")</td>
+                                        @if (canEditDetails)
+                                        {
+                                            <td>
+                                                <form asp-action="DeleteDetail" method="post" onsubmit="return confirm('Xóa dòng chi tiết này?');">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="id" value="@Model.Id" />
+                                                    <input type="hidden" name="detailId" value="@d.Id" />
+                                                    <button class="btn btn-sm btn-outline-danger" title="Xóa"><i class="bi bi-trash"></i></button>
+                                                </form>
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <td colspan="4" class="text-end fw-semibold">Tổng cộng</td>
+                                    <td class="text-end fw-semibold">@dtStats.Total.ToString("N0")</td>
+                                    <td class="text-end fw-semibold">@dtStats.Tax.ToString("N0")</td>
+                                    <td class="text-end fw-semibold">@dtStats.Discount.ToString("N0")</td>
+                                    <td class="text-end fw-bold text-success">@dtStats.GrandTotal.ToString("N0")</td>
+                                    @if (canEditDetails) { <td></td> }
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+
+                @if (canEditDetails)
+                {
+                    <form asp-action="AddDetail" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4"><input name="specName" class="form-control form-control-sm" placeholder="Tên hàng hóa/dịch vụ" required /></div>
+                        <div class="col-md-2"><input name="specCode" class="form-control form-control-sm" placeholder="Mã (tùy chọn)" /></div>
+                        <div class="col-md-2"><input name="unitName" class="form-control form-control-sm" placeholder="ĐVT" /></div>
+                        <div class="col-md-2"><input name="qty" type="number" step="any" min="0" value="1" class="form-control form-control-sm" placeholder="Số lượng" /></div>
+                        <div class="col-md-2"><input name="unitPrice" type="number" step="any" min="0" value="0" class="form-control form-control-sm" placeholder="Đơn giá" /></div>
+                        <div class="col-md-2"><input name="vatRate" type="number" step="any" min="0" value="0" class="form-control form-control-sm" placeholder="VAT %" /></div>
+                        <div class="col-md-2"><input name="discountRate" type="number" step="any" min="0" value="0" class="form-control form-control-sm" placeholder="Chiết khấu %" /></div>
+                        <div class="col-md-4"><input name="remark" class="form-control form-control-sm" placeholder="Ghi chú (tùy chọn)" /></div>
+                        <div class="col-md-4"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-plus-square me-1"></i>Thêm dòng chi tiết</button></div>
+                    </form>
+                    <p class="text-muted small mt-2 mb-0">Thành tiền = SL × Đơn giá; Thuế = (Thành tiền − Chiết khấu) × VAT%; Chiết khấu = Thành tiền × CK% — port từ <code>Contract_ContractDtl</code> (QContract).</p>
+                }
             </div>
         </div>
     </div>

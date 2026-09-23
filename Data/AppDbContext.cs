@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractUserInContract> UserAssignments => Set<ContractUserInContract>();
     public DbSet<ContractSigner> Signers => Set<ContractSigner>();
     public DbSet<ContractSendHist> SendHistory => Set<ContractSendHist>();
+    public DbSet<ContractDetail> Details => Set<ContractDetail>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
     public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
@@ -163,6 +164,20 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.BulletinLabel);
             e.HasOne(x => x.Contract).WithMany(x => x.SendHistory).HasForeignKey(x => x.ContractId);
             e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractDetail>(e =>
+        {
+            e.Ignore(x => x.LineTotal);
+            e.Ignore(x => x.UnitLabel);
+            e.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            e.Property(x => x.Qty).HasPrecision(18, 2);
+            e.Property(x => x.ValContract).HasPrecision(18, 2);
+            e.Property(x => x.ValTax).HasPrecision(18, 2);
+            e.Property(x => x.DiscountRate).HasPrecision(18, 2);
+            e.Property(x => x.ValDiscount).HasPrecision(18, 2);
+            e.Property(x => x.VATRate).HasPrecision(18, 2);
+            e.HasOne(x => x.Contract).WithMany(x => x.Details).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<FinishedContractReason>(e =>

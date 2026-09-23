@@ -59,6 +59,8 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.SendHistory = await svc.SendHistoryAsync(id);
         ViewBag.VerifyOtps = await svc.VerifyOtpsAsync(id);
         ViewBag.PartySignStats = await svc.PartySignStatsAsync(id);
+        ViewBag.Details = await svc.DetailsAsync(id);
+        ViewBag.DetailStats = await svc.DetailStatsAsync(id);
         return View(c);
     }
 
@@ -897,5 +899,40 @@ public class ContractController(IContractService svc) : Controller
         var (ok, msg) = await svc.DeleteSubmissionFormAsync(id, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(SubmissionForms));
+    }
+
+    // ── Chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────
+    // Thêm 1 dòng chi tiết (hàng hóa/dịch vụ) — port từ Contract_ContractDtl (QContract).
+    // Các giá trị tiền (thành tiền/thuế/chiết khấu) được tính lại ở service theo công thức QContract.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddDetail(int id, string specName, string? specCode, string? unitName,
+        decimal unitPrice, decimal qty, decimal vatRate, decimal discountRate, string? remark)
+    {
+        if (string.IsNullOrWhiteSpace(specName))
+        {
+            TempData["Error"] = "Cần tên hàng hóa/dịch vụ.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        try
+        {
+            await svc.AddDetailAsync(id, new ContractDetail
+            {
+                SpecName = specName.Trim(), SpecCode = specCode?.Trim() ?? "", UnitName = unitName?.Trim(),
+                UnitPrice = unitPrice, Qty = qty, VATRate = vatRate, DiscountRate = discountRate,
+                Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim()
+            }, "web");
+            TempData["Success"] = "Đã thêm dòng chi tiết.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Xóa 1 dòng chi tiết — port từ Contract_ContractDtl (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteDetail(int id, int detailId)
+    {
+        var (ok, msg) = await svc.DeleteDetailAsync(id, detailId, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
     }
 }

@@ -22,6 +22,9 @@ public record SignerStats(int Total, int Confirmed, int Pending, int Sent);
 /// <summary>Thống kê ký hợp đồng theo bên — port từ Contract_Contract_PartySign (QContract).</summary>
 public record PartySignStats(int Total, int Confirmed, int Pending, bool AllConfirmed);
 
+/// <summary>Thống kê chi tiết hợp đồng — port từ Contract_ContractDtl (QContract).</summary>
+public record DetailStats(int Lines, decimal Total, decimal Tax, decimal Discount, decimal GrandTotal);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -151,6 +154,12 @@ public interface IContractService
     Task<SubmissionForm> SaveSubmissionFormAsync(SubmissionForm form,
         List<SubmissionFormMessage> messages, List<SubmissionFormZns> znsParams, string actor);
     Task<(bool ok, string msg)> DeleteSubmissionFormAsync(int id, string actor);
+
+    // ── Chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────
+    Task<List<ContractDetail>> DetailsAsync(int contractId);
+    Task<ContractDetail> AddDetailAsync(int contractId, ContractDetail detail, string actor);
+    Task<(bool ok, string msg)> DeleteDetailAsync(int contractId, int detailId, string actor);
+    Task<DetailStats> DetailStatsAsync(int contractId);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1801,6 +1810,76 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.SubmissionForms.Remove(form);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa mẫu gửi '{form.SubFormCode}'.");
+    }
+
+    // ── Chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────
+    // Nguồn QContract: Contract_ContractDtl (insert trong Contract_Contract_SaveX) +
+    // luồng tính toán ở Website Contract_Contract/SignMulti.cshtml.
+    public Task<List<ContractDetail>> DetailsAsync(int contractId) =>
+        db.Details.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Idx).ThenBy(x => x.Id).ToListAsync();
+
+    // Thêm 1 dòng chi tiết (hàng hóa/dịch vụ) — port từ Contract_ContractDtl (QContract).
+    // Luật cốt lõi: hợp đồng phải tồn tại và chưa kết thúc; tên hàng hóa bắt buộc;
+    // các giá trị tiền được TÍNH LẠI theo công thức QContract (không tin số client gửi lên):
+    //  - ValContract = Qty × UnitPrice;
+    //  - ValDiscount = ValContract × DiscountRate / 100;
+    //  - ValTax = (ValContract − ValDiscount) × VATRate / 100.
+    public async Task<ContractDetail> AddDetailAsync(int contractId, ContractDetail detail, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Details).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            throw new InvalidOperationException("Hợp đồng đã hủy hoặc đã kết thúc, không thêm chi tiết.");
+        if (string.IsNullOrWhiteSpace(detail.SpecName))
+            throw new InvalidOperationException("Cần tên hàng hóa/dịch vụ.");
+
+        // Tính lại các giá trị tiền theo công thức QContract (SignMulti.cshtml).
+        var qty = detail.Qty <= 0 ? 1 : detail.Qty;
+        var valContract = qty * detail.UnitPrice;
+        var valDiscount = valContract * detail.DiscountRate / 100m;
+        var valTax = (valContract - valDiscount) * detail.VATRate / 100m;
+
+        detail.ContractId = c.Id;
+        detail.Qty = qty;
+        detail.ValContract = valContract;
+        detail.ValDiscount = valDiscount;
+        detail.ValTax = valTax;
+        if (string.IsNullOrWhiteSpace(detail.SpecCode)) detail.SpecCode = "SP" + Guid.NewGuid().ToString("N")[..6].ToUpper();
+        if (detail.Idx <= 0) detail.Idx = c.Details.Count + 1;
+        detail.CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        db.Details.Add(detail);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, detail.CreatedBy,
+            $"Thêm dòng chi tiết '{detail.SpecName}' — SL {detail.Qty:N0} × {detail.UnitPrice:N0} đ = {detail.ValContract:N0} đ"
+            + (detail.ValTax > 0 ? $", thuế {detail.ValTax:N0} đ" : ""));
+        return detail;
+    }
+
+    // Xóa 1 dòng chi tiết — port từ Contract_ContractDtl (QContract).
+    public async Task<(bool ok, string msg)> DeleteDetailAsync(int contractId, int detailId, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không xóa chi tiết.");
+        var d = await db.Details.FirstOrDefaultAsync(x => x.Id == detailId && x.ContractId == contractId);
+        if (d == null) return (false, "Không tìm thấy dòng chi tiết.");
+        db.Details.Remove(d);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+            $"Xóa dòng chi tiết '{d.SpecName}'");
+        return (true, $"Đã xóa dòng chi tiết '{d.SpecName}'.");
+    }
+
+    // Thống kê chi tiết hợp đồng — port từ Contract_ContractDtl (QContract).
+    public async Task<DetailStats> DetailStatsAsync(int contractId)
+    {
+        var ds = await db.Details.Where(x => x.ContractId == contractId).ToListAsync();
+        var total = ds.Sum(d => d.ValContract);
+        var tax = ds.Sum(d => d.ValTax);
+        var discount = ds.Sum(d => d.ValDiscount);
+        return new DetailStats(ds.Count, total, tax, discount, total - discount + tax);
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).
