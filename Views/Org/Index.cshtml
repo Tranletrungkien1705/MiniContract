@@ -1,0 +1,52 @@
+@model List<MiniContract.Models.Org>
+@{
+    ViewData["Title"] = "Tổ chức (multi-tenant)";
+    var curKey = (string)ViewBag.CurrentKey;
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-building-add me-2"></i>Tạo tổ chức mới (nhận khách)</h6>
+            <form asp-action="Create" method="post">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Tên tổ chức</label>
+                    <input name="name" class="form-control" placeholder="VD: Công ty ABC" required />
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Tạo & chuyển sang tổ chức</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Mỗi tổ chức có kho hợp đồng <b>cô lập</b>. API dùng header <code>X-Api-Key</code>; giao diện dùng cookie khi chọn tổ chức.</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-2"></i>Các tổ chức</h6>
+                <a asp-action="Reset" class="btn btn-sm btn-outline-secondary">Về mặc định</a>
+            </div>
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Tổ chức</th><th>API key</th><th class="text-end">Thao tác</th></tr></thead>
+                <tbody>
+                @foreach (var o in Model)
+                {
+                    var isCur = o.ApiKey == curKey;
+                    <tr class="@(isCur ? "table-active" : "")">
+                        <td class="fw-semibold">@o.Name @if (isCur) { <span class="badge bg-success ms-1">đang xem</span> }</td>
+                        <td><code class="small">@o.ApiKey</code></td>
+                        <td class="text-end">
+                            @if (!isCur)
+                            {
+                                <form asp-action="Switch" method="post" class="d-inline">
+                                    @Html.AntiForgeryToken()<input type="hidden" name="apiKey" value="@o.ApiKey" />
+                                    <button class="btn btn-sm btn-outline-primary">Chuyển sang</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div></div>
+    </div>
+</div>

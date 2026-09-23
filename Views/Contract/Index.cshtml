@@ -1,0 +1,40 @@
+@model List<Contract>
+@{
+    ViewData["Title"] = "Danh sách hợp đồng";
+    var curStatus = (ContractStatus?)ViewBag.Status;
+    string sel(ContractStatus? s) => (curStatus == s) ? "btn-primary" : "btn-outline-primary";
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div class="btn-group btn-group-sm">
+                <a href="/Contract" class="btn @(curStatus==null?"btn-primary":"btn-outline-primary")">Tất cả</a>
+                <a href="/Contract?status=0" class="btn @sel(ContractStatus.Draft)">Nháp</a>
+                <a href="/Contract?status=1" class="btn @sel(ContractStatus.Sent)">Đã gửi</a>
+                <a href="/Contract?status=2" class="btn @sel(ContractStatus.PartiallySigned)">Ký một phần</a>
+                <a href="/Contract?status=3" class="btn @sel(ContractStatus.Completed)">Hoàn tất</a>
+            </div>
+            <a href="/Contract/Create" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Soạn hợp đồng</a>
+        </div>
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Số HĐ</th><th>Tiêu đề</th><th>Loại</th><th class="text-end">Giá trị</th><th>Ký</th><th>Ngày tạo</th><th>Trạng thái</th></tr></thead>
+            <tbody>
+            @foreach (var c in Model)
+            {
+                var (st, css) = Ui.Status(c.Status);
+                <tr style="cursor:pointer" onclick="location.href='/Contract/Detail/@c.Id'">
+                    <td class="fw-semibold">@c.Code</td>
+                    <td>@c.Title</td>
+                    <td class="small text-muted">@(c.Type?.Name ?? "—")</td>
+                    <td class="text-end">@c.Value.ToString("N0")</td>
+                    <td class="small">@c.SignedCount/@c.Parties.Count</td>
+                    <td class="small text-muted">@c.CreatedAt.ToString("dd/MM/yyyy")</td>
+                    <td><span class="badge bg-@css">@st</span></td>
+                </tr>
+            }
+            @if (Model.Count == 0) { <tr><td colspan="7" class="text-center text-muted py-4">Không có hợp đồng.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
