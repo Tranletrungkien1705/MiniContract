@@ -1073,4 +1073,36 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(NotifyTypes));
     }
+
+    // ── Danh mục loại mẫu in (Mst_TempType) ──────────────────────────
+    // Danh mục loại mẫu in (print template type) — port từ Mst_TempType (QContract).
+    public async Task<IActionResult> TempTypes()
+    {
+        return View(await svc.TempTypesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveTempType(int id, string code, string name, string? description,
+        string size, string imageFilePath, string? remark, bool active)
+    {
+        try
+        {
+            await svc.SaveTempTypeAsync(new TempType
+            {
+                Id = id, Code = code?.Trim() ?? "", Name = name?.Trim() ?? "", Description = description,
+                Size = size?.Trim() ?? "", ImageFilePath = imageFilePath?.Trim() ?? "", Remark = remark, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật loại mẫu in." : "Đã thêm loại mẫu in.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(TempTypes));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteTempType(int id)
+    {
+        var (ok, msg) = await svc.DeleteTempTypeAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(TempTypes));
+    }
 }

@@ -1,0 +1,125 @@
+@model List<TempType>
+@{
+    ViewData["Title"] = "Loại mẫu in";
+    var types = Model ?? new();
+    var total = types.Count;
+    var active = types.Count(t => t.Active);
+    var withImage = types.Count(t => t.HasImage);
+}
+
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-printer fs-3 text-primary"></i>
+            <div><div class="stat-num">@total</div><div class="text-muted small">Tổng loại mẫu in</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-check-circle fs-3 text-success"></i>
+            <div><div class="stat-num">@active</div><div class="text-muted small">Đang hiệu lực</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-image fs-3 text-info"></i>
+            <div><div class="stat-num">@withImage</div><div class="text-muted small">Có ảnh xem trước</div></div>
+        </div></div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm loại mẫu in</h6>
+            <form asp-action="SaveTempType" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="0" />
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Mã loại mẫu in (TempType) <span class="text-danger">*</span></label>
+                    <input name="code" class="form-control" placeholder="VD: A4-PORTRAIT" required />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Tên loại mẫu in (TempTypeName) <span class="text-danger">*</span></label>
+                    <input name="name" class="form-control" placeholder="VD: Mẫu hợp đồng khổ A4 dọc" required />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Khổ/định dạng (TempSize) <span class="text-danger">*</span></label>
+                    <input name="size" class="form-control" placeholder="VD: A4 / 210x297mm" required />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Đường dẫn ảnh xem trước (ImageFilePath) <span class="text-danger">*</span></label>
+                    <input name="imageFilePath" class="form-control" placeholder="VD: /templates/a4-portrait.png" required />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Mô tả</label>
+                    <textarea name="description" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Ghi chú</label>
+                    <input name="remark" class="form-control" />
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="active" value="true" id="actChk" checked />
+                    <label class="form-check-label small" for="actChk">Đang hiệu lực</label>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-save me-1"></i>Lưu loại mẫu in</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Danh mục loại mẫu in — port từ <code>Mst_TempType</code> (QContract). Mã loại không được trùng; tên, khổ và ảnh xem trước đều bắt buộc.</p>
+        </div></div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-list-ul me-2"></i>Danh mục loại mẫu in <span class="badge bg-secondary">@total</span></h6>
+            @if (total == 0)
+            {
+                <div class="text-muted small">Chưa có loại mẫu in nào.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Mã loại</th><th>Tên</th><th>Khổ</th><th>Ảnh xem trước</th>
+                                <th>Trạng thái</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var t in types)
+                        {
+                            <tr>
+                                <td><code>@t.Code</code></td>
+                                <td class="small">
+                                    @t.Name
+                                    @if (!string.IsNullOrWhiteSpace(t.Description))
+                                    {
+                                        <div class="text-muted">@t.Description</div>
+                                    }
+                                </td>
+                                <td class="small">@t.Size</td>
+                                <td class="small">
+                                    @if (t.HasImage) { <span class="badge bg-info">Có ảnh</span> }
+                                    else { <span class="badge bg-secondary">—</span> }
+                                </td>
+                                <td>
+                                    @if (t.Active) { <span class="badge bg-success">Hiệu lực</span> }
+                                    else { <span class="badge bg-secondary">Ngừng</span> }
+                                </td>
+                                <td class="text-end">
+                                    <form asp-action="DeleteTempType" method="post" onsubmit="return confirm('Xóa loại mẫu in @t.Code?');">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@t.Id" />
+                                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div></div>
+    </div>
+</div>

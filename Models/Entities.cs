@@ -1216,3 +1216,34 @@ public class UserNotifyType : IOrgOwned
     // ── tính toán ────────────────────────────────────────────────────
     public string FlagLabel => FlagNotify ? "Bật" : "Tắt";
 }
+
+// ── Danh mục loại mẫu in (Mst_TempType) ──────────────────────────────
+/// <summary>
+/// Danh mục loại mẫu in (print template type) — port từ Mst_TempType (QContract).
+/// Mỗi loại mẫu in có mã (TempType), tên (TempTypeName), mô tả (TempTypeDesc),
+/// khổ/định dạng (TempSize) và đường dẫn ảnh xem trước (ImageFilePath).
+/// Khóa nghiệp vụ là TempType.
+/// Luật cốt lõi (Mst_TempType_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - TempType bắt buộc khi tạo (nếu rỗng → lỗi InvalidTempType);
+///  - khi tạo, TempType KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, TempType phải tồn tại (FlagExistToCheck = Yes);
+///  - TempTypeName, TempSize và ImageFilePath đều bắt buộc (không rỗng);
+///  - sửa là cập nhật từng phần (TempTypeName / TempTypeDesc / TempSize / ImageFilePath / Remark / FlagActive).
+/// </summary>
+public class TempType : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";             // TempType — mã loại mẫu in
+    public string Name { get; set; } = "";             // TempTypeName — tên loại mẫu in
+    public string? Description { get; set; }           // TempTypeDesc — mô tả
+    public string Size { get; set; } = "";             // TempSize — khổ/định dạng mẫu
+    public string ImageFilePath { get; set; } = "";    // ImageFilePath — đường dẫn ảnh xem trước
+    public string? Remark { get; set; }                // Remark — ghi chú
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public bool HasImage => !string.IsNullOrWhiteSpace(ImageFilePath);   // đã có ảnh xem trước
+}

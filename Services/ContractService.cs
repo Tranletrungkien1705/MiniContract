@@ -176,6 +176,11 @@ public interface IContractService
     Task<(bool ok, string msg)> DeleteNotifyTypeAsync(int id, string actor);
     Task<List<UserNotifyType>> UserNotifyTypesAsync(string? userCode = null);
     Task<(bool ok, string msg)> SaveUserNotifyTypesAsync(List<UserNotifyType> mappings, string actor);
+
+    // ── Danh mục loại mẫu in (Mst_TempType) ──────────────────────────
+    Task<List<TempType>> TempTypesAsync(bool activeOnly = false);
+    Task<TempType> SaveTempTypeAsync(TempType type, string actor);
+    Task<(bool ok, string msg)> DeleteTempTypeAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -2146,6 +2151,66 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.UserNotifyTypes.AddRange(clean);
         await db.SaveChangesAsync();
         return (true, $"Đã cập nhật cài đặt thông báo — {clean.Count} dòng.");
+    }
+
+    // ── Danh mục loại mẫu in (Mst_TempType) ──────────────────────────
+    // Nguồn QContract: Mst_TempType_CheckDB / _CreateX / _UpdateX / _DeleteX (Temp.cs).
+    public async Task<List<TempType>> TempTypesAsync(bool activeOnly = false)
+    {
+        var q = db.TempTypes.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.Code).ToListAsync();
+    }
+
+    // Lưu loại mẫu in — tạo mới (TempType không trùng) hoặc cập nhật từng phần khi đã tồn tại.
+    // Luật cốt lõi: TempType bắt buộc & KHÔNG trùng khi tạo (FlagExistToCheck=No); khi sửa phải
+    // tồn tại (FlagExistToCheck=Yes); TempTypeName, TempSize, ImageFilePath đều bắt buộc.
+    public async Task<TempType> SaveTempTypeAsync(TempType type, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var code = (type.Code ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã loại mẫu in (TempType).");
+        if (string.IsNullOrWhiteSpace(type.Name))
+            throw new InvalidOperationException("Cần tên loại mẫu in (TempTypeName).");
+        if (string.IsNullOrWhiteSpace(type.Size))
+            throw new InvalidOperationException("Cần khổ/định dạng mẫu (TempSize).");
+        if (string.IsNullOrWhiteSpace(type.ImageFilePath))
+            throw new InvalidOperationException("Cần đường dẫn ảnh xem trước (ImageFilePath).");
+
+        var existing = await db.TempTypes.FirstOrDefaultAsync(x => x.Code == code);
+        if (existing == null)
+        {
+            // Tạo mới — TempType không được trùng (FlagExistToCheck=No).
+            type.Code = code;
+            type.Name = type.Name.Trim();
+            type.Size = type.Size.Trim();
+            type.ImageFilePath = type.ImageFilePath.Trim();
+            type.CreatedBy = who;
+            db.TempTypes.Add(type);
+            await db.SaveChangesAsync();
+            return type;
+        }
+
+        // Cập nhật từng phần (FlagExistToCheck=Yes).
+        existing.Name = type.Name.Trim();
+        existing.Description = type.Description;
+        existing.Size = type.Size.Trim();
+        existing.ImageFilePath = type.ImageFilePath.Trim();
+        existing.Remark = type.Remark;
+        existing.Active = type.Active;
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa loại mẫu in — phải tồn tại (FlagExistToCheck=Yes).
+    public async Task<(bool ok, string msg)> DeleteTempTypeAsync(int id, string actor)
+    {
+        var t = await db.TempTypes.FirstOrDefaultAsync(x => x.Id == id);
+        if (t == null) return (false, "Không tìm thấy loại mẫu in.");
+        db.TempTypes.Remove(t);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa loại mẫu in '{t.Name}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

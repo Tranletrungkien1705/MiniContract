@@ -44,6 +44,7 @@ public class AppDbContext : DbContext
     public DbSet<SubmissionFormZns> SubmissionFormZns => Set<SubmissionFormZns>();
     public DbSet<NotifyType> NotifyTypes => Set<NotifyType>();
     public DbSet<UserNotifyType> UserNotifyTypes => Set<UserNotifyType>();
+    public DbSet<TempType> TempTypes => Set<TempType>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -285,6 +286,12 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.FlagLabel);
             e.HasIndex(x => new { x.OrgId, x.UserCode, x.NotifyTypeCode });
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<TempType>(e =>
+        {
+            e.Ignore(x => x.HasImage);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }
