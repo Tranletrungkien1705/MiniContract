@@ -35,8 +35,13 @@ public enum HistoryAction
     Signed = 2,      // một bên ký (CKS/OTP)
     Completed = 3,   // đủ chữ ký → hoàn tất
     Cancelled = 4,   // hủy hợp đồng
-    Remark = 5       // ghi chú/ghi chú xử lý
+    Remark = 5,      // ghi chú/ghi chú xử lý
+    SignLinkCreated = 6,  // tạo link ký công khai
+    SignLinkRevoked = 7   // thu hồi link ký công khai
 }
+
+/// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
+public enum SignLinkState { Active = 0, Expired = 1, Revoked = 2 }
 
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
@@ -78,6 +83,7 @@ public class Contract : IOrgOwned
     public List<ContractParty> Parties { get; set; } = [];
     public List<ContractSignature> Signatures { get; set; } = [];
     public List<ContractHistory> History { get; set; } = [];
+    public List<ContractSignLink> SignLinks { get; set; } = [];
 
     // ── tính toán ────────────────────────────────────────────────────
     public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
@@ -135,4 +141,32 @@ public class ContractHistory : IOrgOwned
     public DateTime At { get; set; } = DateTime.Now;
 
     public Contract Contract { get; set; } = null!;
+}
+
+// ── Link ký công khai (public signing link) ──────────────────────────
+/// <summary>
+/// Link ký công khai cho một bên của hợp đồng — port từ Contract_ContractSignLink (QContract).
+/// Bên nhận link (qua Email/SMS) mở link để ký mà KHÔNG cần đăng nhập; link có thời hạn
+/// (SignLinkEndDate) và có thể thu hồi. Nguồn QContract: WAS_Contract_ContractSignLink_Save /
+/// _CheckLink (kiểm tra SignLinkEndDate >= now) / _GetSignLinkEndDate.
+/// </summary>
+public class ContractSignLink : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int PartyId { get; set; }                 // bên được phép ký qua link này
+    public string Token { get; set; } = "";          // SignLink — chuỗi bí mật dùng trong URL
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime EndDate { get; set; }            // SignLinkEndDate — hết hạn
+    public bool Revoked { get; set; }                // FlagActive=0 → đã thu hồi
+    public DateTime? UsedAt { get; set; }            // thời điểm link được dùng để ký
+
+    public Contract Contract { get; set; } = null!;
+    public ContractParty Party { get; set; } = null!;
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public SignLinkState State => Revoked ? SignLinkState.Revoked
+        : (DateTime.Now > EndDate ? SignLinkState.Expired : SignLinkState.Active);
+    public bool IsUsable => State == SignLinkState.Active && UsedAt == null;
 }

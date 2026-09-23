@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<ContractParty> Parties => Set<ContractParty>();
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
     public DbSet<ContractHistory> Histories => Set<ContractHistory>();
+    public DbSet<ContractSignLink> SignLinks => Set<ContractSignLink>();
+    public DbSet<ContractHistory> Histories => Set<ContractHistory>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {

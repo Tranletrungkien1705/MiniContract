@@ -4,6 +4,7 @@
     var (st, css) = Ui.Status(Model.Status);
     bool canSign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
     var annexes = (List<Contract>)(ViewBag.Annexes ?? new List<Contract>());
+    var history = (List<ContractHistory>)(ViewBag.History ?? new List<ContractHistory>());
 }
 
 <div class="row g-3">
@@ -144,14 +145,34 @@
             </div>
         </div>
         <div class="card"><div class="card-body">
-            <h6 class="fw-bold mb-2">Dòng thời gian</h6>
-            <ul class="list-unstyled small mb-0">
-                <li class="mb-1"><i class="bi bi-circle-fill text-secondary me-1" style="font-size:7px"></i>Tạo: @Model.CreatedAt.ToString("dd/MM HH:mm")</li>
-                @if (Model.SentAt != null) { <li class="mb-1"><i class="bi bi-circle-fill text-info me-1" style="font-size:7px"></i>Gửi ký: @Model.SentAt?.ToString("dd/MM HH:mm")</li> }
-                @foreach (var p in Model.Parties.Where(x => x.HasSigned).OrderBy(x => x.SignedAt))
-                { <li class="mb-1"><i class="bi bi-circle-fill text-success me-1" style="font-size:7px"></i>@p.Name ký: @p.SignedAt?.ToString("dd/MM HH:mm")</li> }
-                @if (Model.CompletedAt != null) { <li class="mb-1"><i class="bi bi-circle-fill text-success me-1" style="font-size:7px"></i>Hoàn tất: @Model.CompletedAt?.ToString("dd/MM HH:mm")</li> }
-            </ul>
+            <h6 class="fw-bold mb-2"><i class="bi bi-clock-history me-1"></i>Nhật ký thao tác <span class="badge bg-secondary">@history.Count</span></h6>
+            @if (history.Count == 0)
+            {
+                <div class="text-muted small">Chưa có thao tác nào.</div>
+            }
+            else
+            {
+                <ul class="list-unstyled small mb-0">
+                    @foreach (var h in history)
+                    {
+                        var (ht, hcss, hicon) = Ui.Action(h.Action);
+                        <li class="mb-2 d-flex gap-2">
+                            <i class="bi @hicon text-@hcss" style="font-size:12px"></i>
+                            <div>
+                                <span class="badge bg-@hcss">@ht</span>
+                                <span class="ms-1">@h.Description</span>
+                                <div class="text-muted" style="font-size:11px">@h.Actor · @h.At.ToString("dd/MM/yyyy HH:mm")</div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+            <form asp-action="AddRemark" method="post" class="mt-3 d-flex gap-2">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <input name="remark" class="form-control form-control-sm" placeholder="Ghi chú xử lý…" />
+                <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-chat-left-text"></i></button>
+            </form>
         </div></div>
     </div>
 </div>

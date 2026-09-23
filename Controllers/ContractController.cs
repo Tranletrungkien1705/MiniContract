@@ -47,7 +47,17 @@ public class ContractController(IContractService svc) : Controller
         var c = await svc.GetAsync(id);
         if (c == null) return NotFound();
         ViewBag.Annexes = await svc.AnnexesAsync(id);
+        ViewBag.History = await svc.HistoryAsync(id);
         return View(c);
+    }
+
+    // Ghi chú xử lý vào nhật ký thao tác (audit trail) của hợp đồng.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddRemark(int id, string remark)
+    {
+        await svc.AddRemarkAsync(id, "web", remark);
+        TempData["Success"] = "Đã ghi chú vào nhật ký hợp đồng.";
+        return RedirectToAction(nameof(Detail), new { id });
     }
 
     // ── Phụ lục hợp đồng ─────────────────────────────

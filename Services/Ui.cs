@@ -29,4 +29,16 @@ public static class Ui
         SignMethod.Otp => "OTP",
         _ => m.ToString()
     };
+
+    // Nhãn + màu cho loại thao tác trong nhật ký (audit trail).
+    public static (string text, string css, string icon) Action(HistoryAction a) => a switch
+    {
+        HistoryAction.Created => ("Tạo", "secondary", "bi-file-earmark-plus"),
+        HistoryAction.Sent => ("Gửi ký", "info", "bi-send"),
+        HistoryAction.Signed => ("Ký", "primary", "bi-pen"),
+        HistoryAction.Completed => ("Hoàn tất", "success", "bi-check-circle"),
+        HistoryAction.Cancelled => ("Hủy", "dark", "bi-x-circle"),
+        HistoryAction.Remark => ("Ghi chú", "warning", "bi-chat-left-text"),
+        _ => (a.ToString(), "secondary", "bi-dot")
+    };
 }
