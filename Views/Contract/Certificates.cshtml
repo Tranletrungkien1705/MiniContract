@@ -1,0 +1,113 @@
+@model List<OrgCertificate>
+@{
+    ViewData["Title"] = "Chữ ký số của tổ chức";
+    var active = Model.Count(c => c.IsUsable);
+    var expired = Model.Count(c => c.State == CertState.Expired);
+}
+
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-shield-lock fs-3 text-primary"></i>
+            <div><div class="stat-num">@Model.Count</div><div class="text-muted small">Tổng chứng thư</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-patch-check fs-3 text-success"></i>
+            <div><div class="stat-num">@active</div><div class="text-muted small">Còn hiệu lực</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-exclamation-triangle fs-3 text-danger"></i>
+            <div><div class="stat-num">@expired</div><div class="text-muted small">Hết hạn</div></div>
+        </div></div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm / sửa chứng thư số</h6>
+            <form asp-action="SaveCertificate" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="0" />
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Số chứng thư (CANumber) <span class="text-danger">*</span></label>
+                    <input name="caNumber" class="form-control" placeholder="VD: 0101234567-001" required />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Nhà cung cấp CA (CAOrg)</label>
+                    <input name="caOrg" class="form-control" placeholder="VD: VNPT-CA / Viettel-CA" />
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small text-muted">Hiệu lực từ</label>
+                        <input name="effectiveFrom" type="date" class="form-control" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted">Hiệu lực đến</label>
+                        <input name="effectiveTo" type="date" class="form-control" />
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Đường dẫn file chứng thư (CTSPath)</label>
+                    <input name="ctsPath" class="form-control" placeholder="VD: /certs/org.pfx" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Mật khẩu file chứng thư (CTSPwd)</label>
+                    <input name="ctsPwd" type="password" class="form-control" placeholder="••••••" />
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="active" value="true" id="activeChk" checked />
+                    <label class="form-check-label small" for="activeChk">Đang hiệu lực</label>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-save me-1"></i>Lưu chứng thư</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Chứng thư số (CA) dùng để ký số hợp đồng — port từ <code>Mst_OrgCKS</code> (QContract). Khóa nghiệp vụ là cặp <code>(OrgID, CANumber)</code>: mỗi tổ chức chỉ có 1 chứng thư cho 1 số CA.</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-2"></i>Chứng thư hiện có <span class="badge bg-secondary">@Model.Count</span></h6>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="text-muted small">Chưa có chứng thư số nào.</div>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Số chứng thư</th><th>Nhà cung cấp CA</th><th>Hiệu lực</th><th>Trạng thái</th><th></th></tr></thead>
+                    <tbody>
+                    @foreach (var c in Model)
+                    {
+                        var (text, css) = c.State switch
+                        {
+                            CertState.Active => ("Còn hiệu lực", "success"),
+                            CertState.Expired => ("Hết hạn", "danger"),
+                            CertState.NotYetValid => ("Chưa hiệu lực", "warning"),
+                            _ => ("Đã vô hiệu", "secondary")
+                        };
+                        <tr>
+                            <td class="fw-semibold"><code>@c.CANumber</code></td>
+                            <td>@(string.IsNullOrWhiteSpace(c.CAOrg) ? "—" : c.CAOrg)</td>
+                            <td class="small text-muted">@c.ValidityLabel</td>
+                            <td><span class="badge bg-@css">@text</span></td>
+                            <td class="text-end">
+                                <form asp-action="DeleteCertificate" method="post" onsubmit="return confirm('Xóa chứng thư @c.CANumber?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@c.Id" />
+                                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div></div>
+    </div>
+</div>

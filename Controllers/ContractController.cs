@@ -564,4 +564,42 @@ public class ContractController(IContractService svc) : Controller
         }).GeneratePdf();
         return File(bytes, "application/pdf", $"HopDong-{c.Code}.pdf");
     }
+
+    // ── Chữ ký số của tổ chức (Mst_OrgCKS) ───────────────────────────
+    // Danh mục chứng thư số (CA) của tổ chức — port từ Mst_OrgCKS (QContract).
+    public async Task<IActionResult> Certificates()
+    {
+        return View(await svc.CertificatesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveCertificate(int id, string caNumber, string? caOrg,
+        DateTime? effectiveFrom, DateTime? effectiveTo, string? ctsPath, string? ctsPwd, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(caNumber))
+        {
+            TempData["Error"] = "Cần số chứng thư (CANumber).";
+            return RedirectToAction(nameof(Certificates));
+        }
+        try
+        {
+            await svc.SaveCertificateAsync(new OrgCertificate
+            {
+                Id = id, CANumber = caNumber.Trim(), CAOrg = caOrg?.Trim(),
+                EffectiveFrom = effectiveFrom, EffectiveTo = effectiveTo,
+                CtsPath = ctsPath?.Trim(), CtsPwd = ctsPwd, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật chứng thư số." : "Đã thêm chứng thư số.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Certificates));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteCertificate(int id)
+    {
+        var (ok, msg) = await svc.DeleteCertificateAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Certificates));
+    }
 }

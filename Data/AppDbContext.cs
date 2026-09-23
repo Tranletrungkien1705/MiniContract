@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractSendHist> SendHistory => Set<ContractSendHist>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
+    public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -136,6 +137,15 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.StateLabel);
             e.HasIndex(x => new { x.OrgId, x.ContractCode, x.UserCodeSign });
             e.HasOne(x => x.Contract).WithMany().HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<OrgCertificate>(e =>
+        {
+            e.Ignore(x => x.State);
+            e.Ignore(x => x.IsUsable);
+            e.Ignore(x => x.StateLabel);
+            e.Ignore(x => x.ValidityLabel);
+            e.HasIndex(x => new { x.OrgId, x.CANumber }).IsUnique();
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

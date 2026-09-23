@@ -96,6 +96,11 @@ public interface IContractService
     Task<ContractTemplateGroup> SaveTemplateGroupAsync(ContractTemplateGroup group,
         List<ContractAttributeGroup> attributes, string actor);
     Task<(bool ok, string msg)> DeleteTemplateGroupAsync(int groupId, string actor);
+
+    // ── Chữ ký số của tổ chức (Mst_OrgCKS) ────────────────────────────
+    Task<List<OrgCertificate>> CertificatesAsync(bool activeOnly = false);
+    Task<OrgCertificate> SaveCertificateAsync(OrgCertificate cert, string actor);
+    Task<(bool ok, string msg)> DeleteCertificateAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1034,6 +1039,68 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.TemplateGroups.Remove(g);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa nhóm hợp đồng mẫu '{g.Name}'.");
+    }
+
+    // ── Chữ ký số của tổ chức (Mst_OrgCKS) ────────────────────────────
+    // Nguồn QContract: Mst_OrgCKS_GetX / _CreateX / _UpdateX / _DeleteX / _CheckDB.
+    public async Task<List<OrgCertificate>> CertificatesAsync(bool activeOnly = false)
+    {
+        var q = db.OrgCertificates.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.CANumber).ToListAsync();
+    }
+
+    // Lưu (thêm/cập nhật) chứng thư số — port từ Mst_OrgCKS_CreateX / _UpdateX (QContract).
+    // Luật cốt lõi: CANumber bắt buộc; cặp (OrgID, CANumber) KHÔNG trùng khi tạo và phải tồn tại khi sửa.
+    public async Task<OrgCertificate> SaveCertificateAsync(OrgCertificate cert, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(cert.CANumber))
+            throw new InvalidOperationException("Cần số chứng thư (CANumber).");
+        cert.CANumber = cert.CANumber.Trim();
+
+        // Hiệu lực: nếu có cả hai mốc thì mốc kết thúc phải sau mốc bắt đầu.
+        if (cert.EffectiveFrom.HasValue && cert.EffectiveTo.HasValue && cert.EffectiveTo < cert.EffectiveFrom)
+            throw new InvalidOperationException("Hiệu lực đến phải sau hiệu lực từ.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var existing = cert.Id > 0 ? await db.OrgCertificates.FirstOrDefaultAsync(x => x.Id == cert.Id) : null;
+
+        // Cặp (OrgID, CANumber) không trùng — port từ Mst_OrgCKS_CheckDB (Flag.No khi tạo).
+        var dup = await db.OrgCertificates.FirstOrDefaultAsync(x => x.CANumber == cert.CANumber);
+        if (dup != null && dup.Id != cert.Id)
+            throw new InvalidOperationException($"Chứng thư '{cert.CANumber}' đã tồn tại.");
+
+        if (existing == null)
+        {
+            cert.CreatedBy = who;
+            db.OrgCertificates.Add(cert);
+            existing = cert;
+        }
+        else
+        {
+            // Cập nhật từng phần — port từ Mst_OrgCKS_UpdateX (Ft_Cols_Upd).
+            existing.CANumber = cert.CANumber;
+            existing.CAOrg = cert.CAOrg;
+            existing.EffectiveFrom = cert.EffectiveFrom;
+            existing.EffectiveTo = cert.EffectiveTo;
+            existing.CtsPath = cert.CtsPath;
+            existing.CtsPwd = cert.CtsPwd;
+            existing.Active = cert.Active;
+            existing.UpdatedAt = DateTime.Now;
+            existing.UpdatedBy = who;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa chứng thư số — port từ Mst_OrgCKS_DeleteX (phải tồn tại mới xóa được).
+    public async Task<(bool ok, string msg)> DeleteCertificateAsync(int id, string actor)
+    {
+        var c = await db.OrgCertificates.FirstOrDefaultAsync(x => x.Id == id);
+        if (c == null) return (false, "Không tìm thấy chứng thư số.");
+        db.OrgCertificates.Remove(c);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa chứng thư '{c.CANumber}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

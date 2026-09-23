@@ -576,3 +576,58 @@ public class ContractVerifyOtp : IOrgOwned
         _ => State.ToString()
     };
 }
+
+// ── Chữ ký số của tổ chức (Mst_OrgCKS) ───────────────────────────────
+/// <summary>
+/// Trạng thái hiệu lực của chứng thư số (tính từ thời điểm hết hạn + cờ hiệu lực).
+/// </summary>
+public enum CertState { Active = 0, Expired = 1, NotYetValid = 2, Inactive = 3 }
+
+/// <summary>
+/// Chữ ký số (chứng thư số CA) của một tổ chức — port từ Mst_OrgCKS (QContract).
+/// Mỗi bản ghi gắn 1 tổ chức (OrgID) với 1 chứng thư (CANumber) do một nhà cung cấp CA
+/// (CAOrg) phát hành, có hiệu lực từ CAEffDTimeUTCStart đến CAEffDTimeUTCEnd.
+/// Khóa nghiệp vụ là cặp (OrgID, CANumber) — mỗi tổ chức chỉ có 1 chứng thư cho 1 số CA.
+/// Luật cốt lõi (Mst_OrgCKS_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - OrgID bắt buộc khi tạo;
+///  - khi tạo, cặp (OrgID, CANumber) KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, cặp (OrgID, CANumber) phải tồn tại (FlagExistToCheck = Yes);
+///  - sửa là cập nhật từng phần (CAOrg / CAEffDTimeUTCStart / CAEffDTimeUTCEnd / FlagActive).
+/// </summary>
+public class OrgCertificate : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string CANumber { get; set; } = "";        // CANumber — số chứng thư số
+    public string? CAOrg { get; set; }                 // CAOrg — nhà cung cấp CA (VD: VNPT-CA)
+    public DateTime? EffectiveFrom { get; set; }       // CAEffDTimeUTCStart — hiệu lực từ
+    public DateTime? EffectiveTo { get; set; }         // CAEffDTimeUTCEnd — hiệu lực đến
+    public string? CtsPath { get; set; }               // CTSPath — đường dẫn file chứng thư (.pfx)
+    public string? CtsPwd { get; set; }                // CTSPwd — mật khẩu file chứng thư
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // CreateDTimeUTC
+    public string CreatedBy { get; set; } = "";        // CreateBy
+    public DateTime? UpdatedAt { get; set; }           // UpdateDTimeUTC
+    public string? UpdatedBy { get; set; }             // UpdateBy
+    // ── tính toán ────────────────────
+    public CertState State => !Active ? CertState.Inactive
+        : (EffectiveTo.HasValue && DateTime.Now > EffectiveTo.Value ? CertState.Expired
+        : (EffectiveFrom.HasValue && DateTime.Now < EffectiveFrom.Value ? CertState.NotYetValid
+        : CertState.Active));
+    public bool IsUsable => State == CertState.Active;
+    public string StateLabel => State switch
+    {
+        CertState.Active => "Còn hiệu lực",
+        CertState.Expired => "Hết hạn",
+        CertState.NotYetValid => "Chưa hiệu lực",
+        CertState.Inactive => "Đã vô hiệu",
+        _ => State.ToString()
+    };
+    public string ValidityLabel => (EffectiveFrom, EffectiveTo) switch
+    {
+        (null, null) => "Không giới hạn",
+        (not null, null) => $"Từ {EffectiveFrom:dd/MM/yyyy}",
+        (null, not null) => $"Đến {EffectiveTo:dd/MM/yyyy}",
+        _ => $"{EffectiveFrom:dd/MM/yyyy} → {EffectiveTo:dd/MM/yyyy}"
+    };
+}
