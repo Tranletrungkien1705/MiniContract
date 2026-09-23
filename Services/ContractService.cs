@@ -28,6 +28,9 @@ public record DetailStats(int Lines, decimal Total, decimal Tax, decimal Discoun
 /// <summary>Thống kê thông tin bên tham gia — port từ Contract_ContractParty (QContract).</summary>
 public record PartyInfoStats(int Total, int WithInfo, int EmailSent);
 
+/// <summary>Thống kê file đính kèm hợp đồng — port từ Contract_ContractFiles (QContract).</summary>
+public record AttachmentStats(int Total, int Public, int Internal, int WithFile);
+
 /// <summary>
 /// Một dòng báo cáo tổng hợp hợp đồng theo kỳ — port từ Rpt_ContractForDashboard (QContract).
 /// ReportType: ContractCreateDate (tạo trong ngày), ContractPending (chờ ký),
@@ -222,6 +225,12 @@ public interface IContractService
     Task<List<CurrencyExchange>> CurrenciesAsync();
     Task<CurrencyExchange> SaveCurrencyAsync(CurrencyExchange currency, string actor);
     Task<(bool ok, string msg)> DeleteCurrencyAsync(int id, string actor);
+
+    // ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────
+    Task<List<ContractAttachment>> AttachmentsAsync(int contractId);
+    Task<(bool ok, string msg)> AddAttachmentAsync(int contractId, ContractAttachment attachment, string actor);
+    Task<(bool ok, string msg)> DeleteAttachmentAsync(int id, string actor);
+    Task<AttachmentStats> AttachmentStatsAsync(int contractId);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -2526,6 +2535,62 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.Currencies.Remove(c);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa tỷ giá '{c.CurrencyCode}'.");
+    }
+
+    // ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────
+    // Nguồn QContract: Contract_ContractFiles (insert trong Contract_Contract_SaveX) +
+    // luồng Website Contract_ContractController (model.FileList → Lst_Contract_ContractFiles).
+    public Task<List<ContractAttachment>> AttachmentsAsync(int contractId) =>
+        db.Attachments.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Idx).ThenBy(x => x.Id).ToListAsync();
+
+    // Thêm 1 file đính kèm cho hợp đồng — port từ Contract_ContractFiles (QContract).
+    // Luật cốt lõi: hợp đồng phải tồn tại và chưa hủy/kết thúc; tên file (ContractFileName) bắt buộc;
+    // thứ tự (Idx) tự tăng theo số file hiện có; ghi nhật ký thao tác.
+    public async Task<(bool ok, string msg)> AddAttachmentAsync(int contractId, ContractAttachment attachment, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Attachments).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không thêm file đính kèm.");
+        if (string.IsNullOrWhiteSpace(attachment.FileName))
+            return (false, "Cần tên file (ContractFileName).");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        attachment.ContractId = c.Id;
+        attachment.FileName = attachment.FileName.Trim();
+        attachment.FilePath = string.IsNullOrWhiteSpace(attachment.FilePath) ? null : attachment.FilePath.Trim();
+        if (attachment.Idx <= 0) attachment.Idx = c.Attachments.Count + 1;
+        attachment.CreatedBy = who;
+        db.Attachments.Add(attachment);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, who,
+            $"Thêm file đính kèm '{attachment.FileName}' ({attachment.RefDocTypeLabel}, {attachment.PublicLabel})");
+        return (true, $"Đã thêm file đính kèm '{attachment.FileName}'.");
+    }
+
+    // Xóa 1 file đính kèm — port từ Contract_ContractFiles (QContract).
+    public async Task<(bool ok, string msg)> DeleteAttachmentAsync(int id, string actor)
+    {
+        var a = await db.Attachments.FirstOrDefaultAsync(x => x.Id == id);
+        if (a == null) return (false, "Không tìm thấy file đính kèm.");
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == a.ContractId);
+        if (c != null && c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không xóa file đính kèm.");
+        db.Attachments.Remove(a);
+        await db.SaveChangesAsync();
+        if (c != null)
+            await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+                $"Xóa file đính kèm '{a.FileName}'");
+        return (true, $"Đã xóa file đính kèm '{a.FileName}'.");
+    }
+
+    // Thống kê file đính kèm hợp đồng — port từ Contract_ContractFiles (QContract).
+    public async Task<AttachmentStats> AttachmentStatsAsync(int contractId)
+    {
+        var list = await db.Attachments.Where(x => x.ContractId == contractId).ToListAsync();
+        return new AttachmentStats(list.Count, list.Count(a => a.IsPublic),
+            list.Count(a => !a.IsPublic), list.Count(a => a.HasFile));
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

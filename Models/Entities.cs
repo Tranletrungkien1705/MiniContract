@@ -109,6 +109,12 @@ public enum PartyStatus { OnProcess = 0, Pending = 1, Approved = 2, Cancelled = 
 /// </summary>
 public enum UserSignStatus { None = 0, Pending = 1, Confirmed = 2 }
 
+/// <summary>
+/// Loại tài liệu tham chiếu của file đính kèm hợp đồng — port từ Const.RefDocType (QContract):
+/// CONTRACTCREATED = đính kèm khi tạo hợp đồng, CONTRACTTERMINATED = đính kèm khi kết thúc hợp đồng.
+/// </summary>
+public enum RefDocType { ContractCreated = 0, ContractTerminated = 1 }
+
 // ── Danh mục loại hợp đồng (Mst_ContractType) ────────────────────────
 /// <summary>
 /// Danh mục loại hợp đồng — port từ Mst_ContractType (QContract).
@@ -380,6 +386,7 @@ public class Contract : IOrgOwned
     public List<ContractDetail> Details { get; set; } = [];   // chi tiết hàng hóa/dịch vụ (Contract_ContractDtl)
     public List<ContractAttribute> Attributes { get; set; } = [];   // trường động cấp hợp đồng (Contract_Attribute_Contract)
     public List<ContractAttributeDtl> AttributeDetails { get; set; } = [];   // trường động cấp chi tiết (Contract_Attribute_ContractDtl)
+    public List<ContractAttachment> Attachments { get; set; } = [];   // file đính kèm hợp đồng (Contract_ContractFiles)
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
@@ -603,6 +610,40 @@ public class ContractAttributeDtl : IOrgOwned
     public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
     public string CreatedBy { get; set; } = "";              // LogLUBy
     public Contract Contract { get; set; } = null!;
+}
+
+// ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────────
+/// <summary>
+/// File đính kèm của hợp đồng — port từ Contract_ContractFiles (QContract).
+/// Mỗi hợp đồng có DANH SÁCH file đính kèm (khác với file bản thể hiện đã ký đơn lẻ ở
+/// Contract.FileName/FilePath): tên file (ContractFileName), đường dẫn (ContractFilePath),
+/// mô tả (ContractFileDesc), thứ tự (Idx), loại tài liệu tham chiếu (RefDocType:
+/// CONTRACTCREATED = đính kèm khi tạo hợp đồng, CONTRACTTERMINATED = đính kèm khi kết thúc)
+/// và cờ công khai (FlagPublic: 1 = công khai, 0 = nội bộ).
+/// Nguồn QContract: Contract_ContractFiles (insert trong Contract_Contract_SaveX) +
+/// luồng Website Contract_ContractController (model.FileList → Lst_Contract_ContractFiles).
+/// </summary>
+public class ContractAttachment : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int Idx { get; set; } = 1;               // Idx — thứ tự file đính kèm
+    public string FileName { get; set; } = "";      // ContractFileName — tên file
+    public string? FilePath { get; set; }            // ContractFilePath — đường dẫn file
+    public string? Description { get; set; }         // ContractFileDesc — mô tả file
+    public RefDocType RefDocType { get; set; } = RefDocType.ContractCreated;  // RefDocType — loại tài liệu tham chiếu
+    public bool IsPublic { get; set; }               // FlagPublic: 1 = công khai, 0 = nội bộ
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";     // LogLUBy
+
+    public Contract Contract { get; set; } = null!;
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string RefDocTypeLabel => RefDocType == RefDocType.ContractTerminated ? "Khi kết thúc" : "Khi tạo hợp đồng";
+    public string PublicLabel => IsPublic ? "Công khai" : "Nội bộ";
+    public bool HasFile => !string.IsNullOrWhiteSpace(FilePath);
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────

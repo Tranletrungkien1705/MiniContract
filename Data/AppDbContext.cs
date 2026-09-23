@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
     public DbSet<AttributeContract> AttributeContracts => Set<AttributeContract>();
     public DbSet<ContractAttribute> ContractAttributes => Set<ContractAttribute>();
     public DbSet<ContractAttributeDtl> ContractAttributeDtls => Set<ContractAttributeDtl>();
+    public DbSet<ContractAttachment> Attachments => Set<ContractAttachment>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
     public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
@@ -208,6 +209,14 @@ public class AppDbContext : DbContext
         b.Entity<ContractAttributeDtl>(e =>
         {
             e.HasOne(x => x.Contract).WithMany(x => x.AttributeDetails).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractAttachment>(e =>
+        {
+            e.Ignore(x => x.RefDocTypeLabel);
+            e.Ignore(x => x.PublicLabel);
+            e.Ignore(x => x.HasFile);
+            e.HasOne(x => x.Contract).WithMany(x => x.Attachments).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<FinishedContractReason>(e =>

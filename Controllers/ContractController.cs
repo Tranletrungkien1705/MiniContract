@@ -114,6 +114,8 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.AttributeDetails = await svc.AttributeDetailsAsync(id);
         ViewBag.AttributeMasters = await svc.AttributeMastersAsync(activeOnly: true);
         ViewBag.PartyInfoStats = await svc.PartyInfoStatsAsync(id);
+        ViewBag.Attachments = await svc.AttachmentsAsync(id);
+        ViewBag.AttachmentStats = await svc.AttachmentStatsAsync(id);
         return View(c);
     }
 
@@ -1014,6 +1016,35 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> DeleteDetail(int id, int detailId)
     {
         var (ok, msg) = await svc.DeleteDetailAsync(id, detailId, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────
+    // Thêm 1 file đính kèm cho hợp đồng — port từ Contract_ContractFiles (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddAttachment(int id, string fileName, string? filePath, string? description,
+        RefDocType refDocType, bool isPublic)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            TempData["Error"] = "Cần tên file (ContractFileName).";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        var (ok, msg) = await svc.AddAttachmentAsync(id, new ContractAttachment
+        {
+            FileName = fileName.Trim(), FilePath = filePath, Description = description,
+            RefDocType = refDocType, IsPublic = isPublic
+        }, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Xóa 1 file đính kèm — port từ Contract_ContractFiles (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteAttachment(int id, int attachmentId)
+    {
+        var (ok, msg) = await svc.DeleteAttachmentAsync(attachmentId, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }
