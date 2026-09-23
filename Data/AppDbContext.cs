@@ -31,6 +31,10 @@ public class AppDbContext : DbContext
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
     public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
     public DbSet<OrgSignConfig> SignConfigs => Set<OrgSignConfig>();
+    public DbSet<ChannelConfig> ChannelConfigs => Set<ChannelConfig>();
+    public DbSet<ChannelEmailConfig> ChannelEmails => Set<ChannelEmailConfig>();
+    public DbSet<ChannelSmsConfig> ChannelSms => Set<ChannelSmsConfig>();
+    public DbSet<ChannelZaloConfig> ChannelZalo => Set<ChannelZaloConfig>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -186,6 +190,32 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.SignTypeLabel);
             e.Ignore(x => x.ValidityLabel);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ChannelConfig>(e =>
+        {
+            e.Ignore(x => x.ContractChannelLabel);
+            e.Ignore(x => x.OtpChannelLabel);
+            e.Ignore(x => x.AccessKeyChannelLabel);
+            e.Ignore(x => x.HasEmail);
+            e.Ignore(x => x.HasSms);
+            e.Ignore(x => x.HasZalo);
+            e.HasIndex(x => x.OrgId).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ChannelEmailConfig>(e =>
+        {
+            e.HasOne(x => x.ChannelConfig).WithOne(x => x.Email).HasForeignKey<ChannelEmailConfig>(x => x.ChannelConfigId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ChannelSmsConfig>(e =>
+        {
+            e.HasOne(x => x.ChannelConfig).WithOne(x => x.Sms).HasForeignKey<ChannelSmsConfig>(x => x.ChannelConfigId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ChannelZaloConfig>(e =>
+        {
+            e.HasOne(x => x.ChannelConfig).WithOne(x => x.Zalo).HasForeignKey<ChannelZaloConfig>(x => x.ChannelConfigId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

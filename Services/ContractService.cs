@@ -139,6 +139,11 @@ public interface IContractService
     Task<List<ContractTypeConfig>> TypeConfigsAsync();
     Task<ContractTypeConfig> SaveTypeConfigAsync(ContractTypeConfig config, string actor);
     Task<(bool ok, string msg)> DeleteTypeConfigAsync(int id, string actor);
+
+    // ── Cấu hình kênh gửi của tổ chức (Mst_Channel) ──────────────────
+    Task<ChannelConfig?> ChannelConfigAsync();
+    Task<ChannelConfig> SaveChannelConfigAsync(ChannelConfig config, string actor);
+    Task<(bool ok, string msg)> DeleteChannelConfigAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1579,6 +1584,124 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.TypeConfigs.Remove(cfg);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa cấu hình loại '{cfg.TypeName}'.");
+    }
+
+    // ── Cấu hình kênh gửi của tổ chức (Mst_Channel) ──────────────────
+    // Nguồn QContract: Mst_Channel_SaveX_New20240312 + Mst_Channel_CheckDB +
+    // Mst_ChannelType_CheckDB. Khóa nghiệp vụ là OrgID (mỗi tổ chức 1 cấu hình kênh).
+    public Task<ChannelConfig?> ChannelConfigAsync() =>
+        db.ChannelConfigs.Include(x => x.Email).Include(x => x.Sms).Include(x => x.Zalo)
+          .FirstOrDefaultAsync();
+
+    // Lưu cấu hình kênh gửi — upsert theo OrgID (chưa có thì tạo, đã có thì cập nhật).
+    // Luật cốt lõi: ChannelTypeContract/ChannelTypeOTP phải tồn tại & đang hiệu lực;
+    // ChannelTypeAccessKey luôn bị ép về EMAIL.
+    public async Task<ChannelConfig> SaveChannelConfigAsync(ChannelConfig config, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var existing = await db.ChannelConfigs
+            .Include(x => x.Email).Include(x => x.Sms).Include(x => x.Zalo)
+            .FirstOrDefaultAsync();
+
+        if (existing == null)
+        {
+            config.AccessKeyChannel = ChannelType.Email;   // luôn EMAIL
+            config.CreatedBy = who;
+            config.CreatedAt = DateTime.Now;
+            db.ChannelConfigs.Add(config);
+            await db.SaveChangesAsync();
+            return config;
+        }
+
+        // Cập nhật từng phần — port từ Mst_Channel_SaveX_New20240312 (Ft_Cols_Upd).
+        existing.NetworkID = config.NetworkID;
+        existing.ContractChannel = config.ContractChannel;
+        existing.OtpChannel = config.OtpChannel;
+        existing.AccessKeyChannel = ChannelType.Email;     // luôn EMAIL
+        existing.Active = config.Active;
+
+        // Cấu hình con Email (Mst_ChannelEmail) — tạo mới nếu chưa có.
+        if (config.Email != null)
+        {
+            if (existing.Email == null)
+            {
+                config.Email.ChannelConfigId = existing.Id;
+                config.Email.CreatedBy = who;
+                db.ChannelEmails.Add(config.Email);
+            }
+            else
+            {
+                existing.Email.SubFormCodeEmailContract = config.Email.SubFormCodeEmailContract;
+                existing.Email.SubFormCodeEmailOtp = config.Email.SubFormCodeEmailOtp;
+                existing.Email.SubFormCodeEmailAccessKey = config.Email.SubFormCodeEmailAccessKey;
+                existing.Email.MailFrom = config.Email.MailFrom;
+                existing.Email.APIsSendMail = config.Email.APIsSendMail;
+                existing.Email.ApiKeySendMail = config.Email.ApiKeySendMail;
+                existing.Email.SolutionCodeSendMail = config.Email.SolutionCodeSendMail;
+                existing.Email.DisplayNameMailFrom = config.Email.DisplayNameMailFrom;
+                existing.Email.Active = config.Email.Active;
+            }
+        }
+
+        // Cấu hình con SMS (Mst_ChannelSMS).
+        if (config.Sms != null)
+        {
+            if (existing.Sms == null)
+            {
+                config.Sms.ChannelConfigId = existing.Id;
+                config.Sms.CreatedBy = who;
+                db.ChannelSms.Add(config.Sms);
+            }
+            else
+            {
+                existing.Sms.SubFormCodeContractSms = config.Sms.SubFormCodeContractSms;
+                existing.Sms.SubFormCodeSmsOtp = config.Sms.SubFormCodeSmsOtp;
+                existing.Sms.SubFormCodeSmsAccessKey = config.Sms.SubFormCodeSmsAccessKey;
+                existing.Sms.SmsBrandName = config.Sms.SmsBrandName;
+                existing.Sms.Active = config.Sms.Active;
+            }
+        }
+
+        // Cấu hình con Zalo (Mst_ChannelZalo).
+        if (config.Zalo != null)
+        {
+            if (existing.Zalo == null)
+            {
+                config.Zalo.ChannelConfigId = existing.Id;
+                config.Zalo.CreatedBy = who;
+                db.ChannelZalo.Add(config.Zalo);
+            }
+            else
+            {
+                existing.Zalo.SubFormCodeContractZaloUserId = config.Zalo.SubFormCodeContractZaloUserId;
+                existing.Zalo.SubFormCodeContractPhone = config.Zalo.SubFormCodeContractPhone;
+                existing.Zalo.SubFormCodeOtp = config.Zalo.SubFormCodeOtp;
+                existing.Zalo.SubFormCodeAccessKeyZaloUserId = config.Zalo.SubFormCodeAccessKeyZaloUserId;
+                existing.Zalo.SubFormCodeAccessKeyPhone = config.Zalo.SubFormCodeAccessKeyPhone;
+                existing.Zalo.AppId = config.Zalo.AppId;
+                existing.Zalo.ZaloOaId = config.Zalo.ZaloOaId;
+                existing.Zalo.RefreshToken = config.Zalo.RefreshToken;
+                existing.Zalo.AccessToken = config.Zalo.AccessToken;
+                existing.Zalo.AppSecret = config.Zalo.AppSecret;
+                existing.Zalo.AccessCode = config.Zalo.AccessCode;
+                existing.Zalo.Active = config.Zalo.Active;
+            }
+        }
+
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa cấu hình kênh gửi — port từ Mst_Channel_SaveX_New20240312 (bIsDelete).
+    public async Task<(bool ok, string msg)> DeleteChannelConfigAsync(int id, string actor)
+    {
+        var cfg = await db.ChannelConfigs
+            .Include(x => x.Email).Include(x => x.Sms).Include(x => x.Zalo)
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (cfg == null) return (false, "Không tìm thấy cấu hình kênh gửi.");
+        db.ChannelConfigs.Remove(cfg);
+        await db.SaveChangesAsync();
+        return (true, "Đã xóa cấu hình kênh gửi.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

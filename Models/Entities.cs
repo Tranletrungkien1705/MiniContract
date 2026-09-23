@@ -849,3 +849,122 @@ public class OrgSignConfig : IOrgOwned
         _ => $"{EffectiveFrom:dd/MM/yyyy} → {EffectiveTo:dd/MM/yyyy}"
     };
 }
+
+// ── Cấu hình kênh gửi của tổ chức (Mst_Channel) ──────────────────────
+/// <summary>
+/// Cấu hình kênh gửi của một tổ chức — port từ Mst_Channel (QContract).
+/// Mỗi tổ chức có 1 cấu hình kênh: kênh gửi hợp đồng (ChannelTypeContract),
+/// kênh gửi OTP (ChannelTypeOTP) và kênh gửi AccessKey (ChannelTypeAccessKey).
+/// Luật cốt lõi (Mst_Channel_SaveX_New20240312 / Mst_Channel_CheckDB):
+///  - khóa nghiệp vụ là OrgID (mỗi tổ chức chỉ có 1 cấu hình kênh);
+///  - ChannelTypeContract và ChannelTypeOTP phải tồn tại và đang hiệu lực
+///    (Mst_ChannelType_CheckDB, FlagExistToCheck=Yes, FlagActiveListToCheck=Active);
+///  - ChannelTypeAccessKey luôn bị ép về EMAIL;
+///  - lưu là upsert (chưa có thì tạo, đã có thì cập nhật); xóa thì bỏ cấu hình.
+/// </summary>
+public class ChannelConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string? NetworkID { get; set; }                       // NetworkID
+    public ChannelType ContractChannel { get; set; } = ChannelType.Email;  // ChannelTypeContract — kênh gửi HĐ
+    public ChannelType OtpChannel { get; set; } = ChannelType.Email;       // ChannelTypeOTP — kênh gửi OTP
+    public ChannelType AccessKeyChannel { get; set; } = ChannelType.Email; // ChannelTypeAccessKey — luôn EMAIL
+    public bool Active { get; set; } = true;                     // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;      // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";                  // LogLUBy
+
+    // ── cấu hình con theo từng kênh ──────────────────────────────────
+    public ChannelEmailConfig? Email { get; set; }               // Mst_ChannelEmail
+    public ChannelSmsConfig? Sms { get; set; }                   // Mst_ChannelSMS
+    public ChannelZaloConfig? Zalo { get; set; }                 // Mst_ChannelZalo
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string ContractChannelLabel => ChannelLabel(ContractChannel);
+    public string OtpChannelLabel => ChannelLabel(OtpChannel);
+    public string AccessKeyChannelLabel => ChannelLabel(AccessKeyChannel);
+    public bool HasEmail => Email != null;
+    public bool HasSms => Sms != null;
+    public bool HasZalo => Zalo != null;
+
+    public static string ChannelLabel(ChannelType c) => c switch
+    {
+        ChannelType.Email => "Email",
+        ChannelType.Sms => "SMS",
+        ChannelType.Zalo => "Zalo",
+        _ => c.ToString()
+    };
+}
+
+// ── Cấu hình kênh Email (Mst_ChannelEmail) ───────────────────────────
+/// <summary>
+/// Cấu hình kênh Email của tổ chức — port từ Mst_ChannelEmail (QContract).
+/// Gồm mẫu nội dung gửi (SubFormCodeEmailContract/OTP/AccessKey) và thông tin
+/// máy chủ gửi mail (MailFrom/APIsSendMail/ApiKeySendMail/SolutionCodeSendMail/DisplayNameMailFrom).
+/// </summary>
+public class ChannelEmailConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ChannelConfigId { get; set; }                     // FK tới cấu hình kênh
+    public string? SubFormCodeEmailContract { get; set; }        // mẫu nội dung gửi ký HĐ
+    public string? SubFormCodeEmailOtp { get; set; }             // mẫu nội dung gửi OTP
+    public string? SubFormCodeEmailAccessKey { get; set; }       // mẫu nội dung gửi AccessKey
+    public string? MailFrom { get; set; }                        // MailFrom — địa chỉ gửi
+    public string? APIsSendMail { get; set; }                    // APIsSendMail — endpoint gửi mail
+    public string? ApiKeySendMail { get; set; }                  // ApiKeySendMail
+    public string? SolutionCodeSendMail { get; set; }            // SolutionCodeSendMail
+    public string? DisplayNameMailFrom { get; set; }             // DisplayNameMailFrom — tên hiển thị
+    public bool Active { get; set; } = true;                     // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;      // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";                  // LogLUBy
+    public ChannelConfig ChannelConfig { get; set; } = null!;
+}
+
+// ── Cấu hình kênh SMS (Mst_ChannelSMS) ───────────────────────────────
+/// <summary>
+/// Cấu hình kênh SMS của tổ chức — port từ Mst_ChannelSMS (QContract).
+/// Gồm mẫu nội dung gửi (SubFormCodeContractSMS/SMSOTP/AccessKey) và brandname (SMSBrandName).
+/// </summary>
+public class ChannelSmsConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ChannelConfigId { get; set; }                     // FK tới cấu hình kênh
+    public string? SubFormCodeContractSms { get; set; }          // mẫu nội dung gửi ký HĐ
+    public string? SubFormCodeSmsOtp { get; set; }               // mẫu nội dung gửi OTP
+    public string? SubFormCodeSmsAccessKey { get; set; }         // mẫu nội dung gửi AccessKey
+    public string? SmsBrandName { get; set; }                    // SMSBrandName — brandname
+    public bool Active { get; set; } = true;                     // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;      // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";                  // LogLUBy
+    public ChannelConfig ChannelConfig { get; set; } = null!;
+}
+
+// ── Cấu hình kênh Zalo (Mst_ChannelZalo) ─────────────────────────────
+/// <summary>
+/// Cấu hình kênh Zalo của tổ chức — port từ Mst_ChannelZalo (QContract).
+/// Gồm mẫu nội dung gửi (SubFormCodeContractZaloUserId/Phone/OTP/AccessKey) và
+/// thông tin OA (AppID/ZaloOAID/RefreshToken/AccessToken/AppSecret/AccessCode).
+/// </summary>
+public class ChannelZaloConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ChannelConfigId { get; set; }                     // FK tới cấu hình kênh
+    public string? SubFormCodeContractZaloUserId { get; set; }   // mẫu nội dung gửi ký HĐ (ZaloUserId)
+    public string? SubFormCodeContractPhone { get; set; }        // mẫu nội dung gửi ký HĐ (SĐT)
+    public string? SubFormCodeOtp { get; set; }                  // mẫu nội dung gửi OTP
+    public string? SubFormCodeAccessKeyZaloUserId { get; set; }  // mẫu nội dung gửi AccessKey (ZaloUserId)
+    public string? SubFormCodeAccessKeyPhone { get; set; }       // mẫu nội dung gửi AccessKey (SĐT)
+    public string? AppId { get; set; }                           // AppID
+    public string? ZaloOaId { get; set; }                        // ZaloOAID
+    public string? RefreshToken { get; set; }                    // RefreshToken
+    public string? AccessToken { get; set; }                     // AccessToken
+    public string? AppSecret { get; set; }                       // AppSecret
+    public string? AccessCode { get; set; }                      // AccessCode
+    public bool Active { get; set; } = true;                     // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;      // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";                  // LogLUBy
+    public ChannelConfig ChannelConfig { get; set; } = null!;
+}

@@ -777,4 +777,64 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(TypeConfigs));
     }
+
+    // ── Cấu hình kênh gửi của tổ chức (Mst_Channel) ──────────────────
+    // Cấu hình kênh gửi HĐ/OTP/AccessKey + thông số từng kênh (Email/SMS/Zalo) —
+    // port từ Mst_Channel (QContract). Mỗi tổ chức có 1 cấu hình kênh.
+    public async Task<IActionResult> ChannelConfigs()
+    {
+        return View(await svc.ChannelConfigAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveChannelConfig(int id, string? networkId,
+        ChannelType contractChannel, ChannelType otpChannel, bool active,
+        string? mailFrom, string? apisSendMail, string? apiKeySendMail, string? solutionCodeSendMail,
+        string? displayNameMailFrom, string? subFormCodeEmailContract, string? subFormCodeEmailOtp,
+        string? smsBrandName, string? subFormCodeContractSms, string? subFormCodeSmsOtp,
+        string? zaloOaId, string? appId, string? accessToken, string? refreshToken, string? appSecret,
+        string? subFormCodeContractZaloUserId, string? subFormCodeOtp)
+    {
+        try
+        {
+            var cfg = new ChannelConfig
+            {
+                Id = id, NetworkID = networkId?.Trim(),
+                ContractChannel = contractChannel, OtpChannel = otpChannel, Active = active,
+                Email = new ChannelEmailConfig
+                {
+                    MailFrom = mailFrom?.Trim(), APIsSendMail = apisSendMail?.Trim(),
+                    ApiKeySendMail = apiKeySendMail, SolutionCodeSendMail = solutionCodeSendMail?.Trim(),
+                    DisplayNameMailFrom = displayNameMailFrom?.Trim(),
+                    SubFormCodeEmailContract = subFormCodeEmailContract?.Trim(),
+                    SubFormCodeEmailOtp = subFormCodeEmailOtp?.Trim(), Active = active
+                },
+                Sms = new ChannelSmsConfig
+                {
+                    SmsBrandName = smsBrandName?.Trim(),
+                    SubFormCodeContractSms = subFormCodeContractSms?.Trim(),
+                    SubFormCodeSmsOtp = subFormCodeSmsOtp?.Trim(), Active = active
+                },
+                Zalo = new ChannelZaloConfig
+                {
+                    ZaloOaId = zaloOaId?.Trim(), AppId = appId?.Trim(),
+                    AccessToken = accessToken, RefreshToken = refreshToken, AppSecret = appSecret,
+                    SubFormCodeContractZaloUserId = subFormCodeContractZaloUserId?.Trim(),
+                    SubFormCodeOtp = subFormCodeOtp?.Trim(), Active = active
+                }
+            };
+            await svc.SaveChannelConfigAsync(cfg, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật cấu hình kênh gửi." : "Đã thêm cấu hình kênh gửi.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(ChannelConfigs));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteChannelConfig(int id)
+    {
+        var (ok, msg) = await svc.DeleteChannelConfigAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(ChannelConfigs));
+    }
 }
