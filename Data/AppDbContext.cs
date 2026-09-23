@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractTemplateGroup> TemplateGroups => Set<ContractTemplateGroup>();
     public DbSet<ContractAttributeGroup> AttributeGroups => Set<ContractAttributeGroup>();
     public DbSet<ContractNumberRule> NumberRules => Set<ContractNumberRule>();
+    public DbSet<ContractTypeConfig> TypeConfigs => Set<ContractTypeConfig>();
     public DbSet<Contract> Contracts => Set<Contract>();
     public DbSet<ContractParty> Parties => Set<ContractParty>();
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
@@ -58,6 +59,17 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.TypefixLabel);
             e.HasIndex(x => new { x.OrgId, x.TypeId }).IsUnique();
             e.HasOne(x => x.Type).WithOne(x => x.NumberRule).HasForeignKey<ContractNumberRule>(x => x.TypeId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractTypeConfig>(e =>
+        {
+            e.Ignore(x => x.TypeName);
+            e.Ignore(x => x.ContractChannels);
+            e.Ignore(x => x.OtpChannels);
+            e.Ignore(x => x.ContractChannelsLabel);
+            e.Ignore(x => x.OtpChannelsLabel);
+            e.HasIndex(x => new { x.OrgId, x.TypeId }).IsUnique();
+            e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<Contract>(e =>

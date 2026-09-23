@@ -1,0 +1,101 @@
+@model List<ContractTypeConfig>
+@{
+    ViewData["Title"] = "Cấu hình loại hợp đồng";
+    var types = (List<ContractType>)(ViewBag.Types ?? new List<ContractType>());
+    var usedTypeIds = Model.Select(r => r.TypeId).ToHashSet();
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-sliders me-2"></i>Thêm / sửa cấu hình loại</h6>
+            @if (types.Count == 0)
+            {
+                <div class="text-muted small">Chưa có loại hợp đồng nào để cấu hình.</div>
+            }
+            else
+            {
+                <form asp-action="SaveTypeConfig" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="0" />
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Loại hợp đồng</label>
+                        <select name="typeId" class="form-select" required>
+                            <option value="">— Chọn loại —</option>
+                            @foreach (var t in types)
+                            {
+                                <option value="@t.Id">@t.Name @(usedTypeIds.Contains(t.Id) ? "(đã có cấu hình — lưu sẽ ghi đè)" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="genContractNo" value="true" id="genNo" checked />
+                        <label class="form-check-label small" for="genNo">Tự sinh số hợp đồng theo loại</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1">Kênh gửi hợp đồng</label>
+                        <div class="d-flex gap-3">
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="emailContract" value="true" id="ec" checked /><label class="form-check-label small" for="ec">Email</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="smsContract" value="true" id="sc" /><label class="form-check-label small" for="sc">SMS</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="zaloContract" value="true" id="zc" /><label class="form-check-label small" for="zc">Zalo</label></div>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1">Kênh gửi OTP</label>
+                        <div class="d-flex gap-3">
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="emailOtp" value="true" id="eo" checked /><label class="form-check-label small" for="eo">Email</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="smsOtp" value="true" id="so" /><label class="form-check-label small" for="so">SMS</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="zaloOtp" value="true" id="zo" /><label class="form-check-label small" for="zo">Zalo</label></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Ghi chú</label>
+                        <input name="remark" class="form-control" placeholder="VD: Loại HĐ thương mại" />
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="active" value="true" id="activeChk" checked />
+                        <label class="form-check-label small" for="activeChk">Đang áp dụng</label>
+                    </div>
+                    <button class="btn btn-primary w-100"><i class="bi bi-save me-1"></i>Lưu cấu hình</button>
+                </form>
+            }
+            <p class="text-muted small mt-3 mb-0">Cấu hình kênh gửi hợp đồng/OTP + tự sinh số theo loại — port từ <code>Mst_ContractTypeDtl</code> (QContract).</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-2"></i>Cấu hình hiện có <span class="badge bg-secondary">@Model.Count</span></h6>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="text-muted small">Chưa có cấu hình loại hợp đồng nào.</div>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Loại hợp đồng</th><th>Tự sinh số</th><th>Kênh gửi HĐ</th><th>Kênh gửi OTP</th><th>Hiệu lực</th><th></th></tr></thead>
+                    <tbody>
+                    @foreach (var r in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@r.TypeName</td>
+                            <td>@if (r.GenContractNo) { <span class="badge bg-success">Có</span> } else { <span class="badge bg-secondary">Không</span> }</td>
+                            <td class="small">@r.ContractChannelsLabel</td>
+                            <td class="small">@r.OtpChannelsLabel</td>
+                            <td>@if (r.Active) { <span class="badge bg-success">Đang dùng</span> } else { <span class="badge bg-secondary">Ngừng</span> }</td>
+                            <td class="text-end">
+                                <form asp-action="DeleteTypeConfig" method="post" onsubmit="return confirm('Xóa cấu hình loại này?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@r.Id" />
+                                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div></div>
+    </div>
+</div>

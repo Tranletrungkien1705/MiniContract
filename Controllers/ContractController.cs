@@ -623,4 +623,45 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }
+
+    // ── Cấu hình loại hợp đồng (Mst_ContractTypeDtl) ─────────────────
+    // Danh mục cấu hình kênh gửi HĐ/OTP + tự sinh số theo loại — port từ Mst_ContractTypeDtl (QContract).
+    public async Task<IActionResult> TypeConfigs()
+    {
+        ViewBag.Types = await svc.TypesAsync();
+        return View(await svc.TypeConfigsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveTypeConfig(int id, int typeId, bool genContractNo,
+        bool emailContract, bool smsContract, bool zaloContract,
+        bool emailOtp, bool smsOtp, bool zaloOtp, bool active, string? remark)
+    {
+        if (typeId <= 0)
+        {
+            TempData["Error"] = "Cần chọn loại hợp đồng.";
+            return RedirectToAction(nameof(TypeConfigs));
+        }
+        try
+        {
+            await svc.SaveTypeConfigAsync(new ContractTypeConfig
+            {
+                Id = id, TypeId = typeId, GenContractNo = genContractNo,
+                EmailContract = emailContract, SmsContract = smsContract, ZaloContract = zaloContract,
+                EmailOtp = emailOtp, SmsOtp = smsOtp, ZaloOtp = zaloOtp,
+                Active = active, Remark = remark
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật cấu hình loại hợp đồng." : "Đã thêm cấu hình loại hợp đồng.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(TypeConfigs));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteTypeConfig(int id)
+    {
+        var (ok, msg) = await svc.DeleteTypeConfigAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(TypeConfigs));
+    }
 }

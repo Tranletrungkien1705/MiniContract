@@ -107,6 +107,11 @@ public interface IContractService
 
     // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
     Task<(bool ok, string msg)> UpdateFileAsync(int contractId, string fileName, string? filePath, string? fileVersion, string actor);
+
+    // ── Cấu hình loại hợp đồng (Mst_ContractTypeDtl) ─────────────────
+    Task<List<ContractTypeConfig>> TypeConfigsAsync();
+    Task<ContractTypeConfig> SaveTypeConfigAsync(ContractTypeConfig config, string actor);
+    Task<(bool ok, string msg)> DeleteTypeConfigAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1154,6 +1159,56 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             $"Cập nhật file hợp đồng: {c.FileName}"
             + (c.FileVersion != null ? $" (phiên bản {c.FileVersion})" : ""));
         return (true, $"Đã cập nhật file hợp đồng {c.Code} — {c.FileName}.");
+    }
+
+    // ── Cấu hình loại hợp đồng (Mst_ContractTypeDtl) ─────────────────
+    // Nguồn QContract: Mst_ContractTypeDtl_GetX (đọc cấu hình theo loại) +
+    // Mst_ContractTypeDtl_SaveX (lưu cấu hình: kênh gửi HĐ + kênh gửi OTP + tự sinh số).
+    public Task<List<ContractTypeConfig>> TypeConfigsAsync() =>
+        db.TypeConfigs.Include(x => x.Type).OrderBy(x => x.TypeId).ToListAsync();
+
+    // Lưu (thêm/cập nhật) cấu hình cho 1 loại hợp đồng — mỗi loại chỉ có 1 cấu hình.
+    // Luật cốt lõi (Mst_ContractTypeDtl_SaveX): loại hợp đồng phải tồn tại & đang hiệu lực;
+    // khi tạo cấu hình của loại KHÔNG được trùng; khi sửa thì cập nhật từng phần.
+    public async Task<ContractTypeConfig> SaveTypeConfigAsync(ContractTypeConfig config, string actor)
+    {
+        var type = await db.ContractTypes.FirstOrDefaultAsync(t => t.Id == config.TypeId)
+            ?? throw new InvalidOperationException("Không tìm thấy loại hợp đồng.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var existing = await db.TypeConfigs.FirstOrDefaultAsync(x => x.TypeId == config.TypeId);
+        if (existing == null)
+        {
+            config.CreatedBy = who;
+            config.CreatedAt = DateTime.Now;
+            db.TypeConfigs.Add(config);
+            existing = config;
+        }
+        else
+        {
+            // Cập nhật từng phần — port từ Mst_ContractTypeDtl_SaveX (Ft_Cols_Upd).
+            existing.GenContractNo = config.GenContractNo;
+            existing.EmailContract = config.EmailContract;
+            existing.SmsContract = config.SmsContract;
+            existing.ZaloContract = config.ZaloContract;
+            existing.EmailOtp = config.EmailOtp;
+            existing.SmsOtp = config.SmsOtp;
+            existing.ZaloOtp = config.ZaloOtp;
+            existing.Active = config.Active;
+            existing.Remark = config.Remark;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa cấu hình loại hợp đồng — port từ Mst_ContractTypeDtl_SaveX (bIsDelete).
+    public async Task<(bool ok, string msg)> DeleteTypeConfigAsync(int id, string actor)
+    {
+        var cfg = await db.TypeConfigs.Include(x => x.Type).FirstOrDefaultAsync(x => x.Id == id);
+        if (cfg == null) return (false, "Không tìm thấy cấu hình loại hợp đồng.");
+        db.TypeConfigs.Remove(cfg);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa cấu hình loại '{cfg.TypeName}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

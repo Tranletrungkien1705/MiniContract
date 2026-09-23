@@ -222,6 +222,61 @@ public class ContractNumberRule : IOrgOwned
     }
 }
 
+// ── Cấu hình loại hợp đồng (Mst_ContractTypeDtl) ─────────────────────
+/// <summary>
+/// Cấu hình chi tiết của một loại hợp đồng — port từ Mst_ContractTypeDtl (QContract).
+/// Mỗi loại hợp đồng có 1 cấu hình: có tự sinh số hợp đồng hay không (FlagGenContractNo),
+/// và các KÊNH được phép dùng để gửi hợp đồng (Email/SMS/Zalo) và để gửi OTP (Email/SMS/Zalo).
+/// Luật cốt lõi (Mst_ContractTypeDtl_CheckDB / _SaveX):
+///  - khóa nghiệp vụ là ContractType (mỗi loại chỉ có 1 cấu hình);
+///  - khi tạo, cấu hình của loại KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, cấu hình của loại phải tồn tại (FlagExistToCheck = Yes);
+///  - loại hợp đồng phải tồn tại và đang hiệu lực (Mst_ContractType_CheckDB).
+/// </summary>
+public class ContractTypeConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int TypeId { get; set; }                 // ContractType — loại hợp đồng áp dụng
+    public bool GenContractNo { get; set; } = true; // FlagGenContractNo — tự sinh số hợp đồng
+    public bool EmailContract { get; set; } = true; // FlagEmailContract — gửi HĐ qua Email
+    public bool SmsContract { get; set; }           // FlagSMSContract — gửi HĐ qua SMS
+    public bool ZaloContract { get; set; }          // FlagZaloContract — gửi HĐ qua Zalo
+    public bool EmailOtp { get; set; } = true;      // FlagEmailOTP — gửi OTP qua Email
+    public bool SmsOtp { get; set; }                // FlagSMSOTP — gửi OTP qua SMS
+    public bool ZaloOtp { get; set; }               // FlagZaloOTP — gửi OTP qua Zalo
+    public bool Active { get; set; } = true;        // FlagActive
+    public string? Remark { get; set; }             // Remark
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";     // LogLUBy
+    public ContractType? Type { get; set; }
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string TypeName => Type?.Name ?? $"#{TypeId}";
+    public List<ChannelType> ContractChannels => BuildChannels(EmailContract, SmsContract, ZaloContract);
+    public List<ChannelType> OtpChannels => BuildChannels(EmailOtp, SmsOtp, ZaloOtp);
+    public string ContractChannelsLabel => ChannelsLabel(ContractChannels);
+    public string OtpChannelsLabel => ChannelsLabel(OtpChannels);
+
+    private static List<ChannelType> BuildChannels(bool email, bool sms, bool zalo)
+    {
+        var list = new List<ChannelType>();
+        if (email) list.Add(ChannelType.Email);
+        if (sms) list.Add(ChannelType.Sms);
+        if (zalo) list.Add(ChannelType.Zalo);
+        return list;
+    }
+
+    private static string ChannelsLabel(List<ChannelType> channels) =>
+        channels.Count == 0 ? "—" : string.Join(", ", channels.Select(c => c switch
+        {
+            ChannelType.Email => "Email",
+            ChannelType.Sms => "SMS",
+            ChannelType.Zalo => "Zalo",
+            _ => c.ToString()
+        }));
+}
+
 // ── Danh mục lý do kết thúc hợp đồng (Mst_FinishedContractReason) ────
 /// <summary>
 /// Danh mục lý do kết thúc/chấm dứt hợp đồng — port từ Mst_FinishedContractReason (QContract).
