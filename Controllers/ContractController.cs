@@ -15,6 +15,15 @@ public class ContractController(IContractService svc) : Controller
         return View(await svc.ListAsync(status, q));
     }
 
+    // ── Báo cáo tổng hợp hợp đồng (Rpt_ContractForDashboard) ─────────
+    // Báo cáo số HĐ + tổng giá trị quy đổi theo ngày/tuần/tháng/năm — port từ
+    // Rpt_ContractForDashboard (QContract).
+    public async Task<IActionResult> Report(DateTime? from, DateTime? to)
+    {
+        ViewBag.From = from; ViewBag.To = to;
+        return View(await svc.DashboardReportAsync(from, to));
+    }
+
     public async Task<IActionResult> Create()
     {
         ViewBag.Types = await svc.TypesAsync();

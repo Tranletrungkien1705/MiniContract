@@ -1,0 +1,94 @@
+@using MiniContract.Services
+@model DashboardReport
+@{
+    ViewData["Title"] = "Báo cáo tổng hợp hợp đồng";
+    var r = Model;
+    var from = (DateTime?)ViewBag.From;
+    var to = (DateTime?)ViewBag.To;
+    var createdToday = r.Qty("ContractCreateDate");
+    var pending = r.Qty("ContractPending");
+    var inDay = r.Qty("ContractDateInDay");
+    var inWeek = r.Qty("ContractDateInWeek");
+    var inMonth = r.Qty("ContractDateInMonth");
+    var inYear = r.Qty("ContractDateInYear");
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small text-muted mb-1">Từ ngày</label>
+                <input type="date" name="from" value="@(from?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label small text-muted mb-1">Đến ngày</label>
+                <input type="date" name="to" value="@(to?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Xem báo cáo</button>
+            </div>
+            <div class="col-auto text-muted small">
+                Kỳ báo cáo: <strong>@r.From.ToString("dd/MM/yyyy")</strong> → <strong>@r.To.ToString("dd/MM/yyyy")</strong>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-file-earmark-plus fs-3 text-primary"></i>
+            <div><div class="stat-num">@createdToday</div><div class="text-muted small">HĐ tạo trong ngày</div></div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-hourglass-split fs-3 text-warning"></i>
+            <div><div class="stat-num">@pending</div><div class="text-muted small">HĐ chờ ký</div></div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-calendar-day fs-3 text-info"></i>
+            <div><div class="stat-num">@inDay</div><div class="text-muted small">HĐ trong ngày</div></div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-calendar3 fs-3 text-success"></i>
+            <div><div class="stat-num">@inYear</div><div class="text-muted small">HĐ trong năm</div></div>
+        </div></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-bar-chart-line me-2"></i>Chi tiết theo kỳ</h6>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Kỳ báo cáo</th>
+                        <th class="text-end">Số hợp đồng</th>
+                        <th class="text-end">Tổng giá trị quy đổi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var row in r.Rows)
+                {
+                    <tr>
+                        <td class="fw-semibold">@row.Label</td>
+                        <td class="text-end">@row.Qty</td>
+                        <td class="text-end">@row.TotalValExchange.ToString("N0") đ</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <p class="text-muted small mt-3 mb-0">
+            Báo cáo tổng hợp hợp đồng — port từ <code>Rpt_ContractForDashboard</code> (QContract).
+            Số HĐ theo ngày/tuần/tháng/năm tính theo ngày tạo; giá trị quy đổi lấy từ tổng
+            <code>ValExchange</code> của các bên (nếu chưa có thì dùng giá trị hợp đồng).
+        </p>
+    </div>
+</div>

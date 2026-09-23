@@ -28,6 +28,24 @@ public record DetailStats(int Lines, decimal Total, decimal Tax, decimal Discoun
 /// <summary>Thống kê thông tin bên tham gia — port từ Contract_ContractParty (QContract).</summary>
 public record PartyInfoStats(int Total, int WithInfo, int EmailSent);
 
+/// <summary>
+/// Một dòng báo cáo tổng hợp hợp đồng theo kỳ — port từ Rpt_ContractForDashboard (QContract).
+/// ReportType: ContractCreateDate (tạo trong ngày), ContractPending (chờ ký),
+/// ContractDateInDay/Week/Month/Year (HĐ theo ngày/tuần/tháng/năm).
+/// </summary>
+public record DashboardReportRow(string ReportType, string Label, int Qty, decimal TotalValExchange);
+
+/// <summary>
+/// Báo cáo tổng hợp hợp đồng cho dashboard — port từ Rpt_ContractForDashboard (QContract).
+/// Gồm số HĐ tạo trong ngày, số HĐ chờ ký, và số HĐ + tổng giá trị quy đổi theo ngày/tuần/tháng/năm.
+/// </summary>
+public record DashboardReport(List<DashboardReportRow> Rows, DateTime From, DateTime To)
+{
+    public DashboardReportRow? Row(string reportType) => Rows.FirstOrDefault(r => r.ReportType == reportType);
+    public int Qty(string reportType) => Row(reportType)?.Qty ?? 0;
+    public decimal Value(string reportType) => Row(reportType)?.TotalValExchange ?? 0;
+}
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -44,6 +62,9 @@ public interface IContractService
     Task<List<ContractHistory>> HistoryAsync(int contractId);
     Task AddRemarkAsync(int contractId, string actor, string remark);
     Task<ContractDash> DashboardAsync();
+
+    // ── Báo cáo tổng hợp hợp đồng (Rpt_ContractForDashboard) ─────────
+    Task<DashboardReport> DashboardReportAsync(DateTime? from = null, DateTime? to = null);
 
     // ── Link ký công khai (Contract_ContractSignLink) ────────────────
     Task<ContractSignLink> CreateSignLinkAsync(int contractId, int partyId, int validHours, string actor);
@@ -342,6 +363,55 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             all.Count(c => c.Status == ContractStatus.Completed),
             all.Where(c => c.Status == ContractStatus.Completed).Sum(c => c.Value),
             byStatus);
+    }
+
+    // ── Báo cáo tổng hợp hợp đồng (Rpt_ContractForDashboard) ─────────
+    // Nguồn QContract: Rpt_ContractForDashboardX (Report.cs) — gom số HĐ + tổng giá trị quy đổi
+    // theo các kỳ: tạo trong ngày (ContractCreateDate), chờ ký (ContractPending),
+    // theo ngày/tuần/tháng/năm (ContractDateInDay/Week/Month/Year).
+    // Giá trị quy đổi lấy từ tổng ValExchange của các bên (Contract_ContractParty).
+    public async Task<DashboardReport> DashboardReportAsync(DateTime? from = null, DateTime? to = null)
+    {
+        var fromDate = (from ?? DateTime.Today).Date;
+        var toDate = (to ?? DateTime.Today).Date;
+        if (toDate < fromDate) toDate = fromDate;
+
+        var contracts = await db.Contracts.Include(c => c.Parties).ToListAsync();
+
+        // Tổng giá trị quy đổi của 1 hợp đồng = tổng ValExchange các bên (nếu chưa có thì lấy Value).
+        decimal ValExchange(Contract c)
+        {
+            var sum = c.Parties.Sum(p => p.ValExchange);
+            return sum > 0 ? sum : c.Value;
+        }
+
+        // HĐ có ngày tạo nằm trong khoảng [from, to].
+        bool InRange(DateTime d) => d.Date >= fromDate && d.Date <= toDate;
+
+        // Tuần hiện tại (thứ 2 → chủ nhật) chứa ngày `to`.
+        var weekStart = toDate.AddDays(-(((int)toDate.DayOfWeek + 6) % 7));
+        var weekEnd = weekStart.AddDays(6);
+
+        var createdToday = contracts.Where(c => c.CreatedAt.Date == toDate).ToList();
+        var pending = contracts.Where(c => c.Status is ContractStatus.Sent or ContractStatus.PartiallySigned).ToList();
+        var inDay = contracts.Where(c => InRange(c.CreatedAt)).ToList();
+        var inWeek = contracts.Where(c => c.CreatedAt.Date >= weekStart && c.CreatedAt.Date <= weekEnd).ToList();
+        var inMonth = contracts.Where(c => c.CreatedAt.Year == toDate.Year && c.CreatedAt.Month == toDate.Month).ToList();
+        var inYear = contracts.Where(c => c.CreatedAt.Year == toDate.Year).ToList();
+
+        DashboardReportRow Row(string type, string label, List<Contract> list) =>
+            new(type, label, list.Count, list.Sum(ValExchange));
+
+        var rows = new List<DashboardReportRow>
+        {
+            Row("ContractCreateDate", "HĐ tạo trong ngày", createdToday),
+            Row("ContractPending", "HĐ chờ ký", pending),
+            Row("ContractDateInDay", "HĐ trong ngày", inDay),
+            Row("ContractDateInWeek", "HĐ trong tuần", inWeek),
+            Row("ContractDateInMonth", "HĐ trong tháng", inMonth),
+            Row("ContractDateInYear", "HĐ trong năm", inYear),
+        };
+        return new DashboardReport(rows, fromDate, toDate);
     }
 
     // ── Link ký công khai (Contract_ContractSignLink) ────────────────
