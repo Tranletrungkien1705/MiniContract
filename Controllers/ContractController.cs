@@ -1011,4 +1011,66 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }
+
+    // ── Quản lý thông báo (Mst_NotifyType + Map_UserInNotifyType) ────
+    // Danh mục loại thông báo + cài đặt bật/tắt theo người dùng — port từ
+    // Mst_NotifyType + Map_UserInNotifyType (QContract).
+    public async Task<IActionResult> NotifyTypes()
+    {
+        ViewBag.Mappings = await svc.UserNotifyTypesAsync();
+        return View(await svc.NotifyTypesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveNotifyType(int id, string notifyTypeCode, string? notifyDesc, bool defaultActive, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(notifyTypeCode))
+        {
+            TempData["Error"] = "Cần mã loại thông báo (NotifyType).";
+            return RedirectToAction(nameof(NotifyTypes));
+        }
+        try
+        {
+            await svc.SaveNotifyTypeAsync(new NotifyType
+            {
+                Id = id, NotifyTypeCode = notifyTypeCode.Trim(), NotifyDesc = notifyDesc,
+                DefaultActive = defaultActive, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật loại thông báo." : "Đã thêm loại thông báo.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(NotifyTypes));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteNotifyType(int id)
+    {
+        var (ok, msg) = await svc.DeleteNotifyTypeAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(NotifyTypes));
+    }
+
+    // Lưu cài đặt bật/tắt thông báo — GHI ĐÈ theo cặp (UserCode, NotifyType).
+    // Mỗi dòng: mã người dùng | mã loại thông báo | bật/tắt (1/0).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveUserNotifyTypes(string? mappings)
+    {
+        var list = new List<UserNotifyType>();
+        foreach (var raw in (mappings ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = raw.Split('|');
+            var user = parts.Length > 0 ? parts[0].Trim() : "";
+            var type = parts.Length > 1 ? parts[1].Trim() : "";
+            var flag = parts.Length > 2 ? parts[2].Trim() : "1";
+            if (string.IsNullOrWhiteSpace(user) && string.IsNullOrWhiteSpace(type)) continue;
+            list.Add(new UserNotifyType
+            {
+                UserCode = user, NotifyTypeCode = type,
+                FlagNotify = flag is "1" or "true" or "on" or "bật" or "bat"
+            });
+        }
+        var (ok, msg) = await svc.SaveUserNotifyTypesAsync(list, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(NotifyTypes));
+    }
 }

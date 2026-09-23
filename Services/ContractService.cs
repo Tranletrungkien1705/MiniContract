@@ -169,6 +169,13 @@ public interface IContractService
     Task<(bool ok, string msg)> SaveAttributesAsync(int contractId, List<ContractAttribute> attributes, string actor);
     Task<List<ContractAttributeDtl>> AttributeDetailsAsync(int contractId);
     Task<(bool ok, string msg)> SaveAttributeDetailsAsync(int contractId, List<ContractAttributeDtl> attributes, string actor);
+
+    // ── Quản lý thông báo (Mst_NotifyType + Map_UserInNotifyType) ────
+    Task<List<NotifyType>> NotifyTypesAsync(bool activeOnly = false);
+    Task<NotifyType> SaveNotifyTypeAsync(NotifyType type, string actor);
+    Task<(bool ok, string msg)> DeleteNotifyTypeAsync(int id, string actor);
+    Task<List<UserNotifyType>> UserNotifyTypesAsync(string? userCode = null);
+    Task<(bool ok, string msg)> SaveUserNotifyTypesAsync(List<UserNotifyType> mappings, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -2034,6 +2041,111 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
             $"Cập nhật trường động chi tiết hợp đồng — {clean.Count} trường");
         return (true, $"Đã cập nhật trường động chi tiết — {clean.Count} trường.");
+    }
+
+    // ── Quản lý thông báo (Mst_NotifyType + Map_UserInNotifyType) ────
+    // Nguồn QContract: Mst_NotifyType_CheckDB/_CreateX/_UpdateX/_DeleteX +
+    // Map_UserInNotifyType_SaveX (ghi đè theo cặp UserCode+NotifyType).
+    public async Task<List<NotifyType>> NotifyTypesAsync(bool activeOnly = false)
+    {
+        var q = db.NotifyTypes.Include(x => x.UserMappings).AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.NotifyTypeCode).ToListAsync();
+    }
+
+    // Lưu 1 loại thông báo — port từ Mst_NotifyType_CreateX/_UpdateX (QContract).
+    // Luật cốt lõi: NotifyType bắt buộc; khi tạo KHÔNG trùng, khi sửa phải tồn tại.
+    public async Task<NotifyType> SaveNotifyTypeAsync(NotifyType type, string actor)
+    {
+        var code = (type.NotifyTypeCode ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã loại thông báo (NotifyType).");
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+
+        if (type.Id > 0)
+        {
+            var existing = await db.NotifyTypes.FirstOrDefaultAsync(x => x.Id == type.Id)
+                ?? throw new InvalidOperationException($"Loại thông báo '{code}' không tồn tại.");
+            // Đổi mã sang mã đã có của bản ghi khác → chặn trùng.
+            if (await db.NotifyTypes.AnyAsync(x => x.Id != type.Id && x.NotifyTypeCode == code))
+                throw new InvalidOperationException($"Mã loại thông báo '{code}' đã tồn tại.");
+            existing.NotifyTypeCode = code;
+            existing.NotifyDesc = string.IsNullOrWhiteSpace(type.NotifyDesc) ? null : type.NotifyDesc.Trim();
+            existing.DefaultActive = type.DefaultActive;
+            existing.Active = type.Active;
+            existing.CreatedBy = who;
+            await db.SaveChangesAsync();
+            return existing;
+        }
+
+        // Tạo mới — NotifyType không được trùng (FlagExistToCheck = No).
+        if (await db.NotifyTypes.AnyAsync(x => x.NotifyTypeCode == code))
+            throw new InvalidOperationException($"Mã loại thông báo '{code}' đã tồn tại.");
+        var nt = new NotifyType
+        {
+            NotifyTypeCode = code,
+            NotifyDesc = string.IsNullOrWhiteSpace(type.NotifyDesc) ? null : type.NotifyDesc.Trim(),
+            DefaultActive = type.DefaultActive, Active = type.Active, CreatedBy = who
+        };
+        db.NotifyTypes.Add(nt);
+        await db.SaveChangesAsync();
+        return nt;
+    }
+
+    // Xóa 1 loại thông báo — port từ Mst_NotifyType_DeleteX (QContract).
+    // Xóa kèm các bản ghi bật/tắt thông báo (Map_UserInNotifyType) của loại đó.
+    public async Task<(bool ok, string msg)> DeleteNotifyTypeAsync(int id, string actor)
+    {
+        var nt = await db.NotifyTypes.FirstOrDefaultAsync(x => x.Id == id);
+        if (nt == null) return (false, "Không tìm thấy loại thông báo.");
+        var maps = await db.UserNotifyTypes.Where(x => x.NotifyTypeCode == nt.NotifyTypeCode).ToListAsync();
+        db.UserNotifyTypes.RemoveRange(maps);
+        db.NotifyTypes.Remove(nt);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa loại thông báo '{nt.NotifyTypeCode}'.");
+    }
+
+    // Danh sách bật/tắt thông báo theo người dùng — port từ Map_UserInNotifyType (QContract).
+    public async Task<List<UserNotifyType>> UserNotifyTypesAsync(string? userCode = null)
+    {
+        var q = db.UserNotifyTypes.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(userCode)) q = q.Where(x => x.UserCode == userCode.Trim());
+        return await q.OrderBy(x => x.UserCode).ThenBy(x => x.NotifyTypeCode).ToListAsync();
+    }
+
+    // Lưu bật/tắt thông báo — GHI ĐÈ theo cặp (UserCode, NotifyType): xóa bản ghi trùng cặp
+    // rồi insert lại — port từ Map_UserInNotifyType_SaveX (delete matching + insert all).
+    public async Task<(bool ok, string msg)> SaveUserNotifyTypesAsync(List<UserNotifyType> mappings, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var clean = new List<UserNotifyType>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in mappings ?? [])
+        {
+            var user = (m.UserCode ?? "").Trim();
+            var type = (m.NotifyTypeCode ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(user) && string.IsNullOrWhiteSpace(type)) continue;
+            if (string.IsNullOrWhiteSpace(user))
+                return (false, "Mỗi dòng phải có mã người dùng (UserCode).");
+            if (string.IsNullOrWhiteSpace(type))
+                return (false, $"Người dùng '{user}' phải chọn loại thông báo (NotifyType).");
+            if (!seen.Add($"{user}|{type}")) continue;
+            clean.Add(new UserNotifyType
+            {
+                UserCode = user, NotifyTypeCode = type, FlagNotify = m.FlagNotify, CreatedBy = who
+            });
+        }
+
+        // Xóa các bản ghi trùng cặp (UserCode, NotifyType) rồi insert lại (delete matching + insert all).
+        foreach (var c in clean)
+        {
+            var old = await db.UserNotifyTypes
+                .Where(x => x.UserCode == c.UserCode && x.NotifyTypeCode == c.NotifyTypeCode).ToListAsync();
+            db.UserNotifyTypes.RemoveRange(old);
+        }
+        db.UserNotifyTypes.AddRange(clean);
+        await db.SaveChangesAsync();
+        return (true, $"Đã cập nhật cài đặt thông báo — {clean.Count} dòng.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

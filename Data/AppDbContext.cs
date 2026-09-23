@@ -42,6 +42,8 @@ public class AppDbContext : DbContext
     public DbSet<SubmissionForm> SubmissionForms => Set<SubmissionForm>();
     public DbSet<SubmissionFormMessage> SubmissionFormMessages => Set<SubmissionFormMessage>();
     public DbSet<SubmissionFormZns> SubmissionFormZns => Set<SubmissionFormZns>();
+    public DbSet<NotifyType> NotifyTypes => Set<NotifyType>();
+    public DbSet<UserNotifyType> UserNotifyTypes => Set<UserNotifyType>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -271,6 +273,18 @@ public class AppDbContext : DbContext
         b.Entity<SubmissionFormZns>(e =>
         {
             e.HasOne(x => x.SubmissionForm).WithMany(x => x.ZnsParams).HasForeignKey(x => x.SubmissionFormId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<NotifyType>(e =>
+        {
+            e.Ignore(x => x.SubscriberCount);
+            e.HasIndex(x => new { x.OrgId, x.NotifyTypeCode }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<UserNotifyType>(e =>
+        {
+            e.Ignore(x => x.FlagLabel);
+            e.HasIndex(x => new { x.OrgId, x.UserCode, x.NotifyTypeCode });
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

@@ -1164,3 +1164,55 @@ public class SubmissionFormZns : IOrgOwned
     public SubmissionForm SubmissionForm { get; set; } = null!;
 }
 
+
+// ── Danh mục loại thông báo (Mst_NotifyType) ─────────────────────────
+/// <summary>
+/// Danh mục loại thông báo của hệ thống — port từ Mst_NotifyType (QContract).
+/// Mỗi loại thông báo có mã (NotifyType), mô tả (NotifyDesc) và cờ bật mặc định
+/// (DefaultActive) cho người dùng mới. Khóa nghiệp vụ là NotifyType.
+/// Luật cốt lõi (Mst_NotifyType_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - NotifyType bắt buộc khi tạo (nếu rỗng → lỗi InvalidNotifyType);
+///  - khi tạo, NotifyType KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, NotifyType phải tồn tại (FlagExistToCheck = Yes);
+///  - sửa là cập nhật từng phần (NotifyDesc / DefaultActive / FlagActive).
+/// </summary>
+public class NotifyType : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string NotifyTypeCode { get; set; } = "";   // NotifyType — mã loại thông báo
+    public string? NotifyDesc { get; set; }            // NotifyDesc — mô tả loại thông báo
+    public bool DefaultActive { get; set; } = true;    // DefaultActive — bật mặc định cho người dùng mới
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+
+    public List<UserNotifyType> UserMappings { get; set; } = [];  // Map_UserInNotifyType của loại này
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public int SubscriberCount => UserMappings.Count(u => u.FlagNotify);   // số người đang bật nhận
+}
+
+// ── Bật/tắt thông báo theo người dùng (Map_UserInNotifyType) ─────────
+/// <summary>
+/// Bật/tắt nhận một loại thông báo cho một người dùng — port từ Map_UserInNotifyType (QContract).
+/// Mỗi bản ghi gắn 1 người dùng (UserCode) với 1 loại thông báo (NotifyType) và cờ bật/tắt
+/// (FlagNotify). Khóa nghiệp vụ là cặp (UserCode, NotifyType).
+/// Luật cốt lõi (Map_UserInNotifyType_SaveX):
+///  - lưu là GHI ĐÈ theo cặp (UserCode, NotifyType): xóa các bản ghi trùng cặp rồi insert lại
+///    (delete matching + insert all);
+///  - FlagNotify được chuẩn hóa về cờ Yes/No.
+/// </summary>
+public class UserNotifyType : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string UserCode { get; set; } = "";         // UserCode — mã/tên đăng nhập người dùng
+    public string NotifyTypeCode { get; set; } = "";   // NotifyType — mã loại thông báo
+    public bool FlagNotify { get; set; } = true;       // FlagNotify — bật (true) / tắt (false)
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string FlagLabel => FlagNotify ? "Bật" : "Tắt";
+}

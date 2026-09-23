@@ -1,0 +1,159 @@
+@model List<NotifyType>
+@{
+    ViewData["Title"] = "Quản lý thông báo";
+    var types = Model ?? new();
+    var mappings = (ViewBag.Mappings as List<UserNotifyType>) ?? new();
+    var total = types.Count;
+    var active = types.Count(t => t.Active);
+    var defaultOn = types.Count(t => t.DefaultActive);
+    var subscribers = mappings.Count(m => m.FlagNotify);
+}
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-bell fs-3 text-primary"></i>
+            <div><div class="stat-num">@total</div><div class="text-muted small">Tổng loại thông báo</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-check-circle fs-3 text-success"></i>
+            <div><div class="stat-num">@active</div><div class="text-muted small">Đang hiệu lực</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-toggle-on fs-3 text-info"></i>
+            <div><div class="stat-num">@defaultOn</div><div class="text-muted small">Bật mặc định</div></div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card"><div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-people fs-3 text-warning"></i>
+            <div><div class="stat-num">@subscribers</div><div class="text-muted small">Lượt người dùng bật</div></div>
+        </div></div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card mb-3"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm loại thông báo</h6>
+            <form asp-action="SaveNotifyType" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="0" />
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Mã loại thông báo (NotifyType) <span class="text-danger">*</span></label>
+                    <input name="notifyTypeCode" class="form-control" placeholder="VD: CONTRACT_SIGNED" required />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Mô tả</label>
+                    <input name="notifyDesc" class="form-control" placeholder="Thông báo khi hợp đồng được ký" />
+                </div>
+                <div class="form-check mb-1">
+                    <input class="form-check-input" type="checkbox" name="defaultActive" value="true" id="defChk" checked />
+                    <label class="form-check-label small" for="defChk">Bật mặc định cho người dùng mới</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="active" value="true" id="actChk" checked />
+                    <label class="form-check-label small" for="actChk">Đang hiệu lực</label>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-save me-1"></i>Lưu loại thông báo</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Danh mục loại thông báo — port từ <code>Mst_NotifyType</code> (QContract). Mã loại không được trùng.</p>
+        </div></div>
+
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-sliders me-2"></i>Cài đặt bật/tắt theo người dùng</h6>
+            <form asp-action="SaveUserNotifyTypes" method="post">
+                @Html.AntiForgeryToken()
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Mỗi dòng: <code>mã người dùng | mã loại thông báo | bật/tắt (1/0)</code></label>
+                    <textarea name="mappings" class="form-control" rows="4" placeholder="kt.le | CONTRACT_SIGNED | 1&#10;kt.tran | CONTRACT_SIGNED | 0"></textarea>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-save me-1"></i>Lưu cài đặt thông báo</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Bật/tắt nhận thông báo theo người dùng — port từ <code>Map_UserInNotifyType</code> (QContract). Lưu là <b>ghi đè theo cặp</b> (người dùng, loại thông báo).</p>
+        </div></div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card mb-3"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-list-ul me-2"></i>Danh mục loại thông báo</h6>
+            @if (total == 0)
+            {
+                <div class="text-muted small">Chưa có loại thông báo nào.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Mã loại</th><th>Mô tả</th><th class="text-center">Mặc định</th>
+                                <th class="text-center">Người bật</th><th>Trạng thái</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var t in types)
+                        {
+                            <tr>
+                                <td><code>@t.NotifyTypeCode</code></td>
+                                <td class="small">@(string.IsNullOrWhiteSpace(t.NotifyDesc) ? "—" : t.NotifyDesc)</td>
+                                <td class="text-center">
+                                    @if (t.DefaultActive) { <span class="badge bg-info">Bật</span> }
+                                    else { <span class="badge bg-secondary">Tắt</span> }
+                                </td>
+                                <td class="text-center small">@t.SubscriberCount</td>
+                                <td>
+                                    @if (t.Active) { <span class="badge bg-success">Hiệu lực</span> }
+                                    else { <span class="badge bg-secondary">Ngừng</span> }
+                                </td>
+                                <td class="text-end">
+                                    <form asp-action="DeleteNotifyType" method="post" onsubmit="return confirm('Xóa loại thông báo @t.NotifyTypeCode?');">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@t.Id" />
+                                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div></div>
+
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-person-check me-2"></i>Cài đặt thông báo của người dùng</h6>
+            @if (mappings.Count == 0)
+            {
+                <div class="text-muted small">Chưa có cài đặt thông báo nào.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr><th>Người dùng</th><th>Loại thông báo</th><th>Nhận thông báo</th></tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var m in mappings)
+                        {
+                            <tr>
+                                <td><code>@m.UserCode</code></td>
+                                <td class="small">@m.NotifyTypeCode</td>
+                                <td>
+                                    @if (m.FlagNotify) { <span class="badge bg-success">Bật</span> }
+                                    else { <span class="badge bg-secondary">Tắt</span> }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div></div>
+    </div>
+</div>
