@@ -54,6 +54,8 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.CheckerStats = await svc.CheckerStatsAsync(id);
         ViewBag.ApproveStats = await svc.ApproveStatsAsync(id);
         ViewBag.UserAssignments = await svc.UserAssignmentsAsync(id);
+        ViewBag.Signers = await svc.SignersAsync(id);
+        ViewBag.SignerStats = await svc.SignerStatsAsync(id);
         ViewBag.SendHistory = await svc.SendHistoryAsync(id);
         ViewBag.VerifyOtps = await svc.VerifyOtpsAsync(id);
         return View(c);
@@ -171,6 +173,48 @@ public class ContractController(IContractService svc) : Controller
             users.Add(new ContractUserInContract { UserCode = code, UserName = name, Email = email });
         }
         var (ok, msg) = await svc.SaveUserAssignmentsAsync(id, users, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Người ký của hợp đồng (Contract_ContractUser) ────────────────
+    // Thêm 1 người ký cho một bên — port từ Contract_ContractUser_CheckDB (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddSigner(int id, string userNameSign, int? partyId, string? userEmail,
+        string? userPhone, string? userZalo, int idx)
+    {
+        if (string.IsNullOrWhiteSpace(userNameSign))
+        {
+            TempData["Error"] = "Cần tên người ký.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        try
+        {
+            await svc.AddSignerAsync(id, new ContractSigner
+            {
+                UserNameSign = userNameSign.Trim(), PartyId = partyId, UserEmail = userEmail?.Trim(),
+                UserPhone = userPhone?.Trim(), UserZalo = userZalo?.Trim(), Idx = idx
+            }, "web");
+            TempData["Success"] = "Đã thêm người ký.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Xác nhận ký của 1 người ký — port từ Contract_ContractUser_ConfirmX (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> ConfirmSigner(int id, int signerId)
+    {
+        var (ok, msg) = await svc.ConfirmSignerAsync(id, signerId, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Đánh dấu đã gửi yêu cầu ký cho 1 người ký — port từ Contract_ContractUser_UpdateFlagSendUserX (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> MarkSignerSent(int id, int signerId)
+    {
+        var (ok, msg) = await svc.MarkSignerSentAsync(id, signerId, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

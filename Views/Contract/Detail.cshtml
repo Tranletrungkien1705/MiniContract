@@ -11,6 +11,8 @@
     var ckStats = (CheckerStats)(ViewBag.CheckerStats ?? new CheckerStats(0, 0, 0, CheckerStatus.None));
     var apStats = (ApproveStats)(ViewBag.ApproveStats ?? new ApproveStats(0, 0, false, null, null));
     var userAssignments = (List<ContractUserInContract>)(ViewBag.UserAssignments ?? new List<ContractUserInContract>());
+    var signers = (List<ContractSigner>)(ViewBag.Signers ?? new List<ContractSigner>());
+    var sgStats = (SignerStats)(ViewBag.SignerStats ?? new SignerStats(0, 0, 0, 0));
     var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
     var verifyOtps = (List<ContractVerifyOtp>)(ViewBag.VerifyOtps ?? new List<ContractVerifyOtp>());
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
@@ -20,6 +22,7 @@
     bool canSend = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canCancelByParty = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished) && Model.Parties.Any(p => !p.IsCancelled);
     bool canOtp = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
+    bool canSigner = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -382,6 +385,97 @@
                         <div class="small text-muted mb-2">Mỗi dòng 1 người dùng: <code>mã</code> | <code>tên</code> | <code>email</code> (cách nhau bằng dấu <b>|</b>). Lưu sẽ <b>ghi đè toàn bộ</b> danh sách phân quyền hiện tại.</div>
                         <textarea name="userCodes" class="form-control form-control-sm mb-2" rows="3" placeholder="vd: kt.le | Lê Thị Kiểm | kt.le@corp.vn"></textarea>
                         <button class="btn btn-sm btn-outline-primary"><i class="bi bi-save me-1"></i>Cập nhật phân quyền</button>
+                    </form>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-person-badge me-1"></i>Người ký của hợp đồng <span class="badge bg-secondary">@signers.Count</span></h6>
+                    <div class="small text-muted">
+                        Đã ký <b>@sgStats.Confirmed/@sgStats.Total</b>
+                        · Đã gửi <b>@sgStats.Sent</b>
+                        · Chờ ký <b>@sgStats.Pending</b>
+                    </div>
+                </div>
+                @if (signers.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có người ký nào.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>#</th><th>Người ký</th><th>Bên</th><th>Liên hệ</th><th>Gửi</th><th>Trạng thái ký</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var s in signers)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@s.Idx</td>
+                                <td><b>@s.UserNameSign</b><div class="text-muted" style="font-size:11px">@s.UserCodeSysSign</div></td>
+                                <td class="small">@(s.Party?.Name ?? "—")</td>
+                                <td class="small text-muted">@(s.UserEmail ?? s.UserPhone ?? s.UserZalo ?? "—")</td>
+                                <td>
+                                    @if (s.FlagSendUser)
+                                    {
+                                        <span class="badge bg-info">Đã gửi</span>
+                                        <div class="text-muted" style="font-size:11px">@s.SendDateUTC?.ToString("dd/MM/yyyy HH:mm") · @s.SendBy</div>
+                                    }
+                                    else { <span class="badge bg-secondary">Chưa gửi</span> }
+                                </td>
+                                <td>
+                                    @if (s.IsConfirmed)
+                                    {
+                                        <span class="text-success small"><i class="bi bi-patch-check-fill me-1"></i>Đã ký · @s.ConfirmDTimeUTC?.ToString("dd/MM/yyyy HH:mm")</span>
+                                        @if (s.ConfirmBy != null) { <div class="text-muted" style="font-size:11px">bởi @s.ConfirmBy</div> }
+                                    }
+                                    else { <span class="badge bg-warning text-dark">@s.SignStatusLabel</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (canSigner && !s.FlagSendUser)
+                                    {
+                                        <form asp-action="MarkSignerSent" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@Model.Id" />
+                                            <input type="hidden" name="signerId" value="@s.Id" />
+                                            <button class="btn btn-sm btn-outline-info"><i class="bi bi-send me-1"></i>Gửi</button>
+                                        </form>
+                                    }
+                                    @if (canSigner && !s.IsConfirmed)
+                                    {
+                                        <form asp-action="ConfirmSigner" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@Model.Id" />
+                                            <input type="hidden" name="signerId" value="@s.Id" />
+                                            <button class="btn btn-sm btn-outline-success"><i class="bi bi-pen me-1"></i>Xác nhận ký</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canSigner)
+                {
+                    <form asp-action="AddSigner" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-3"><input name="userNameSign" class="form-control form-control-sm" placeholder="Tên người ký" required /></div>
+                        <div class="col-md-3">
+                            <select name="partyId" class="form-select form-select-sm">
+                                <option value="">— Bên của người ký —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3"><input name="userEmail" class="form-control form-control-sm" placeholder="Email (tùy chọn)" /></div>
+                        <div class="col-md-1"><input name="idx" type="number" value="@(signers.Count + 1)" min="1" class="form-control form-control-sm" title="Thứ tự" /></div>
+                        <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm người ký</button></div>
                     </form>
                 }
             </div>

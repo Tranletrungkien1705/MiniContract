@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractElement> Elements => Set<ContractElement>();
     public DbSet<ContractChecker> Checkers => Set<ContractChecker>();
     public DbSet<ContractUserInContract> UserAssignments => Set<ContractUserInContract>();
+    public DbSet<ContractSigner> Signers => Set<ContractSigner>();
     public DbSet<ContractSendHist> SendHistory => Set<ContractSendHist>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
@@ -83,6 +84,8 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.ElementSignedCount);
             e.Ignore(x => x.CheckedCount);
             e.Ignore(x => x.AllChecked);
+            e.Ignore(x => x.SignerConfirmedCount);
+            e.Ignore(x => x.AllSignersConfirmed);
             e.Ignore(x => x.IsApproved);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
@@ -127,6 +130,15 @@ public class AppDbContext : DbContext
         b.Entity<ContractUserInContract>(e =>
         {
             e.HasOne(x => x.Contract).WithMany(x => x.UserAssignments).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractSigner>(e =>
+        {
+            e.Ignore(x => x.IsConfirmed);
+            e.Ignore(x => x.SignStatusLabel);
+            e.HasIndex(x => new { x.OrgId, x.ContractId, x.PartyCode, x.UserCodeSysSign });
+            e.HasOne(x => x.Contract).WithMany(x => x.Signers).HasForeignKey(x => x.ContractId);
+            e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<ContractSendHist>(e =>

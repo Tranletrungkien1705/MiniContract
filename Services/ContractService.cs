@@ -16,6 +16,9 @@ public record CheckerStats(int Total, int Checked, int Pending, CheckerStatus St
 /// <summary>Thống kê phê duyệt hợp đồng — port từ Contract_Contract_Approved (QContract).</summary>
 public record ApproveStats(int Checkers, int Approved, bool IsApproved, string? ApprovedBy, DateTime? ApprovedAt);
 
+/// <summary>Thống kê người ký của hợp đồng — port từ Contract_ContractUser (QContract).</summary>
+public record SignerStats(int Total, int Confirmed, int Pending, int Sent);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -64,6 +67,13 @@ public interface IContractService
     // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────
     Task<List<ContractUserInContract>> UserAssignmentsAsync(int contractId);
     Task<(bool ok, string msg)> SaveUserAssignmentsAsync(int contractId, List<ContractUserInContract> users, string actor);
+
+    // ── Người ký của hợp đồng (Contract_ContractUser) ────────────────
+    Task<List<ContractSigner>> SignersAsync(int contractId);
+    Task<ContractSigner> AddSignerAsync(int contractId, ContractSigner signer, string actor);
+    Task<(bool ok, string msg)> ConfirmSignerAsync(int contractId, int signerId, string actor);
+    Task<(bool ok, string msg)> MarkSignerSentAsync(int contractId, int signerId, string actor);
+    Task<SignerStats> SignerStatsAsync(int contractId);
 
     // ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────
     Task<List<ContractSendHist>> SendHistoryAsync(int contractId, BulletinType? bulletin = null);
@@ -640,6 +650,130 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
             $"Phân quyền hợp đồng cho {clean.Count} người dùng" + (clean.Count > 0 ? ": " + string.Join(", ", clean.Select(x => x.UserName)) : ""));
         return (true, $"Đã cập nhật phân quyền hợp đồng — {clean.Count} người dùng.");
+    }
+
+    // ── Người ký của hợp đồng (Contract_ContractUser) ────────────────
+    // Nguồn QContract: Contract_ContractUser_CheckDB (khóa nghiệp vụ là bộ ba
+    // (ContractCode, PartyCode, UserCodeSysSign)) + Contract_ContractUser_ConfirmX
+    // (xác nhận ký → CONFIRMED) + Contract_ContractUser_UpdateFlagSendUserX (đánh dấu đã gửi).
+    public Task<List<ContractSigner>> SignersAsync(int contractId) =>
+        db.Signers.Include(x => x.Party).Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Idx).ThenBy(x => x.Id).ToListAsync();
+
+    // Thêm 1 người ký cho một bên — port từ Contract_ContractUser_CheckDB (FlagExistToCheck=No).
+    // Luật cốt lõi: bộ ba (hợp đồng, bên, mã người ký) KHÔNG được trùng; bên phải thuộc hợp đồng.
+    public async Task<ContractSigner> AddSignerAsync(int contractId, ContractSigner signer, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).Include(x => x.Signers)
+            .FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            throw new InvalidOperationException("Hợp đồng đã hủy hoặc đã kết thúc, không thêm người ký.");
+        if (string.IsNullOrWhiteSpace(signer.UserNameSign))
+            throw new InvalidOperationException("Cần tên người ký.");
+
+        // Bên sở hữu người ký phải thuộc hợp đồng (nếu có chọn).
+        ContractParty? party = null;
+        if (signer.PartyId.HasValue)
+        {
+            party = c.Parties.FirstOrDefault(x => x.Id == signer.PartyId.Value)
+                ?? throw new InvalidOperationException("Bên của người ký không thuộc hợp đồng này.");
+        }
+        var partyCode = party != null ? $"P{party.Id}" : "";
+
+        // Mã người ký (UserCodeSysSign) bắt buộc — mặc định suy ra từ tên/email.
+        if (string.IsNullOrWhiteSpace(signer.UserCodeSysSign))
+            signer.UserCodeSysSign = string.IsNullOrWhiteSpace(signer.UserEmail)
+                ? signer.UserNameSign.Trim().ToLower().Replace(" ", ".")
+                : signer.UserEmail.Trim().ToLower();
+        signer.UserCodeSysSign = signer.UserCodeSysSign.Trim();
+
+        // Bộ ba (hợp đồng, bên, mã người ký) không trùng — port từ Contract_ContractUser_CheckDB (Flag.No).
+        var dup = c.Signers.FirstOrDefault(x =>
+            x.PartyCode == partyCode &&
+            x.UserCodeSysSign.Equals(signer.UserCodeSysSign, StringComparison.OrdinalIgnoreCase));
+        if (dup != null)
+            throw new InvalidOperationException($"Người ký '{signer.UserCodeSysSign}' đã tồn tại cho bên này.");
+
+        if (string.IsNullOrWhiteSpace(signer.UserCodeSign)) signer.UserCodeSign = signer.UserCodeSysSign;
+        if (signer.Idx <= 0) signer.Idx = c.Signers.Count + 1;
+        signer.ContractId = c.Id;
+        signer.PartyId = party?.Id;
+        signer.PartyCode = partyCode;
+        signer.SignStatus = UserSignStatus.Pending;
+        signer.FlagSendUser = false;
+        signer.UserToken ??= "ut_" + Guid.NewGuid().ToString("N")[..12];
+        signer.CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        db.Signers.Add(signer);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, signer.CreatedBy,
+            $"Thêm người ký '{signer.UserNameSign}' cho {(party != null ? party.Name : "—")} (thứ tự {signer.Idx})");
+        return signer;
+    }
+
+    // Xác nhận ký của 1 người ký — port từ Contract_ContractUser_ConfirmX (QContract).
+    // Luật cốt lõi: người ký phải tồn tại và đang ở trạng thái PENDING; khi xác nhận,
+    // UserSignSatus → CONFIRMED, ghi ConfirmDTimeUTC/ConfirmBy; đủ người ký → hợp đồng ONPROCESS.
+    public async Task<(bool ok, string msg)> ConfirmSignerAsync(int contractId, int signerId, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Signers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không thể xác nhận ký.");
+        var s = c.Signers.FirstOrDefault(x => x.Id == signerId);
+        if (s == null) return (false, "Không tìm thấy người ký.");
+        if (s.IsConfirmed) return (false, $"{s.UserNameSign} đã xác nhận ký rồi.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var now = DateTime.Now;
+        s.SignStatus = UserSignStatus.Confirmed;
+        s.ConfirmDTimeUTC = now;
+        s.ConfirmBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Signed, who,
+            $"{s.UserNameSign} xác nhận ký hợp đồng {c.Code}");
+        var allConfirmed = c.Signers.All(x => x.IsConfirmed);
+        if (allConfirmed)
+            await LogAsync(c.Id, HistoryAction.Remark, "system", $"Đủ người ký xác nhận — {c.Code} chuyển sang xử lý");
+        return (true, allConfirmed
+            ? $"{s.UserNameSign} đã xác nhận ký. Đủ người ký — hợp đồng chuyển sang xử lý."
+            : $"{s.UserNameSign} đã xác nhận ký hợp đồng.");
+    }
+
+    // Đánh dấu đã gửi yêu cầu ký cho 1 người ký — port từ Contract_ContractUser_UpdateFlagSendUserX (QContract).
+    // Luật cốt lõi: FlagSendUser → 1, ghi SendDateUTC/SendBy; nếu hợp đồng đang PENDING thì chuyển ONPROCESS.
+    public async Task<(bool ok, string msg)> MarkSignerSentAsync(int contractId, int signerId, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Signers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không gửi yêu cầu ký.");
+        var s = c.Signers.FirstOrDefault(x => x.Id == signerId);
+        if (s == null) return (false, "Không tìm thấy người ký.");
+        if (s.FlagSendUser) return (false, $"Đã gửi yêu cầu ký cho {s.UserNameSign} rồi.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var now = DateTime.Now;
+        s.FlagSendUser = true;
+        s.SendDateUTC = now;
+        s.SendBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Sent, who,
+            $"Gửi yêu cầu ký cho {s.UserNameSign}" + (s.UserEmail != null ? $" → {s.UserEmail}" : ""));
+        return (true, $"Đã gửi yêu cầu ký cho {s.UserNameSign}.");
+    }
+
+    // Thống kê người ký — port từ Contract_ContractUser (QContract).
+    public async Task<SignerStats> SignerStatsAsync(int contractId)
+    {
+        var signers = await db.Signers.Where(x => x.ContractId == contractId).ToListAsync();
+        return new SignerStats(
+            signers.Count,
+            signers.Count(x => x.IsConfirmed),
+            signers.Count(x => x.SignStatus == UserSignStatus.Pending),
+            signers.Count(x => x.FlagSendUser));
     }
 
     // ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────

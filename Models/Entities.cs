@@ -101,6 +101,12 @@ public enum Typefix { Prefix = 0, Postfix = 1 }
 /// </summary>
 public enum PartyStatus { OnProcess = 0, Pending = 1, Approved = 2, Cancelled = 3, Confirmed = 4, Finished = 5 }
 
+/// <summary>
+/// Trạng thái ký của một người ký trong hợp đồng — port từ TConst.UserSignSatus (QContract):
+/// NONE = chưa đến lượt, PENDING = chờ ký, CONFIRMED = đã ký/xác nhận.
+/// </summary>
+public enum UserSignStatus { None = 0, Pending = 1, Confirmed = 2 }
+
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
 {
@@ -347,6 +353,7 @@ public class Contract : IOrgOwned
     public List<ContractElement> Elements { get; set; } = [];   // các ô ký trên bản thể hiện
     public List<ContractChecker> Checkers { get; set; } = [];   // người kiểm tra hợp đồng (theo thứ tự)
     public List<ContractUserInContract> UserAssignments { get; set; } = [];  // người dùng được phân quyền
+    public List<ContractSigner> Signers { get; set; } = [];   // người ký của hợp đồng (theo bên)
     public List<ContractSendHist> SendHistory { get; set; } = [];   // lịch sử gửi cho các bên
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
@@ -377,6 +384,8 @@ public class Contract : IOrgOwned
     public int ElementSignedCount => Elements.Count(e => e.IsSigned);
     public int CheckedCount => Checkers.Count(c => c.HasChecked);
     public bool AllChecked => Checkers.Count > 0 && Checkers.All(c => c.HasChecked);
+    public int SignerConfirmedCount => Signers.Count(s => s.IsConfirmed);
+    public bool AllSignersConfirmed => Signers.Count > 0 && Signers.All(s => s.IsConfirmed);
 }
 
 // ── Các bên tham gia ─────────────────────────────────────────────────
@@ -562,7 +571,59 @@ public class ContractUserInContract : IOrgOwned
     public Contract Contract { get; set; } = null!;
 }
 
-// ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────────
+// ── Người ký của hợp đồng (Contract_ContractUser) ────────────────────
+/// <summary>
+/// Người ký của một bên trong hợp đồng — port từ Contract_ContractUser (QContract).
+/// Mỗi bản ghi gắn 1 người ký (UserCodeSysSign) vào 1 bên (PartyCode) của 1 hợp đồng,
+/// mang trạng thái ký (UserSignSatus: NONE/PENDING/CONFIRMED), cờ đã gửi yêu cầu ký
+/// (FlagSendUser) + thời điểm/người gửi (SendDateUTC/SendBy) và thời điểm/người xác nhận
+/// (ConfirmDTimeUTC/ConfirmBy). Khóa nghiệp vụ là bộ ba (ContractCode, PartyCode, UserCodeSysSign).
+/// Nguồn QContract: Contract_ContractUser_CheckDB (kiểm tra tồn tại/FlagSendUser/UserSignSatus),
+/// Contract_ContractUser_ConfirmX (xác nhận ký → CONFIRMED, hợp đồng chuyển ONPROCESS) và
+/// Contract_ContractUser_UpdateFlagSendUserX (đánh dấu đã gửi → FlagSendUser=1).
+/// </summary>
+public class ContractSigner : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int? PartyId { get; set; }               // PartyCode — bên mà người ký thuộc về
+    public string PartyCode { get; set; } = "";     // PartyCode — mã bên (lưu để tra cứu nhanh)
+    public string UserCodeSysSign { get; set; } = "";  // UserCodeSysSign — mã người ký (khóa nghiệp vụ)
+    public int Idx { get; set; } = 1;               // Idx — thứ tự ký
+    public string UserCodeSign { get; set; } = "";  // UserCodeSign — mã đăng nhập người ký
+    public string UserNameSign { get; set; } = "";  // UserNameSign — tên người ký
+    public string? UserEmail { get; set; }          // UserEmail
+    public string? UserPhone { get; set; }          // UserPhone
+    public string? UserZalo { get; set; }           // UserZalo
+    public string? UserToken { get; set; }          // UserToken — token dùng cho link ký
+
+    // ── trạng thái ký ────────────────────────────────────────────────
+    public UserSignStatus SignStatus { get; set; } = UserSignStatus.Pending;  // UserSignSatus
+    public DateTime? ConfirmDTimeUTC { get; set; }  // ConfirmDTimeUTC — thời điểm xác nhận ký
+    public string? ConfirmBy { get; set; }          // ConfirmBy — người xác nhận
+
+    // ── trạng thái gửi ───────────────────────────────────────────────
+    public bool FlagSendUser { get; set; }          // FlagSendUser — đã gửi yêu cầu ký cho người này
+    public DateTime? SendDateUTC { get; set; }      // SendDateUTC — thời điểm gửi
+    public string? SendBy { get; set; }             // SendBy — người gửi
+
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";     // LogLUBy
+
+    public Contract Contract { get; set; } = null!;
+    public ContractParty? Party { get; set; }
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public bool IsConfirmed => SignStatus == UserSignStatus.Confirmed;
+    public string SignStatusLabel => SignStatus switch
+    {
+        UserSignStatus.None => "Chưa đến lượt",
+        UserSignStatus.Pending => "Chờ ký",
+        UserSignStatus.Confirmed => "Đã ký",
+        _ => SignStatus.ToString()
+    };
+}
 /// <summary>
 /// Lịch sử gửi hợp đồng cho các bên qua từng kênh — port từ Contract_SendHist (QContract).
 /// Mỗi bản ghi lưu: hợp đồng, bên nhận (PartyCode), người nhận (UserName/UserToken),
