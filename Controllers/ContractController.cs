@@ -612,4 +612,15 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Certificates));
     }
+
+    // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
+    // Cập nhật file bản thể hiện (PDF) đã ký của hợp đồng — port từ
+    // WAS_Contract_Contract_UpdateFilePath (QContract). ContractFileName bắt buộc.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateFile(int id, string fileName, string? filePath, string? fileVersion)
+    {
+        var (ok, msg) = await svc.UpdateFileAsync(id, fileName, filePath, fileVersion, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
 }

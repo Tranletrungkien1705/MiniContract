@@ -104,6 +104,9 @@ public interface IContractService
     Task<List<OrgCertificate>> CertificatesAsync(bool activeOnly = false);
     Task<OrgCertificate> SaveCertificateAsync(OrgCertificate cert, string actor);
     Task<(bool ok, string msg)> DeleteCertificateAsync(int id, string actor);
+
+    // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
+    Task<(bool ok, string msg)> UpdateFileAsync(int contractId, string fileName, string? filePath, string? fileVersion, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1126,6 +1129,31 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.OrgCertificates.Remove(c);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa chứng thư '{c.CANumber}'.");
+    }
+
+    // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
+    // Nguồn QContract: WAS_Contract_Contract_UpdateFilePath → Contract_Contract_UpdateFilePathX.
+    // Luật cốt lõi: ContractFileName bắt buộc (nếu rỗng → lỗi Contract_Contract_SaveX_Invalid_ContractFileName);
+    // hợp đồng phải tồn tại; cập nhật ContractFilePath + LogLUDTimeUTC/LogLUBy.
+    public async Task<(bool ok, string msg)> UpdateFileAsync(int contractId, string fileName, string? filePath, string? fileVersion, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (string.IsNullOrWhiteSpace(fileName))
+            return (false, "Cần tên file hợp đồng (ContractFileName).");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        c.FileName = fileName.Trim();
+        c.FilePath = string.IsNullOrWhiteSpace(filePath) ? null : filePath.Trim();
+        c.FileVersion = string.IsNullOrWhiteSpace(fileVersion) ? null : fileVersion.Trim();
+        c.FileUpdatedAt = DateTime.Now;
+        c.FileUpdatedBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Remark, who,
+            $"Cập nhật file hợp đồng: {c.FileName}"
+            + (c.FileVersion != null ? $" (phiên bản {c.FileVersion})" : ""));
+        return (true, $"Đã cập nhật file hợp đồng {c.Code} — {c.FileName}.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

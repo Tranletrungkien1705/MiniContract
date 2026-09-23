@@ -268,6 +268,15 @@ public class Contract : IOrgOwned
     public int? TemplateId { get; set; }                    // FK tới hợp đồng mẫu (null nếu soạn tay)
     public string? TemplateCode { get; set; }               // TContractCode — mã mẫu đã dùng
 
+    // ── File hợp đồng (Contract_Contract_UpdateFilePath) ──
+    // Nguồn QContract: Contract_Contract.ContractFileName/ContractFilePath/ContractFileVersion —
+    // file bản thể hiện (PDF) đã ký của hợp đồng. Cập nhật qua WAS_Contract_Contract_UpdateFilePath.
+    public string? FileName { get; set; }                   // ContractFileName — tên file (kèm phần mở rộng)
+    public string? FilePath { get; set; }                   // ContractFilePath — đường dẫn file đã ký
+    public string? FileVersion { get; set; }                // ContractFileVersion — phiên bản file
+    public DateTime? FileUpdatedAt { get; set; }            // LogLUDTimeUTC — thời điểm cập nhật file
+    public string? FileUpdatedBy { get; set; }              // LogLUBy — người cập nhật file
+
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? SentAt { get; set; }
     public DateTime? CompletedAt { get; set; }
@@ -307,6 +316,7 @@ public class Contract : IOrgOwned
     public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished);
     public bool IsFinished => Status == ContractStatus.Finished;
     public bool IsApproved => ApprovedAt != null;
+    public bool HasFile => !string.IsNullOrWhiteSpace(FileName);   // đã có file bản thể hiện
     public int SignedCount => Parties.Count(p => p.HasSigned);
     public string Kind => IsAnnex ? "Phụ lục" : "Hợp đồng";
     public int ElementSignedCount => Elements.Count(e => e.IsSigned);

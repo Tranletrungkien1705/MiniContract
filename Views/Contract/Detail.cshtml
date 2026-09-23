@@ -520,6 +520,45 @@
                 }
             </div>
         </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>File hợp đồng</h6>
+                    @if (Model.HasFile)
+                    {
+                        <span class="badge bg-success">Đã có file</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary">Chưa có file</span>
+                    }
+                </div>
+                @if (Model.HasFile)
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            <tr><th style="width:140px">Tên file</th><td class="fw-semibold">@Model.FileName</td></tr>
+                            <tr><th>Đường dẫn</th><td class="small text-muted">@(Model.FilePath ?? "—")</td></tr>
+                            <tr><th>Phiên bản</th><td class="small">@(Model.FileVersion ?? "—")</td></tr>
+                            <tr><th>Cập nhật</th><td class="small text-muted">@Model.FileUpdatedAt?.ToString("dd/MM/yyyy HH:mm") · @Model.FileUpdatedBy</td></tr>
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="text-muted small">Chưa cập nhật file bản thể hiện (PDF) cho hợp đồng này.</div>
+                }
+                <form asp-action="UpdateFile" method="post" class="row g-2 mt-3 pt-3 border-top">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.Id" />
+                    <div class="col-md-4"><input name="fileName" class="form-control form-control-sm" value="@Model.FileName" placeholder="Tên file (VD: HopDong-@(Model.Code).pdf)" required /></div>
+                    <div class="col-md-4"><input name="filePath" class="form-control form-control-sm" value="@Model.FilePath" placeholder="Đường dẫn file đã ký (tùy chọn)" /></div>
+                    <div class="col-md-2"><input name="fileVersion" class="form-control form-control-sm" value="@Model.FileVersion" placeholder="Phiên bản" /></div>
+                    <div class="col-md-2"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-save me-1"></i>Lưu file</button></div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <div class="col-lg-4">
