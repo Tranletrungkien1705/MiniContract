@@ -51,6 +51,11 @@ public interface IContractService
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
     Task<Contract?> GetAsync(int id);
     Task<List<ContractType>> TypesAsync();
+
+    // ── Danh mục loại hợp đồng (Mst_ContractType) ────────────────────
+    Task<List<ContractType>> ContractTypesAsync(bool activeOnly = false);
+    Task<ContractType> SaveContractTypeAsync(ContractType type, string actor);
+    Task<(bool ok, string msg)> DeleteContractTypeAsync(int id, string actor);
     Task<int> CreateAsync(Contract c, List<ContractParty> parties);
     Task<int> CreateAnnexAsync(int parentId, Contract annex, List<ContractParty> parties);
     Task<List<Contract>> AnnexesAsync(int parentId);
@@ -235,6 +240,82 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
           .FirstOrDefaultAsync(c => c.Id == id);
 
     public Task<List<ContractType>> TypesAsync() => db.ContractTypes.OrderBy(t => t.Name).ToListAsync();
+
+    // ── Danh mục loại hợp đồng (Mst_ContractType) ────────────────────
+    // Nguồn QContract: Mst_ContractType_CheckDB / _CreateX / _UpdateX / _DeleteX (Master.cs).
+    // Kèm số hợp đồng mẫu + số hợp đồng đang dùng loại này để biết loại có đang được sử dụng không.
+    public async Task<List<ContractType>> ContractTypesAsync(bool activeOnly = false)
+    {
+        var q = db.ContractTypes.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        var list = await q.OrderBy(x => x.Code).ThenBy(x => x.Name).ToListAsync();
+
+        // Đếm số hợp đồng mẫu + số hợp đồng đang dùng từng loại (để chặn xóa loại đang dùng).
+        var templateCounts = await db.Templates.Where(t => t.TypeId != null)
+            .GroupBy(t => t.TypeId!.Value).Select(g => new { TypeId = g.Key, Count = g.Count() }).ToListAsync();
+        var contractCounts = await db.Contracts.Where(c => c.TypeId != null)
+            .GroupBy(c => c.TypeId!.Value).Select(g => new { TypeId = g.Key, Count = g.Count() }).ToListAsync();
+        var tMap = templateCounts.ToDictionary(x => x.TypeId, x => x.Count);
+        var cMap = contractCounts.ToDictionary(x => x.TypeId, x => x.Count);
+        foreach (var t in list)
+        {
+            t.TemplateCount = tMap.TryGetValue(t.Id, out var tc) ? tc : 0;
+            t.ContractCount = cMap.TryGetValue(t.Id, out var cc) ? cc : 0;
+        }
+        return list;
+    }
+
+    // Lưu loại hợp đồng — tạo mới (ContractType không trùng) hoặc cập nhật từng phần khi đã tồn tại.
+    // Luật cốt lõi: ContractType bắt buộc & KHÔNG trùng khi tạo (FlagExistToCheck=No); khi sửa phải
+    // tồn tại (FlagExistToCheck=Yes); ContractTypeName bắt buộc.
+    public async Task<ContractType> SaveContractTypeAsync(ContractType type, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var code = (type.Code ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã loại hợp đồng (ContractType).");
+        if (string.IsNullOrWhiteSpace(type.Name))
+            throw new InvalidOperationException("Cần tên loại hợp đồng (ContractTypeName).");
+
+        var existing = await db.ContractTypes.FirstOrDefaultAsync(x => x.Code == code);
+        if (existing == null)
+        {
+            // Tạo mới — ContractType không được trùng (FlagExistToCheck=No).
+            type.Code = code;
+            type.Name = type.Name.Trim();
+            type.Description = string.IsNullOrWhiteSpace(type.Description) ? null : type.Description.Trim();
+            type.CreatedBy = who;
+            db.ContractTypes.Add(type);
+            await db.SaveChangesAsync();
+            return type;
+        }
+
+        // Cập nhật từng phần (FlagExistToCheck=Yes).
+        existing.Name = type.Name.Trim();
+        existing.Description = string.IsNullOrWhiteSpace(type.Description) ? null : type.Description.Trim();
+        existing.BodyTemplate = type.BodyTemplate;
+        existing.Active = type.Active;
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa loại hợp đồng — phải tồn tại (FlagExistToCheck=Yes) và KHÔNG đang được sử dụng.
+    // Nguồn QContract: Mst_ContractType_DeleteX — chặn xóa khi loại đang được hợp đồng mẫu
+    // (Contract_TempContract) hoặc bên hợp đồng (Contract_ContractParty) dùng (ContractTypeUsed).
+    public async Task<(bool ok, string msg)> DeleteContractTypeAsync(int id, string actor)
+    {
+        var t = await db.ContractTypes.FirstOrDefaultAsync(x => x.Id == id);
+        if (t == null) return (false, "Không tìm thấy loại hợp đồng.");
+
+        var templateCount = await db.Templates.CountAsync(x => x.TypeId == id);
+        var contractCount = await db.Contracts.CountAsync(x => x.TypeId == id);
+        if (templateCount > 0 || contractCount > 0)
+            return (false, $"Loại '{t.Name}' đang được sử dụng ({templateCount} hợp đồng mẫu, {contractCount} hợp đồng) — không thể xóa.");
+
+        db.ContractTypes.Remove(t);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa loại hợp đồng '{t.Name}'.");
+    }
 
     public async Task<int> CreateAsync(Contract c, List<ContractParty> parties)
     {

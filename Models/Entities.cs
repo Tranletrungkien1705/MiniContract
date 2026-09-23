@@ -109,16 +109,35 @@ public enum PartyStatus { OnProcess = 0, Pending = 1, Approved = 2, Cancelled = 
 /// </summary>
 public enum UserSignStatus { None = 0, Pending = 1, Confirmed = 2 }
 
-// ── Danh mục loại hợp đồng ───────────────────────────────────────────
+// ── Danh mục loại hợp đồng (Mst_ContractType) ────────────────────────
+/// <summary>
+/// Danh mục loại hợp đồng — port từ Mst_ContractType (QContract).
+/// Mỗi loại có mã (ContractType), tên (ContractTypeName), mô tả (Description) và cờ hiệu lực (FlagActive).
+/// Luật cốt lõi (Mst_ContractType_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - ContractType bắt buộc và KHÔNG trùng khi tạo (FlagExistToCheck=No);
+///  - khi sửa/xóa, loại phải tồn tại (FlagExistToCheck=Yes);
+///  - KHÔNG xóa loại đang được dùng bởi hợp đồng mẫu (Contract_TempContract) hoặc bên hợp đồng
+///    (Contract_ContractParty) — lỗi Mst_ContractType_Delete_ContractTypeUsed.
+/// </summary>
 public class ContractType : IOrgOwned
 {
     public int Id { get; set; }
     public Guid OrgId { get; set; }
-    public string Name { get; set; } = "";
-    public string? Code { get; set; }
-    public string? BodyTemplate { get; set; }   // mẫu nội dung mặc định
+    public string Name { get; set; } = "";            // ContractTypeName — tên loại hợp đồng
+    public string? Code { get; set; }                  // ContractType — mã loại hợp đồng
+    public string? Description { get; set; }           // Description — mô tả loại hợp đồng
+    public string? BodyTemplate { get; set; }          // mẫu nội dung mặc định
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
 
     public ContractNumberRule? NumberRule { get; set; }   // quy tắc đánh số của loại này (nếu có)
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public int TemplateCount { get; set; }             // số hợp đồng mẫu đang dùng loại này
+    public int ContractCount { get; set; }             // số hợp đồng đang dùng loại này
+    public bool InUse => TemplateCount > 0 || ContractCount > 0;   // đang được sử dụng → không xóa được
+    public string ActiveLabel => Active ? "Hiệu lực" : "Ngừng";
 }
 
 // ── Hợp đồng mẫu (Contract_TempContract) ─────────────────────────────

@@ -52,7 +52,15 @@ public class AppDbContext : DbContext
         if (Database.IsNpgsql()) b.HasDefaultSchema("minicontract");
         b.Entity<Org>().HasIndex(x => x.ApiKey).IsUnique();
 
-        b.Entity<ContractType>().HasQueryFilter(x => x.OrgId == _orgId);
+        b.Entity<ContractType>(e =>
+        {
+            e.Ignore(x => x.InUse);
+            e.Ignore(x => x.ActiveLabel);
+            e.Ignore(x => x.TemplateCount);
+            e.Ignore(x => x.ContractCount);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
         b.Entity<ContractTemplate>(e =>
         {
             e.Ignore(x => x.TypeName);

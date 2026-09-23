@@ -24,6 +24,46 @@ public class ContractController(IContractService svc) : Controller
         return View(await svc.DashboardReportAsync(from, to));
     }
 
+    // ── Danh mục loại hợp đồng (Mst_ContractType) ────────────────────
+    // Danh mục loại hợp đồng + CRUD — port từ Mst_ContractType (QContract).
+    public async Task<IActionResult> ContractTypes()
+    {
+        return View(await svc.ContractTypesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveContractType(int id, string code, string name, string? description, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            TempData["Error"] = "Cần mã loại hợp đồng (ContractType).";
+            return RedirectToAction(nameof(ContractTypes));
+        }
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            TempData["Error"] = "Cần tên loại hợp đồng (ContractTypeName).";
+            return RedirectToAction(nameof(ContractTypes));
+        }
+        try
+        {
+            await svc.SaveContractTypeAsync(new ContractType
+            {
+                Id = id, Code = code.Trim(), Name = name.Trim(), Description = description, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật loại hợp đồng." : "Đã thêm loại hợp đồng.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(ContractTypes));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteContractType(int id)
+    {
+        var (ok, msg) = await svc.DeleteContractTypeAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(ContractTypes));
+    }
+
     public async Task<IActionResult> Create()
     {
         ViewBag.Types = await svc.TypesAsync();
