@@ -138,6 +138,28 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Link ký công khai ────────────────────────────
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateSignLink(int id, int partyId, int validHours)
+    {
+        try
+        {
+            var link = await svc.CreateSignLinkAsync(id, partyId, validHours, "web");
+            var url = Url.Action(nameof(PublicSign), "Sign", new { token = link.Token }, Request.Scheme);
+            TempData["Success"] = $"Đã tạo link ký (hết hạn {link.EndDate:dd/MM/yyyy HH:mm}): {url}";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> RevokeSignLink(int id, int linkId)
+    {
+        try { await svc.RevokeSignLinkAsync(linkId, "web"); TempData["Success"] = "Đã thu hồi link ký."; }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     // Bản thể hiện PDF của hợp đồng (kèm trạng thái ký các bên)
     public async Task<IActionResult> Pdf(int id)
     {

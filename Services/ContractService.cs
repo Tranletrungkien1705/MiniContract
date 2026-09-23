@@ -23,6 +23,13 @@ public interface IContractService
     Task<List<ContractHistory>> HistoryAsync(int contractId);
     Task AddRemarkAsync(int contractId, string actor, string remark);
     Task<ContractDash> DashboardAsync();
+
+    // ── Link ký công khai (Contract_ContractSignLink) ────────────────
+    Task<ContractSignLink> CreateSignLinkAsync(int contractId, int partyId, int validHours, string actor);
+    Task<List<ContractSignLink>> SignLinksAsync(int contractId);
+    Task RevokeSignLinkAsync(int linkId, string actor);
+    Task<ContractSignLink?> ResolveSignLinkAsync(string token);
+    Task<(bool ok, string msg)> SignViaLinkAsync(string token, string? signerName);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -170,6 +177,82 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             all.Count(c => c.Status == ContractStatus.Completed),
             all.Where(c => c.Status == ContractStatus.Completed).Sum(c => c.Value),
             byStatus);
+    }
+
+    // ── Link ký công khai (Contract_ContractSignLink) ────────────────
+    // Tạo link ký cho 1 bên: sinh token bí mật + thời hạn (SignLinkEndDate).
+    // Nguồn QContract: WAS_Contract_ContractSignLink_Save (SignLink + SignLinkEndDate).
+    public async Task<ContractSignLink> CreateSignLinkAsync(int contractId, int partyId, int validHours, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is not (ContractStatus.Sent or ContractStatus.PartiallySigned))
+            throw new InvalidOperationException("Chỉ tạo link ký khi hợp đồng đã gửi và đang chờ ký.");
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId)
+            ?? throw new KeyNotFoundException("Không tìm thấy bên tham gia.");
+        if (p.HasSigned) throw new InvalidOperationException($"{p.Name} đã ký rồi.");
+        if (validHours <= 0) validHours = 72;
+
+        var link = new ContractSignLink
+        {
+            ContractId = c.Id, PartyId = p.Id,
+            Token = "sl_" + Guid.NewGuid().ToString("N"),
+            EndDate = DateTime.Now.AddHours(validHours)
+        };
+        db.SignLinks.Add(link);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.SignLinkCreated, actor,
+            $"Tạo link ký công khai cho {p.Name} — hết hạn {link.EndDate:dd/MM/yyyy HH:mm}");
+        return link;
+    }
+
+    public Task<List<ContractSignLink>> SignLinksAsync(int contractId) =>
+        db.SignLinks.Include(x => x.Party).Where(x => x.ContractId == contractId)
+          .OrderByDescending(x => x.CreatedAt).ToListAsync();
+
+    public async Task RevokeSignLinkAsync(int linkId, string actor)
+    {
+        var link = await db.SignLinks.Include(x => x.Party).FirstOrDefaultAsync(x => x.Id == linkId)
+            ?? throw new KeyNotFoundException("Không tìm thấy link ký.");
+        if (link.Revoked) return;
+        link.Revoked = true;
+        await db.SaveChangesAsync();
+        await LogAsync(link.ContractId, HistoryAction.SignLinkRevoked, actor,
+            $"Thu hồi link ký của {link.Party?.Name}");
+    }
+
+    // Kiểm tra link còn hiệu lực (tồn tại + chưa hết hạn + chưa thu hồi).
+    // Nguồn QContract: Contract_ContractSignLink_CheckLink (SignLinkEndDate >= now).
+    public Task<ContractSignLink?> ResolveSignLinkAsync(string token) =>
+        db.SignLinks.Include(x => x.Contract).Include(x => x.Party)
+          .FirstOrDefaultAsync(x => x.Token == token);
+
+    // Ký qua link công khai (không cần đăng nhập) — dùng chữ ký CKS phía server.
+    public async Task<(bool ok, string msg)> SignViaLinkAsync(string token, string? signerName)
+    {
+        var link = await ResolveSignLinkAsync(token);
+        if (link == null) return (false, "Link ký không tồn tại.");
+        if (link.Revoked) return (false, "Link ký đã bị thu hồi.");
+        if (DateTime.Now > link.EndDate) return (false, "Link ký đã hết hạn.");
+        if (link.UsedAt != null) return (false, "Link ký đã được sử dụng.");
+
+        var (c, p, err) = await LoadForSign(link.ContractId, link.PartyId);
+        if (err != null) return (false, err);
+
+        var name = string.IsNullOrWhiteSpace(signerName) ? p!.Name : signerName.Trim();
+        var (sigValue, certSubject) = signer.SignContract(c!.Id, c.Title, c.Body, name);
+        db.Signatures.Add(new ContractSignature
+        {
+            ContractId = c.Id, PartyId = p!.Id, Method = SignMethod.DigitalCertificate,
+            SignerName = name, CertSubject = certSubject, SignatureValue = sigValue
+        });
+        link.UsedAt = DateTime.Now;
+        MarkSigned(c, p);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Signed, name, $"{name} ký qua link công khai — {Ui.Role(p.Role)}");
+        if (c.Status == ContractStatus.Completed)
+            await LogAsync(c.Id, HistoryAction.Completed, "system", $"Đủ chữ ký các bên — {c.Code} hoàn tất");
+        return (true, $"{name} đã ký hợp đồng {c.Code} qua link công khai.");
     }
 
     // ── helpers ──────────────────────────────────────────────────────

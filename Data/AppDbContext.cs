@@ -17,7 +17,6 @@ public class AppDbContext : DbContext
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
     public DbSet<ContractHistory> Histories => Set<ContractHistory>();
     public DbSet<ContractSignLink> SignLinks => Set<ContractSignLink>();
-    public DbSet<ContractHistory> Histories => Set<ContractHistory>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -45,6 +44,15 @@ public class AppDbContext : DbContext
         b.Entity<ContractHistory>(e =>
         {
             e.HasOne(x => x.Contract).WithMany(x => x.History).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractSignLink>(e =>
+        {
+            e.HasIndex(x => x.Token).IsUnique();
+            e.Ignore(x => x.State);
+            e.Ignore(x => x.IsUsable);
+            e.HasOne(x => x.Contract).WithMany(x => x.SignLinks).HasForeignKey(x => x.ContractId);
+            e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

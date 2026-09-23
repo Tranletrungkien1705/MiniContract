@@ -27,6 +27,17 @@ public enum PartyRole { PartyA = 0, PartyB = 1, Witness = 2 }   // Bên A / Bên
 
 public enum SignMethod { DigitalCertificate = 0, Otp = 1 }     // Ký số CKS / Ký qua OTP
 
+/// <summary>Loại thao tác ghi vào lịch sử hợp đồng (theo FunctionActionType của QContract).</summary>
+public enum HistoryActionType
+{
+    Create = 0,     // tạo hợp đồng
+    Send = 1,       // gửi các bên ký
+    Sign = 2,       // một bên ký (CKS/OTP)
+    Cancel = 3,     // hủy hợp đồng
+    Complete = 4,   // đủ chữ ký → hoàn tất
+    Update = 5      // cập nhật nội dung/khác
+}
+
 /// <summary>Loại thao tác ghi vào lịch sử (audit trail) của hợp đồng — port từ Contract_Contract_HistAction (QContract).</summary>
 public enum HistoryAction
 {
@@ -105,6 +116,21 @@ public class ContractParty : IOrgOwned
     public int SignOrder { get; set; } = 1;
     public bool HasSigned { get; set; }
     public DateTime? SignedAt { get; set; }
+
+    public Contract Contract { get; set; } = null!;
+}
+
+// ── Lịch sử thao tác (audit trail) ───────────────────────────────────
+/// <summary>Nhật ký mọi thao tác trên hợp đồng: ai làm gì, lúc nào, mô tả. Bất biến (append-only).</summary>
+public class ContractHistory : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public HistoryActionType Action { get; set; }
+    public string Actor { get; set; } = "";        // người thực hiện (web/api/seed hoặc tên bên ký)
+    public string Description { get; set; } = "";  // diễn giải thao tác
+    public DateTime At { get; set; } = DateTime.Now;
 
     public Contract Contract { get; set; } = null!;
 }
