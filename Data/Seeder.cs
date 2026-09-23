@@ -210,6 +210,24 @@ public static class Seeder
                 await db.SaveChangesAsync();
             }
 
+            // Ghi chú của một bên mẫu (Contract_Contract_Party_UpdateRemark) — minh họa cập nhật Remark cho bên.
+            if (sent != null)
+            {
+                var pb = sent.Parties.FirstOrDefault(p => p.Role == PartyRole.PartyB);
+                if (pb != null)
+                {
+                    pb.Remark = "Đã xác nhận thông tin pháp lý, chờ ký.";
+                    await db.SaveChangesAsync();
+                    db.Histories.Add(new ContractHistory
+                    {
+                        ContractId = sent.Id, Action = HistoryAction.UpdateRemark, Actor = "seed",
+                        Description = $"Cập nhật ghi chú cho {pb.Name} ({Ui.Role(pb.Role)}) — {pb.Remark}",
+                        At = DateTime.Now.AddHours(-3)
+                    });
+                    await db.SaveChangesAsync();
+                }
+            }
+
             // Lịch sử gửi hợp đồng mẫu (Contract_SendHist) — minh họa gửi qua nhiều kênh.
             if (sent != null)
             {

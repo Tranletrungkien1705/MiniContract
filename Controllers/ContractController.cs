@@ -452,6 +452,16 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark) ──
+    // Cập nhật Remark của một bên — port từ WAS_Contract_Contract_Party_UpdateRemark (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdatePartyRemark(int id, int partyId, string? remark)
+    {
+        var (ok, msg) = await svc.UpdatePartyRemarkAsync(id, partyId, remark, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> SignCks(int id, int partyId)
     {

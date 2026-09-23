@@ -57,7 +57,8 @@ public enum HistoryAction
     SignLinkCreated = 6,  // tạo link ký công khai
     SignLinkRevoked = 7,  // thu hồi link ký công khai
     Approved = 8,    // phê duyệt hợp đồng (Contract_Contract_Approved)
-    PartyCancelled = 9    // một bên hủy hợp đồng (Contract_ContractParty_Cancel)
+    PartyCancelled = 9,   // một bên hủy hợp đồng (Contract_ContractParty_Cancel)
+    UpdateRemark = 10     // cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark)
 }
 
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>

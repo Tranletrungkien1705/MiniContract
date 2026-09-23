@@ -78,6 +78,9 @@ public interface IContractService
     // ── Hủy hợp đồng bởi một bên (Contract_ContractParty_Cancel) ─────
     Task<(bool ok, string msg)> CancelByPartyAsync(int contractId, int partyId, string? remark, string actor);
 
+    // ── Cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark) ──
+    Task<(bool ok, string msg)> UpdatePartyRemarkAsync(int contractId, int partyId, string? remark, string actor);
+
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
     Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId);
     Task<ContractVerifyOtp> GenerateVerifyOtpAsync(int contractId, int partyId, int validMinutes, string actor);
@@ -802,6 +805,28 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             $"{p.Name} ({Ui.Role(p.Role)}) hủy {c.Kind.ToLower()} {c.Code}"
             + (string.IsNullOrWhiteSpace(remark) ? "" : $" — {remark.Trim()}"));
         return (true, $"{p.Name} đã hủy {c.Kind.ToLower()} {c.Code}.");
+    }
+
+    // ── Cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark) ──
+    // Nguồn QContract: WAS_Contract_Contract_Party_UpdateRemark → Contract_Contract_Party_UpdateRemarkX.
+    // Luật cốt lõi: cập nhật trường Remark của một bên (định danh theo hợp đồng + bên), ghi
+    // LogLUDTimeUTC/LogLUBy và ghi nhật ký thao tác "UpdateRemark" (TConst.FunctionActionType.UpdateRemark).
+    public async Task<(bool ok, string msg)> UpdatePartyRemarkAsync(int contractId, int partyId, string? remark, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId);
+        if (p == null) return (false, "Bên cần cập nhật không thuộc hợp đồng này.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var newRemark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim();
+        p.Remark = newRemark;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.UpdateRemark, who,
+            $"Cập nhật ghi chú cho {p.Name} ({Ui.Role(p.Role)})"
+            + (newRemark != null ? $" — {newRemark}" : " — (xóa ghi chú)"));
+        return (true, $"Đã cập nhật ghi chú cho {p.Name}.");
     }
 
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
