@@ -10,6 +10,9 @@ public record ContractDash(int Total, int Draft, int AwaitingSign, int Completed
 /// <summary>Thống kê ô ký theo loại — port từ Contract_ContractElementSum (QContract).</summary>
 public record ElementStats(int Total, int Signed, int Electronic, int Short, int Digital);
 
+/// <summary>Thống kê người kiểm tra — port từ Contract_Checker (QContract).</summary>
+public record CheckerStats(int Total, int Checked, int Pending, CheckerStatus Status);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -39,6 +42,12 @@ public interface IContractService
     Task<ContractElement> AddElementAsync(int contractId, ContractElement el);
     Task<(bool ok, string msg)> SignElementAsync(int elementId, string signerName, string signFrom, string? ip);
     Task<ElementStats> ElementStatsAsync(int contractId);
+
+    // ── Người kiểm tra hợp đồng (Contract_Checker) ───────────────────
+    Task<List<ContractChecker>> CheckersAsync(int contractId);
+    Task<ContractChecker> AddCheckerAsync(int contractId, ContractChecker checker);
+    Task<(bool ok, string msg)> AcceptCheckAsync(int contractId, int checkerId, string? remark);
+    Task<CheckerStats> CheckerStatsAsync(int contractId);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -322,6 +331,92 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             els.Count(e => e.Type == ElementType.Electronic),
             els.Count(e => e.Type == ElementType.Short),
             els.Count(e => e.Type == ElementType.Digital));
+    }
+
+    // ── Người kiểm tra hợp đồng (Contract_Checker) ───────────────────
+    // Nguồn QContract: WAS_Contract_Checker_Accept (kiểm tra tuần tự theo Idx) +
+    // Contract_Checker_CheckDB (kiểm tra tồn tại/FlagChecker/FlagActive).
+    public Task<List<ContractChecker>> CheckersAsync(int contractId) =>
+        db.Checkers.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Idx).ThenBy(x => x.Id).ToListAsync();
+
+    public async Task<ContractChecker> AddCheckerAsync(int contractId, ContractChecker checker)
+    {
+        var c = await db.Contracts.Include(x => x.Checkers).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Completed or ContractStatus.Cancelled)
+            throw new InvalidOperationException("Hợp đồng đã kết thúc, không thêm người kiểm tra.");
+        if (string.IsNullOrWhiteSpace(checker.UserName))
+            throw new InvalidOperationException("Cần tên người kiểm tra.");
+        if (string.IsNullOrWhiteSpace(checker.UserCode))
+            checker.UserCode = checker.UserName.Trim().ToLower().Replace(" ", ".");
+        if (checker.Idx <= 0) checker.Idx = c.Checkers.Count + 1;
+        checker.ContractId = c.Id;
+        checker.HasChecked = false;
+        db.Checkers.Add(checker);
+        await db.SaveChangesAsync();
+
+        // Có người kiểm tra → hợp đồng chuyển sang trạng thái chờ kiểm tra (PENDING).
+        if (c.CheckerStatus == CheckerStatus.None)
+        {
+            c.CheckerStatus = CheckerStatus.Pending;
+            await db.SaveChangesAsync();
+        }
+        await LogAsync(c.Id, HistoryAction.Remark, "web",
+            $"Thêm người kiểm tra '{checker.UserName}' (thứ tự {checker.Idx}{(checker.Sequential ? ", tuần tự" : "")})");
+        return checker;
+    }
+
+    // Người kiểm tra xác nhận đã kiểm tra — port từ Contract_Checker_AcceptX (QContract).
+    // Kiểm tra tuần tự: nếu FlagSeq=1 thì phải kiểm tra theo thứ tự Idx (không được nhảy cóc).
+    public async Task<(bool ok, string msg)> AcceptCheckAsync(int contractId, int checkerId, string? remark)
+    {
+        var c = await db.Contracts.Include(x => x.Checkers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Completed or ContractStatus.Cancelled)
+            return (false, "Hợp đồng đã kết thúc, không thể kiểm tra.");
+        var ck = c.Checkers.FirstOrDefault(x => x.Id == checkerId);
+        if (ck == null) return (false, "Không tìm thấy người kiểm tra.");
+        if (!ck.IsChecker) return (false, $"{ck.UserName} không phải người kiểm tra.");
+        if (ck.HasChecked) return (false, $"{ck.UserName} đã kiểm tra rồi.");
+
+        // Kiểm tra tuần tự: các người kiểm tra trước (Idx nhỏ hơn) phải đã kiểm tra xong.
+        if (ck.Sequential)
+        {
+            var earlier = c.Checkers.Where(x => x.IsChecker && x.Idx < ck.Idx && !x.HasChecked).ToList();
+            if (earlier.Count > 0)
+                return (false, $"Phải kiểm tra theo thứ tự — còn {earlier.Count} người kiểm tra trước chưa xử lý.");
+        }
+
+        ck.HasChecked = true;
+        ck.CheckedAt = DateTime.Now;
+        if (!string.IsNullOrWhiteSpace(remark)) ck.Remark = remark.Trim();
+
+        // Đủ người kiểm tra → hợp đồng chuyển sang ONPROCESS (đã kiểm tra xong).
+        var allChecked = c.Checkers.Where(x => x.IsChecker).All(x => x.HasChecked);
+        if (allChecked) c.CheckerStatus = CheckerStatus.OnProcess;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Remark, ck.UserName,
+            $"{ck.UserName} kiểm tra hợp đồng{(string.IsNullOrWhiteSpace(remark) ? "" : " — " + remark.Trim())}");
+        if (allChecked)
+            await LogAsync(c.Id, HistoryAction.Remark, "system", $"Đủ người kiểm tra — {c.Code} chuyển sang xử lý");
+        return (true, allChecked
+            ? $"{ck.UserName} đã kiểm tra. Đủ người kiểm tra — hợp đồng chuyển sang xử lý."
+            : $"{ck.UserName} đã kiểm tra hợp đồng.");
+    }
+
+    // Thống kê người kiểm tra — port từ Contract_Checker (QContract).
+    public async Task<CheckerStats> CheckerStatsAsync(int contractId)
+    {
+        var c = await db.Contracts.Include(x => x.Checkers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return new CheckerStats(0, 0, 0, CheckerStatus.None);
+        var checkers = c.Checkers.Where(x => x.IsChecker).ToList();
+        return new CheckerStats(
+            checkers.Count,
+            checkers.Count(x => x.HasChecked),
+            checkers.Count(x => !x.HasChecked),
+            c.CheckerStatus);
     }
 
     // ── helpers ──────────────────────────────────────────────────────

@@ -60,6 +60,12 @@ public enum SignLinkState { Active = 0, Expired = 1, Revoked = 2 }
 /// </summary>
 public enum ElementType { Electronic = 0, Short = 1, Digital = 2 }
 
+/// <summary>
+/// Trạng thái kiểm tra (checker) của hợp đồng — port từ TConst.ContractStatus (QContract):
+/// PENDING = chờ kiểm tra, ONPROCESS = đã kiểm tra xong (đủ người kiểm tra), NONE = không có người kiểm tra.
+/// </summary>
+public enum CheckerStatus { None = 0, Pending = 1, OnProcess = 2 }
+
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
 {
@@ -102,12 +108,19 @@ public class Contract : IOrgOwned
     public List<ContractHistory> History { get; set; } = [];
     public List<ContractSignLink> SignLinks { get; set; } = [];
     public List<ContractElement> Elements { get; set; } = [];   // các ô ký trên bản thể hiện
+    public List<ContractChecker> Checkers { get; set; } = [];   // người kiểm tra hợp đồng (theo thứ tự)
+
+    // ── Kiểm tra hợp đồng (checker) ──────────────────
+    // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
+    public CheckerStatus CheckerStatus { get; set; } = CheckerStatus.None;  // trạng thái kiểm tra
 
     // ── tính toán ────────────────────────────────────────────────────
     public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     public int SignedCount => Parties.Count(p => p.HasSigned);
     public string Kind => IsAnnex ? "Phụ lục" : "Hợp đồng";
     public int ElementSignedCount => Elements.Count(e => e.IsSigned);
+    public int CheckedCount => Checkers.Count(c => c.HasChecked);
+    public bool AllChecked => Checkers.Count > 0 && Checkers.All(c => c.HasChecked);
 }
 
 // ── Các bên tham gia ─────────────────────────────────────────────────
@@ -232,4 +245,32 @@ public class ContractElement : IOrgOwned
         ElementType.Digital => "Ký số",
         _ => Type.ToString()
     };
+}
+
+// ── Người kiểm tra hợp đồng (Contract_Checker) ───────────────────────
+/// <summary>
+/// Người kiểm tra (checker) của hợp đồng — port từ Contract_Checker (QContract).
+/// Mỗi hợp đồng có danh sách người kiểm tra theo thứ tự (Idx); khi FlagSeq=1 phải kiểm tra
+/// tuần tự theo Idx. FlagChecker=1 là người kiểm tra, =0 là người ký. FlagCheck=1 là đã kiểm tra.
+/// Nguồn QContract: WAS_Contract_Checker_Accept / Contract_Checker_CheckDB.
+/// </summary>
+public class ContractChecker : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public string UserCode { get; set; } = "";      // tên đăng nhập người kiểm tra
+    public string UserName { get; set; } = "";      // tên hiển thị người kiểm tra
+    public string? Position { get; set; }           // chức vụ người kiểm tra
+    public int Idx { get; set; } = 1;               // thứ tự kiểm tra
+    public bool IsChecker { get; set; } = true;     // FlagChecker: 1 = người kiểm tra, 0 = người ký
+    public bool HasChecked { get; set; }            // FlagCheck: 1 = đã kiểm tra, 0 = chưa
+    public bool Sequential { get; set; } = true;    // FlagSeq: 1 = kiểm tra theo thứ tự, 0 = không cần
+    public string? Remark { get; set; }             // ghi chú khi kiểm tra
+    public DateTime? CheckedAt { get; set; }        // CheckDTimeUTC — thời gian kiểm tra
+
+    public Contract Contract { get; set; } = null!;
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string RoleLabel => IsChecker ? "Người kiểm tra" : "Người ký";
 }

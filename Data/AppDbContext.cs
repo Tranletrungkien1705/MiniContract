@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractHistory> Histories => Set<ContractHistory>();
     public DbSet<ContractSignLink> SignLinks => Set<ContractSignLink>();
     public DbSet<ContractElement> Elements => Set<ContractElement>();
+    public DbSet<ContractChecker> Checkers => Set<ContractChecker>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -33,6 +34,8 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.SignedCount);
             e.Ignore(x => x.Kind);
             e.Ignore(x => x.ElementSignedCount);
+            e.Ignore(x => x.CheckedCount);
+            e.Ignore(x => x.AllChecked);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasOne(x => x.Parent).WithMany(x => x.Annexes).HasForeignKey(x => x.ParentContractId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
@@ -62,6 +65,12 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.TypeLabel);
             e.HasOne(x => x.Contract).WithMany(x => x.Elements).HasForeignKey(x => x.ContractId);
             e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractChecker>(e =>
+        {
+            e.Ignore(x => x.RoleLabel);
+            e.HasOne(x => x.Contract).WithMany(x => x.Checkers).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

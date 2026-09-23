@@ -50,6 +50,8 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.History = await svc.HistoryAsync(id);
         ViewBag.Elements = await svc.ElementsAsync(id);
         ViewBag.ElementStats = await svc.ElementStatsAsync(id);
+        ViewBag.Checkers = await svc.CheckersAsync(id);
+        ViewBag.CheckerStats = await svc.CheckerStatsAsync(id);
         return View(c);
     }
 
@@ -82,6 +84,35 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> SignElement(int id, int elementId, string? signerName)
     {
         var (ok, msg) = await svc.SignElementAsync(elementId, signerName ?? "", "web", HttpContext.Connection.RemoteIpAddress?.ToString());
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Người kiểm tra hợp đồng (Contract_Checker) ───────────────────
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddChecker(int id, string userName, string? position, int idx, bool sequential)
+    {
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            TempData["Error"] = "Cần tên người kiểm tra.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        try
+        {
+            await svc.AddCheckerAsync(id, new ContractChecker
+            {
+                UserName = userName.Trim(), Position = position, Idx = idx, Sequential = sequential
+            });
+            TempData["Success"] = "Đã thêm người kiểm tra.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AcceptCheck(int id, int checkerId, string? remark)
+    {
+        var (ok, msg) = await svc.AcceptCheckAsync(id, checkerId, remark);
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

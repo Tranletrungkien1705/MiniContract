@@ -30,6 +30,15 @@ public static class Ui
         _ => m.ToString()
     };
 
+    // Nhãn + màu cho trạng thái kiểm tra hợp đồng (checker).
+    public static (string text, string css) CheckStatus(CheckerStatus s) => s switch
+    {
+        CheckerStatus.None => ("Không kiểm tra", "secondary"),
+        CheckerStatus.Pending => ("Chờ kiểm tra", "warning"),
+        CheckerStatus.OnProcess => ("Đã kiểm tra", "success"),
+        _ => (s.ToString(), "secondary")
+    };
+
     // Nhãn + màu cho loại thao tác trong nhật ký (audit trail).
     public static (string text, string css, string icon) Action(HistoryAction a) => a switch
     {

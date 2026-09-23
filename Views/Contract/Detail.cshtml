@@ -7,7 +7,10 @@
     var history = (List<ContractHistory>)(ViewBag.History ?? new List<ContractHistory>());
     var elements = (List<ContractElement>)(ViewBag.Elements ?? new List<ContractElement>());
     var elStats = (ElementStats)(ViewBag.ElementStats ?? new ElementStats(0, 0, 0, 0, 0));
+    var checkers = (List<ContractChecker>)(ViewBag.Checkers ?? new List<ContractChecker>());
+    var ckStats = (CheckerStats)(ViewBag.CheckerStats ?? new CheckerStats(0, 0, 0, CheckerStatus.None));
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
+    bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
 }
 
 <div class="row g-3">
@@ -192,6 +195,78 @@
                         <input type="hidden" name="elementWidth" value="120" />
                         <input type="hidden" name="elementHeight" value="40" />
                         <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm ô ký</button></div>
+                    </form>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-clipboard-check me-1"></i>Người kiểm tra hợp đồng <span class="badge bg-secondary">@checkers.Count</span></h6>
+                    <div class="small text-muted">
+                        @{ var (ckTxt, ckCss) = Ui.CheckStatus(ckStats.Status); }
+                        <span class="badge bg-@ckCss">@ckTxt</span>
+                        · Đã kiểm tra <b>@ckStats.Checked/@ckStats.Total</b>
+                    </div>
+                </div>
+                @if (checkers.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có người kiểm tra nào.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>#</th><th>Người kiểm tra</th><th>Vai trò</th><th>Tuần tự</th><th>Trạng thái</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var ck in checkers)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@ck.Idx</td>
+                                <td><b>@ck.UserName</b>@if (ck.Position != null) { <span class="text-muted small"> · @ck.Position</span> }<div class="text-muted" style="font-size:11px">@ck.UserCode</div></td>
+                                <td><span class="badge bg-@(ck.IsChecker ? "primary" : "secondary")">@ck.RoleLabel</span></td>
+                                <td class="small">@(ck.Sequential ? "Có" : "Không")</td>
+                                <td>
+                                    @if (ck.HasChecked)
+                                    {
+                                        <span class="text-success small"><i class="bi bi-patch-check-fill me-1"></i>Đã kiểm tra · @ck.CheckedAt?.ToString("dd/MM/yyyy HH:mm")</span>
+                                        @if (ck.Remark != null) { <div class="text-muted" style="font-size:11px">@ck.Remark</div> }
+                                    }
+                                    else { <span class="badge bg-warning text-dark">Chờ kiểm tra</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (!ck.HasChecked && ck.IsChecker && canCheck)
+                                    {
+                                        <form asp-action="AcceptCheck" method="post" class="d-inline d-flex gap-1 justify-content-end">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@Model.Id" />
+                                            <input type="hidden" name="checkerId" value="@ck.Id" />
+                                            <input name="remark" class="form-control form-control-sm" style="width:120px" placeholder="Ghi chú" />
+                                            <button class="btn btn-sm btn-outline-success"><i class="bi bi-check2 me-1"></i>Kiểm tra</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canCheck)
+                {
+                    <form asp-action="AddChecker" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4"><input name="userName" class="form-control form-control-sm" placeholder="Tên người kiểm tra" required /></div>
+                        <div class="col-md-3"><input name="position" class="form-control form-control-sm" placeholder="Chức vụ (tùy chọn)" /></div>
+                        <div class="col-md-1"><input name="idx" type="number" value="@(checkers.Count + 1)" min="1" class="form-control form-control-sm" title="Thứ tự" /></div>
+                        <div class="col-md-2 d-flex align-items-center">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="sequential" value="true" id="seqChk" checked />
+                                <label class="form-check-label small" for="seqChk">Kiểm tra tuần tự</label>
+                            </div>
+                        </div>
+                        <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm người kiểm tra</button></div>
                     </form>
                 }
             </div>
