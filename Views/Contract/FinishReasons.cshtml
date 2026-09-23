@@ -1,0 +1,66 @@
+@model List<FinishedContractReason>
+@{
+    ViewData["Title"] = "Lý do kết thúc hợp đồng";
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm lý do kết thúc</h6>
+            <form asp-action="AddFinishReason" method="post">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Tên lý do</label>
+                    <input name="name" class="form-control" placeholder="VD: Hoàn thành nghĩa vụ hợp đồng" required />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Loại</label>
+                    <select name="type" class="form-select">
+                        <option value="0">Kết thúc (hoàn thành)</option>
+                        <option value="1">Chấm dứt (dừng trước hạn)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Mã (tùy chọn)</label>
+                    <input name="code" class="form-control" placeholder="Để trống sẽ tự sinh" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Mô tả (tùy chọn)</label>
+                    <textarea name="description" class="form-control" rows="2"></textarea>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Thêm lý do</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Danh mục lý do dùng khi <b>kết thúc/chấm dứt</b> hợp đồng — port từ <code>Mst_FinishedContractReason</code> (QContract).</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-2"></i>Danh mục lý do <span class="badge bg-secondary">@Model.Count</span></h6>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="text-muted small">Chưa có lý do kết thúc nào.</div>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Mã</th><th>Tên lý do</th><th>Loại</th><th>Mô tả</th><th>Hiệu lực</th></tr></thead>
+                    <tbody>
+                    @foreach (var r in Model)
+                    {
+                        var (rt, rcss) = Ui.FinishType(r.Type);
+                        <tr>
+                            <td class="fw-semibold">@r.Code</td>
+                            <td>@r.Name</td>
+                            <td><span class="badge bg-@rcss">@rt</span></td>
+                            <td class="small text-muted">@(r.Description ?? "—")</td>
+                            <td>@if (r.Active) { <span class="badge bg-success">Đang dùng</span> } else { <span class="badge bg-secondary">Ngừng</span> }</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div></div>
+    </div>
+</div>

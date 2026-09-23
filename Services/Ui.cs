@@ -12,6 +12,7 @@ public static class Ui
         ContractStatus.PartiallySigned => ("Ký một phần", "warning"),
         ContractStatus.Completed => ("Hoàn tất", "success"),
         ContractStatus.Cancelled => ("Đã hủy", "dark"),
+        ContractStatus.Finished => ("Đã kết thúc", "secondary"),
         _ => (s.ToString(), "secondary")
     };
 
@@ -37,6 +38,14 @@ public static class Ui
         CheckerStatus.Pending => ("Chờ kiểm tra", "warning"),
         CheckerStatus.OnProcess => ("Đã kiểm tra", "success"),
         _ => (s.ToString(), "secondary")
+    };
+
+    // Nhãn + màu cho loại lý do kết thúc hợp đồng (FinishType).
+    public static (string text, string css) FinishType(Models.FinishType t) => t switch
+    {
+        Models.FinishType.Finished => ("Kết thúc", "success"),
+        Models.FinishType.Stopped => ("Chấm dứt", "danger"),
+        _ => (t.ToString(), "secondary")
     };
 
     // Nhãn + màu cho loại thao tác trong nhật ký (audit trail).

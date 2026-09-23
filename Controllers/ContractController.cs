@@ -117,6 +117,55 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
+    // Danh mục lý do kết thúc/chấm dứt hợp đồng — port từ Mst_FinishedContractReason (QContract).
+    public async Task<IActionResult> FinishReasons()
+    {
+        return View(await svc.FinishReasonsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddFinishReason(string name, FinishType type, string? code, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            TempData["Error"] = "Cần tên lý do kết thúc.";
+            return RedirectToAction(nameof(FinishReasons));
+        }
+        try
+        {
+            await svc.AddFinishReasonAsync(new FinishedContractReason
+            {
+                Name = name.Trim(), Type = type, Code = code?.Trim() ?? "", Description = description
+            });
+            TempData["Success"] = "Đã thêm lý do kết thúc.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(FinishReasons));
+    }
+
+    // Kết thúc/chấm dứt hợp đồng theo lý do — port từ Contract_ContractParty_Finish (QContract).
+    public async Task<IActionResult> Finish(int id)
+    {
+        var c = await svc.GetAsync(id);
+        if (c == null) return NotFound();
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+        {
+            TempData["Error"] = "Hợp đồng đã hủy hoặc đã kết thúc.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        ViewBag.Reasons = await svc.FinishReasonsAsync(activeOnly: true);
+        return View(c);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Finish(int id, int reasonId, string? description)
+    {
+        var (ok, msg) = await svc.FinishContractAsync(id, reasonId, description, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     // Ghi chú xử lý vào nhật ký thao tác (audit trail) của hợp đồng.
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> AddRemark(int id, string remark)

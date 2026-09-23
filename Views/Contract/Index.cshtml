@@ -14,6 +14,7 @@
                 <a href="/Contract?status=1" class="btn @sel(ContractStatus.Sent)">Đã gửi</a>
                 <a href="/Contract?status=2" class="btn @sel(ContractStatus.PartiallySigned)">Ký một phần</a>
                 <a href="/Contract?status=3" class="btn @sel(ContractStatus.Completed)">Hoàn tất</a>
+                <a href="/Contract?status=5" class="btn @sel(ContractStatus.Finished)">Đã kết thúc</a>
             </div>
             <a href="/Contract/Create" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Soạn hợp đồng</a>
         </div>
@@ -25,7 +26,7 @@
                 var (st, css) = Ui.Status(c.Status);
                 <tr style="cursor:pointer" onclick="location.href='/Contract/Detail/@c.Id'">
                     <td class="fw-semibold">@c.Code</td>
-                    <td>@c.Title @if (c.IsAnnex) { <span class="badge bg-info ms-1">PL</span> } @if (c.CheckerStatus == CheckerStatus.Pending) { <span class="badge bg-warning text-dark ms-1" title="Chờ kiểm tra">KT</span> }</td>
+                    <td>@c.Title @if (c.IsAnnex) { <span class="badge bg-info ms-1">PL</span> } @if (c.CheckerStatus == CheckerStatus.Pending) { <span class="badge bg-warning text-dark ms-1" title="Chờ kiểm tra">KT</span> } @if (c.IsFinished) { <span class="badge bg-secondary ms-1" title="@c.FinishReasonName">Kết thúc</span> }</td>
                     <td class="small text-muted">@(c.Type?.Name ?? "—")</td>
                     <td class="text-end">@c.Value.ToString("N0")</td>
                     <td class="small">@c.SignedCount/@c.Parties.Count</td>

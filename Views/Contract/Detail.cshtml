@@ -25,6 +25,11 @@
                         {
                             <div class="mt-1"><span class="badge bg-info">Phụ lục</span> <span class="small text-muted">của hợp đồng gốc</span> <a href="/Contract/Detail/@Model.ParentContractId" class="small fw-semibold">@Model.ParentContractCode</a></div>
                         }
+                        @if (Model.IsFinished)
+                        {
+                            <div class="mt-1"><span class="badge bg-secondary">Đã kết thúc</span> <span class="small text-muted">lý do:</span> <b class="small">@Model.FinishReasonName</b> <span class="small text-muted">· @Model.FinishedAt?.ToString("dd/MM/yyyy HH:mm")</span></div>
+                            @if (Model.FinishDescription != null) { <div class="small text-muted">@Model.FinishDescription</div> }
+                        }
                     </div>
                     <span class="badge bg-@css fs-6">@st</span>
                 </div>
@@ -294,16 +299,24 @@
                 {
                     <a href="/Contract/CreateAnnex/@Model.Id" class="btn btn-outline-info w-100 mb-2"><i class="bi bi-file-earmark-plus me-1"></i>Tạo phụ lục</a>
                 }
-                @if (Model.Status != ContractStatus.Completed && Model.Status != ContractStatus.Cancelled)
+                @if (Model.Status != ContractStatus.Completed && Model.Status != ContractStatus.Cancelled && Model.Status != ContractStatus.Finished)
                 {
                     <form asp-action="Cancel" method="post" onsubmit="return confirm('Hủy hợp đồng này?')">
                         @Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Id" />
                         <button class="btn btn-outline-danger w-100"><i class="bi bi-x-circle me-1"></i>Hủy hợp đồng</button>
                     </form>
                 }
+                @if (Model.Status != ContractStatus.Cancelled && Model.Status != ContractStatus.Finished)
+                {
+                    <a href="/Contract/Finish/@Model.Id" class="btn btn-outline-secondary w-100 mt-2"><i class="bi bi-flag me-1"></i>Kết thúc hợp đồng</a>
+                }
                 @if (Model.Status == ContractStatus.Completed)
                 {
                     <div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Hoàn tất lúc @Model.CompletedAt?.ToString("dd/MM/yyyy HH:mm") — đủ chữ ký các bên.</div>
+                }
+                @if (Model.IsFinished)
+                {
+                    <div class="alert alert-secondary small mb-0"><i class="bi bi-flag me-1"></i>Đã kết thúc lúc @Model.FinishedAt?.ToString("dd/MM/yyyy HH:mm") — lý do: <b>@Model.FinishReasonName</b>.</div>
                 }
             </div>
         </div>

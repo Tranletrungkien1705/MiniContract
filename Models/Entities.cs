@@ -20,8 +20,15 @@ public enum ContractStatus
     Sent = 1,            // đã gửi các bên để ký
     PartiallySigned = 2, // một số bên đã ký
     Completed = 3,       // đủ chữ ký → hoàn tất
-    Cancelled = 4        // đã hủy
+    Cancelled = 4,       // đã hủy
+    Finished = 5         // đã kết thúc/chấm dứt (theo lý do kết thúc)
 }
+
+/// <summary>
+/// Loại lý do kết thúc hợp đồng — port từ TConst.ContractFinishType (QContract):
+/// FINISHED = kết thúc (hoàn thành), STOPPED = chấm dứt (dừng trước hạn).
+/// </summary>
+public enum FinishType { Finished = 0, Stopped = 1 }
 
 public enum PartyRole { PartyA = 0, PartyB = 1, Witness = 2 }   // Bên A / Bên B / Người làm chứng
 
@@ -76,6 +83,28 @@ public class ContractType : IOrgOwned
     public string? BodyTemplate { get; set; }   // mẫu nội dung mặc định
 }
 
+// ── Danh mục lý do kết thúc hợp đồng (Mst_FinishedContractReason) ────
+/// <summary>
+/// Danh mục lý do kết thúc/chấm dứt hợp đồng — port từ Mst_FinishedContractReason (QContract).
+/// Mỗi lý do có mã (ContractFinishReasonCode), tên (ContractFinishReasonName), loại
+/// (FinishType: FINISHED/STOPPED), mô tả (FinishDescription) và cờ hiệu lực (FlagActive).
+/// Nguồn QContract: Mst_FinishedContractReason_CreateX / _UpdateX / _CheckDB.
+/// </summary>
+public class FinishedContractReason : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // ContractFinishReasonCode
+    public string Name { get; set; } = "";          // ContractFinishReasonName
+    public FinishType Type { get; set; } = FinishType.Finished;  // FinishType
+    public string? Description { get; set; }         // FinishDescription
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string TypeLabel => Type == FinishType.Stopped ? "Chấm dứt" : "Kết thúc";
+}
+
 // ── Hợp đồng ─────────────────────────────────────────────────────────
 public class Contract : IOrgOwned
 {
@@ -114,8 +143,17 @@ public class Contract : IOrgOwned
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
     public CheckerStatus CheckerStatus { get; set; } = CheckerStatus.None;  // trạng thái kiểm tra
 
+    // ── Kết thúc hợp đồng (lý do kết thúc) ───────────
+    // Nguồn QContract: Contract_ContractParty_FinishX — khi kết thúc, hợp đồng ghi nhận
+    // lý do (ContractFinishReasonCode/Name), mô tả (FinishDescription) và thời điểm (FinishedDTimeUTC).
+    public string? FinishReasonCode { get; set; }    // ContractFinishReasonCode
+    public string? FinishReasonName { get; set; }    // ContractFinishReasonName
+    public string? FinishDescription { get; set; }   // FinishDescription
+    public DateTime? FinishedAt { get; set; }        // FinishedDTimeUTC
+
     // ── tính toán ────────────────────────────────────────────────────
-    public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
+    public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished);
+    public bool IsFinished => Status == ContractStatus.Finished;
     public int SignedCount => Parties.Count(p => p.HasSigned);
     public string Kind => IsAnnex ? "Phụ lục" : "Hợp đồng";
     public int ElementSignedCount => Elements.Count(e => e.IsSigned);

@@ -1,0 +1,62 @@
+@model Contract
+@{
+    ViewData["Title"] = $"Kết thúc hợp đồng {Model.Code}";
+    var reasons = (List<FinishedContractReason>)(ViewBag.Reasons ?? new List<FinishedContractReason>());
+}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="fw-bold mb-3"><i class="bi bi-flag me-1"></i>Kết thúc / chấm dứt hợp đồng</h6>
+                <div class="mb-3 p-3 rounded" style="background:#f6faf9">
+                    <div class="fw-semibold">@Model.Title</div>
+                    <div class="text-muted small">Số @Model.Code · @(Model.Type?.Name ?? "—") · giá trị @Model.Value.ToString("N0") đ</div>
+                </div>
+
+                @if (reasons.Count == 0)
+                {
+                    <div class="alert alert-warning small mb-0">
+                        Chưa có lý do kết thúc nào đang hiệu lực.
+                        <a href="/Contract/FinishReasons" class="fw-semibold">Thêm lý do kết thúc</a> trước khi kết thúc hợp đồng.
+                    </div>
+                }
+                else
+                {
+                    <form asp-action="Finish" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="mb-3">
+                            <label class="form-label small text-muted">Lý do kết thúc</label>
+                            <select name="reasonId" class="form-select" required>
+                                @foreach (var r in reasons)
+                                {
+                                    var (rt, rcss) = Ui.FinishType(r.Type);
+                                    <option value="@r.Id">@r.Name (@rt)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted">Mô tả / ghi chú kết thúc (tùy chọn)</label>
+                            <textarea name="description" class="form-control" rows="3" placeholder="VD: Hai bên thống nhất chấm dứt trước hạn do thay đổi nhu cầu…"></textarea>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary"><i class="bi bi-flag me-1"></i>Xác nhận kết thúc</button>
+                            <a href="/Contract/Detail/@Model.Id" class="btn btn-outline-secondary">Hủy bỏ</a>
+                        </div>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-2"><i class="bi bi-info-circle me-1"></i>Lưu ý</h6>
+            <ul class="small text-muted mb-0">
+                <li>Kết thúc hợp đồng ghi nhận <b>lý do</b> + <b>mô tả</b> + <b>thời điểm</b> vào hợp đồng.</li>
+                <li>Trạng thái hợp đồng chuyển sang <span class="badge bg-secondary">Đã kết thúc</span> và không thể ký/hủy tiếp.</li>
+                <li>Thao tác được ghi vào <b>nhật ký</b> để kiểm toán.</li>
+            </ul>
+        </div></div>
+    </div>
+</div>

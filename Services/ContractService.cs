@@ -48,6 +48,11 @@ public interface IContractService
     Task<ContractChecker> AddCheckerAsync(int contractId, ContractChecker checker);
     Task<(bool ok, string msg)> AcceptCheckAsync(int contractId, int checkerId, string? remark);
     Task<CheckerStats> CheckerStatsAsync(int contractId);
+
+    // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
+    Task<List<FinishedContractReason>> FinishReasonsAsync(bool activeOnly = false);
+    Task<FinishedContractReason> AddFinishReasonAsync(FinishedContractReason reason);
+    Task<(bool ok, string msg)> FinishContractAsync(int contractId, int reasonId, string? description, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -417,6 +422,53 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             checkers.Count(x => x.HasChecked),
             checkers.Count(x => !x.HasChecked),
             c.CheckerStatus);
+    }
+
+    // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
+    // Nguồn QContract: Mst_FinishedContractReason_CreateX / _UpdateX / _CheckDB.
+    public async Task<List<FinishedContractReason>> FinishReasonsAsync(bool activeOnly = false)
+    {
+        var q = db.FinishReasons.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.Type).ThenBy(x => x.Name).ToListAsync();
+    }
+
+    public async Task<FinishedContractReason> AddFinishReasonAsync(FinishedContractReason reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason.Name))
+            throw new InvalidOperationException("Cần tên lý do kết thúc.");
+        if (string.IsNullOrWhiteSpace(reason.Code))
+            reason.Code = "LR" + Guid.NewGuid().ToString("N")[..6].ToUpper();
+        if (await db.FinishReasons.AnyAsync(x => x.Code == reason.Code))
+            throw new InvalidOperationException($"Mã lý do '{reason.Code}' đã tồn tại.");
+        db.FinishReasons.Add(reason);
+        await db.SaveChangesAsync();
+        return reason;
+    }
+
+    // Kết thúc/chấm dứt hợp đồng theo 1 lý do — port từ Contract_ContractParty_FinishX (QContract).
+    // Ghi nhận lý do + mô tả + thời điểm, chuyển trạng thái hợp đồng sang FINISHED.
+    public async Task<(bool ok, string msg)> FinishContractAsync(int contractId, int reasonId, string? description, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc.");
+        var reason = await db.FinishReasons.FirstOrDefaultAsync(x => x.Id == reasonId);
+        if (reason == null) return (false, "Không tìm thấy lý do kết thúc.");
+        if (!reason.Active) return (false, $"Lý do '{reason.Name}' đã ngừng hiệu lực.");
+
+        c.Status = ContractStatus.Finished;
+        c.FinishReasonCode = reason.Code;
+        c.FinishReasonName = reason.Name;
+        c.FinishDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        c.FinishedAt = DateTime.Now;
+        await db.SaveChangesAsync();
+
+        var desc = $"{c.Kind} {c.Code} kết thúc — lý do: {reason.Name} ({reason.TypeLabel})"
+            + (c.FinishDescription != null ? $" — {c.FinishDescription}" : "");
+        await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor, desc);
+        return (true, $"Đã kết thúc {c.Kind.ToLower()} {c.Code} — {reason.Name}.");
     }
 
     // ── helpers ──────────────────────────────────────────────────────
