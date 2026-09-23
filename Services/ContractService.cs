@@ -74,6 +74,9 @@ public interface IContractService
     Task<List<ContractNumberRule>> NumberRulesAsync();
     Task<ContractNumberRule> SaveNumberRuleAsync(ContractNumberRule rule);
     Task<List<string>> PreviewNumbersAsync(int typeId, int amount);
+
+    // ── Hủy hợp đồng bởi một bên (Contract_ContractParty_Cancel) ─────
+    Task<(bool ok, string msg)> CancelByPartyAsync(int contractId, int partyId, string? remark, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -744,6 +747,39 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
     }
 
     // ── helpers ──────────────────────────────────────────────────────
+    // ── Hủy hợp đồng bởi một bên (Contract_ContractParty_Cancel) ─────
+    // Nguồn QContract: WAS_Contract_ContractParty_Cancel → Contract_ContractParty_CancelX.
+    // Luật cốt lõi: hợp đồng phải đang xử lý (chưa hủy/kết thúc); bên hủy phải thuộc hợp đồng.
+    // Khi hủy: hợp đồng chuyển CANCELED (CancelDTimeUTC), bên đó chuyển CANCELED
+    // (CancelDTimeUTC + CancelBy), ghi nhật ký thao tác "PartyCancel".
+    public async Task<(bool ok, string msg)> CancelByPartyAsync(int contractId, int partyId, string? remark, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc.");
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId);
+        if (p == null) return (false, "Bên hủy không thuộc hợp đồng này.");
+        if (p.IsCancelled) return (false, $"{p.Name} đã hủy hợp đồng rồi.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var now = DateTime.Now;
+
+        // Hợp đồng → CANCELED.
+        c.Status = ContractStatus.Cancelled;
+        // Bên hủy → CANCELED (ghi nhận người hủy + thời điểm).
+        p.Status = PartyStatus.Cancelled;
+        p.CancelledAt = now;
+        p.CancelledBy = who;
+        if (!string.IsNullOrWhiteSpace(remark)) p.Remark = remark.Trim();
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.PartyCancelled, who,
+            $"{p.Name} ({Ui.Role(p.Role)}) hủy {c.Kind.ToLower()} {c.Code}"
+            + (string.IsNullOrWhiteSpace(remark) ? "" : $" — {remark.Trim()}"));
+        return (true, $"{p.Name} đã hủy {c.Kind.ToLower()} {c.Code}.");
+    }
+
     private async Task<(Contract? c, ContractParty? p, string? err)> LoadForSign(int contractId, int partyId)
     {
         var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);

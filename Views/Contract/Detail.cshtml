@@ -17,6 +17,7 @@
     bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
     bool canAssign = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canSend = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
+    bool canCancelByParty = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished) && Model.Parties.Any(p => !p.IsCancelled);
 }
 
 <div class="row g-3">
@@ -55,6 +56,11 @@
                             <div>
                                 <span class="badge bg-secondary me-1">@Ui.Role(p.Role)</span>
                                 <b>@p.Name</b> @if (p.Email != null) { <span class="text-muted small">· @p.Email</span> }
+                                @if (p.IsCancelled)
+                                {
+                                    <span class="badge bg-dark ms-1">Đã hủy</span>
+                                    <div class="text-danger small mt-1"><i class="bi bi-person-x me-1"></i>Hủy bởi @p.CancelledBy lúc @p.CancelledAt?.ToString("dd/MM/yyyy HH:mm")@(p.Remark != null ? " — " + p.Remark : "")</div>
+                                }
                                 @if (p.HasSigned)
                                 {
                                     <div class="text-success small mt-1"><i class="bi bi-patch-check-fill me-1"></i>Đã ký @(sig != null ? "bằng " + Ui.Method(sig.Method) : "") lúc @p.SignedAt?.ToString("dd/MM/yyyy HH:mm")
@@ -471,6 +477,25 @@
                 @if (Model.Status != ContractStatus.Cancelled && Model.Status != ContractStatus.Finished)
                 {
                     <a href="/Contract/Finish/@Model.Id" class="btn btn-outline-secondary w-100 mt-2"><i class="bi bi-flag me-1"></i>Kết thúc hợp đồng</a>
+                }
+                @if (canCancelByParty)
+                {
+                    <div class="mt-3 pt-3 border-top">
+                        <div class="small text-muted mb-2"><i class="bi bi-person-x me-1"></i>Hủy bởi một bên — bên hủy sẽ chuyển trạng thái <b>Đã hủy</b> và hợp đồng bị hủy.</div>
+                        <form asp-action="CancelByParty" method="post" onsubmit="return confirm('Bên này hủy hợp đồng? Hợp đồng sẽ bị hủy.')">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@Model.Id" />
+                            <select name="partyId" class="form-select form-select-sm mb-2" required>
+                                <option value="">— Bên hủy hợp đồng —</option>
+                                @foreach (var p in Model.Parties.Where(x => !x.IsCancelled).OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                            <input name="remark" class="form-control form-control-sm mb-2" placeholder="Lý do hủy (tùy chọn)" />
+                            <button class="btn btn-outline-danger w-100"><i class="bi bi-person-x me-1"></i>Hủy bởi bên đã chọn</button>
+                        </form>
+                    </div>
                 }
                 @if (Model.Status == ContractStatus.Completed)
                 {

@@ -322,6 +322,16 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Hủy hợp đồng bởi một bên (Contract_ContractParty_Cancel) ─────
+    // Một bên (Bên A/B) hủy hợp đồng — port từ Contract_ContractParty_Cancel (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelByParty(int id, int partyId, string? remark)
+    {
+        var (ok, msg) = await svc.CancelByPartyAsync(id, partyId, remark, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> SignCks(int id, int partyId)
     {

@@ -54,6 +54,7 @@ public class AppDbContext : DbContext
         });
         b.Entity<ContractParty>(e =>
         {
+            e.Ignore(x => x.IsCancelled);
             e.HasOne(x => x.Contract).WithMany(x => x.Parties).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });

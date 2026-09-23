@@ -56,7 +56,8 @@ public enum HistoryAction
     Remark = 5,      // ghi chú/ghi chú xử lý
     SignLinkCreated = 6,  // tạo link ký công khai
     SignLinkRevoked = 7,  // thu hồi link ký công khai
-    Approved = 8     // phê duyệt hợp đồng (Contract_Contract_Approved)
+    Approved = 8,    // phê duyệt hợp đồng (Contract_Contract_Approved)
+    PartyCancelled = 9    // một bên hủy hợp đồng (Contract_ContractParty_Cancel)
 }
 
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
@@ -91,6 +92,13 @@ public enum CheckerStatus { None = 0, Pending = 1, OnProcess = 2 }
 /// PREFIX = tiền tố đứng trước số (VD: HD-0001), POSTFIX = hậu tố đứng sau số (VD: 0001/2026).
 /// </summary>
 public enum Typefix { Prefix = 0, Postfix = 1 }
+
+/// <summary>
+/// Trạng thái của một bên trong hợp đồng — port từ TConst.ContractPartyStatus (QContract):
+/// ONPROCESS = đang xử lý, PENDING = chờ, APPROVED = đã duyệt, CANCELED = đã hủy,
+/// CONFIRMED = đã xác nhận, FINISHED = đã kết thúc.
+/// </summary>
+public enum PartyStatus { OnProcess = 0, Pending = 1, Approved = 2, Cancelled = 3, Confirmed = 4, Finished = 5 }
 
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
@@ -240,7 +248,15 @@ public class ContractParty : IOrgOwned
     public bool HasSigned { get; set; }
     public DateTime? SignedAt { get; set; }
 
+    // -- Huy hop dong boi mot ben (Contract_ContractParty_Cancel) --
+    public PartyStatus Status { get; set; } = PartyStatus.OnProcess;  // ContractPartyStatus
+    public DateTime? CancelledAt { get; set; }                       // CancelDTimeUTC
+    public string? CancelledBy { get; set; }                         // CancelBy
+    public string? Remark { get; set; }                              // Remark
     public Contract Contract { get; set; } = null!;
+
+    // -- tinh toan --
+    public bool IsCancelled => Status == PartyStatus.Cancelled;
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────
