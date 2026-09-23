@@ -53,6 +53,10 @@ public interface IContractService
     Task<List<FinishedContractReason>> FinishReasonsAsync(bool activeOnly = false);
     Task<FinishedContractReason> AddFinishReasonAsync(FinishedContractReason reason);
     Task<(bool ok, string msg)> FinishContractAsync(int contractId, int reasonId, string? description, string actor);
+
+    // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────
+    Task<List<ContractUserInContract>> UserAssignmentsAsync(int contractId);
+    Task<(bool ok, string msg)> SaveUserAssignmentsAsync(int contractId, List<ContractUserInContract> users, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -469,6 +473,52 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             + (c.FinishDescription != null ? $" — {c.FinishDescription}" : "");
         await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor, desc);
         return (true, $"Đã kết thúc {c.Kind.ToLower()} {c.Code} — {reason.Name}.");
+    }
+
+    // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────
+    // Nguồn QContract: WAS_Contract_UserInContract_Save → Contract_UserInContract_SaveX.
+    // Danh sách người dùng được phân quyền trên hợp đồng (theo thứ tự thêm).
+    public Task<List<ContractUserInContract>> UserAssignmentsAsync(int contractId) =>
+        db.UserAssignments.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Id).ToListAsync();
+
+    // Lưu phân quyền hợp đồng — GHI ĐÈ TOÀN BỘ (full replace): xoá hết phân quyền cũ của
+    // hợp đồng rồi ghi lại danh sách mới, đúng như Contract_UserInContract_SaveX (delete all + insert all).
+    public async Task<(bool ok, string msg)> SaveUserAssignmentsAsync(int contractId, List<ContractUserInContract> users, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không phân quyền.");
+
+        // Chuẩn hoá + loại trùng theo UserCode (giữ bản ghi đầu tiên).
+        var clean = new List<ContractUserInContract>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var u in users ?? [])
+        {
+            var code = (u.UserCode ?? "").Trim();
+            var name = (u.UserName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)) continue;
+            if (string.IsNullOrWhiteSpace(code)) code = name.ToLower().Replace(" ", ".");
+            if (!seen.Add(code)) continue;
+            clean.Add(new ContractUserInContract
+            {
+                ContractId = c.Id, UserCode = code, UserName = string.IsNullOrWhiteSpace(name) ? code : name,
+                Email = string.IsNullOrWhiteSpace(u.Email) ? null : u.Email.Trim(),
+                AssignedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor
+            });
+        }
+
+        // Xoá toàn bộ phân quyền cũ của hợp đồng (delete all).
+        var old = await db.UserAssignments.Where(x => x.ContractId == c.Id).ToListAsync();
+        db.UserAssignments.RemoveRange(old);
+        // Ghi lại danh sách mới (insert all).
+        db.UserAssignments.AddRange(clean);
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+            $"Phân quyền hợp đồng cho {clean.Count} người dùng" + (clean.Count > 0 ? ": " + string.Join(", ", clean.Select(x => x.UserName)) : ""));
+        return (true, $"Đã cập nhật phân quyền hợp đồng — {clean.Count} người dùng.");
     }
 
     // ── helpers ──────────────────────────────────────────────────────

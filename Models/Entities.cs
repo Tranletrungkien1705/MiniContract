@@ -138,6 +138,7 @@ public class Contract : IOrgOwned
     public List<ContractSignLink> SignLinks { get; set; } = [];
     public List<ContractElement> Elements { get; set; } = [];   // các ô ký trên bản thể hiện
     public List<ContractChecker> Checkers { get; set; } = [];   // người kiểm tra hợp đồng (theo thứ tự)
+    public List<ContractUserInContract> UserAssignments { get; set; } = [];  // người dùng được phân quyền
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
@@ -311,4 +312,25 @@ public class ContractChecker : IOrgOwned
 
     // ── tính toán ────────────────────────────────────────────────────
     public string RoleLabel => IsChecker ? "Người kiểm tra" : "Người ký";
+}
+
+// ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────────
+/// <summary>
+/// Người dùng được phân quyền trên hợp đồng — port từ Contract_UserInContract (QContract).
+/// Mỗi bản ghi gắn 1 người dùng (UserCode/UserName/EMail) vào 1 hợp đồng (ContractCode).
+/// Nguồn QContract: WAS_Contract_UserInContract_Save → Contract_UserInContract_SaveX
+/// (xoá toàn bộ phân quyền cũ của hợp đồng rồi ghi lại danh sách mới — full replace).
+/// </summary>
+public class ContractUserInContract : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public string UserCode { get; set; } = "";      // mã/tên đăng nhập người dùng
+    public string UserName { get; set; } = "";      // tên hiển thị người dùng
+    public string? Email { get; set; }              // EMail
+    public DateTime AssignedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string AssignedBy { get; set; } = "";    // LogLUBy — người thực hiện phân quyền
+
+    public Contract Contract { get; set; } = null!;
 }

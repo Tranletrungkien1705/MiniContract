@@ -9,8 +9,10 @@
     var elStats = (ElementStats)(ViewBag.ElementStats ?? new ElementStats(0, 0, 0, 0, 0));
     var checkers = (List<ContractChecker>)(ViewBag.Checkers ?? new List<ContractChecker>());
     var ckStats = (CheckerStats)(ViewBag.CheckerStats ?? new CheckerStats(0, 0, 0, CheckerStatus.None));
+    var userAssignments = (List<ContractUserInContract>)(ViewBag.UserAssignments ?? new List<ContractUserInContract>());
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
+    bool canAssign = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -272,6 +274,45 @@
                             </div>
                         </div>
                         <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm người kiểm tra</button></div>
+                    </form>
+                }
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-people me-1"></i>Phân quyền hợp đồng <span class="badge bg-secondary">@userAssignments.Count</span></h6>
+                    <div class="small text-muted">Người dùng được phép xử lý hợp đồng này</div>
+                </div>
+                @if (userAssignments.Count == 0)
+                {
+                    <div class="text-muted small">Chưa phân quyền cho người dùng nào.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Người dùng</th><th>Email</th><th>Phân quyền lúc</th></tr></thead>
+                        <tbody>
+                        @foreach (var u in userAssignments)
+                        {
+                            <tr>
+                                <td><b>@u.UserName</b><div class="text-muted" style="font-size:11px">@u.UserCode</div></td>
+                                <td class="small">@(u.Email ?? "—")</td>
+                                <td class="small text-muted">@u.AssignedAt.ToString("dd/MM/yyyy HH:mm") · @u.AssignedBy</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canAssign)
+                {
+                    <form asp-action="SaveUserAssignments" method="post" class="mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="small text-muted mb-2">Mỗi dòng 1 người dùng: <code>mã</code> | <code>tên</code> | <code>email</code> (cách nhau bằng dấu <b>|</b>). Lưu sẽ <b>ghi đè toàn bộ</b> danh sách phân quyền hiện tại.</div>
+                        <textarea name="userCodes" class="form-control form-control-sm mb-2" rows="3" placeholder="vd: kt.le | Lê Thị Kiểm | kt.le@corp.vn"></textarea>
+                        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-save me-1"></i>Cập nhật phân quyền</button>
                     </form>
                 }
             </div>

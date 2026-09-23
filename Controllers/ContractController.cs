@@ -52,6 +52,7 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.ElementStats = await svc.ElementStatsAsync(id);
         ViewBag.Checkers = await svc.CheckersAsync(id);
         ViewBag.CheckerStats = await svc.CheckerStatsAsync(id);
+        ViewBag.UserAssignments = await svc.UserAssignmentsAsync(id);
         return View(c);
     }
 
@@ -113,6 +114,27 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> AcceptCheck(int id, int checkerId, string? remark)
     {
         var (ok, msg) = await svc.AcceptCheckAsync(id, checkerId, remark);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────
+    // Ghi đè toàn bộ danh sách người dùng được phân quyền — port từ Decentralized (QContract).
+    // Mỗi dòng: mã | tên | email (tên/email tùy chọn).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveUserAssignments(int id, string? userCodes)
+    {
+        var users = new List<ContractUserInContract>();
+        foreach (var raw in (userCodes ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = raw.Split('|');
+            var code = parts.Length > 0 ? parts[0].Trim() : "";
+            var name = parts.Length > 1 ? parts[1].Trim() : "";
+            var email = parts.Length > 2 ? parts[2].Trim() : "";
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)) continue;
+            users.Add(new ContractUserInContract { UserCode = code, UserName = name, Email = email });
+        }
+        var (ok, msg) = await svc.SaveUserAssignmentsAsync(id, users, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

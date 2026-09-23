@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractSignLink> SignLinks => Set<ContractSignLink>();
     public DbSet<ContractElement> Elements => Set<ContractElement>();
     public DbSet<ContractChecker> Checkers => Set<ContractChecker>();
+    public DbSet<ContractUserInContract> UserAssignments => Set<ContractUserInContract>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -72,6 +73,11 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.RoleLabel);
             e.HasOne(x => x.Contract).WithMany(x => x.Checkers).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractUserInContract>(e =>
+        {
+            e.HasOne(x => x.Contract).WithMany(x => x.UserAssignments).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<FinishedContractReason>(e =>
