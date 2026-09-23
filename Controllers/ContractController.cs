@@ -55,6 +55,7 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.ApproveStats = await svc.ApproveStatsAsync(id);
         ViewBag.UserAssignments = await svc.UserAssignmentsAsync(id);
         ViewBag.SendHistory = await svc.SendHistoryAsync(id);
+        ViewBag.VerifyOtps = await svc.VerifyOtpsAsync(id);
         return View(c);
     }
 
@@ -352,6 +353,29 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> SignOtp(int id, int partyId, string otp)
     {
         var (ok, msg) = await svc.SignOtpAsync(id, partyId, otp);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
+    // Sinh mã OTP cho 1 bên — port từ WAS_Contract_ContractVerifyOtp_Save (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> GenerateVerifyOtp(int id, int partyId, int validMinutes)
+    {
+        try
+        {
+            var otp = await svc.GenerateVerifyOtpAsync(id, partyId, validMinutes, "web");
+            TempData["Success"] = $"Mã OTP (demo): {otp.OtpCode} — cho {otp.UserCodeSign}, hết hạn {otp.EndDate:HH:mm:ss}.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Xác thực mã OTP — port từ Contract_ContractVerifyOtp_SaveX (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> VerifyOtp(int id, string otpCode, string? userCodeSign)
+    {
+        var (ok, msg) = await svc.VerifyOtpAsync(id, otpCode, userCodeSign ?? "");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

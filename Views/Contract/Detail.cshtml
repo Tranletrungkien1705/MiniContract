@@ -12,12 +12,14 @@
     var apStats = (ApproveStats)(ViewBag.ApproveStats ?? new ApproveStats(0, 0, false, null, null));
     var userAssignments = (List<ContractUserInContract>)(ViewBag.UserAssignments ?? new List<ContractUserInContract>());
     var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
+    var verifyOtps = (List<ContractVerifyOtp>)(ViewBag.VerifyOtps ?? new List<ContractVerifyOtp>());
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
     bool canAssign = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canSend = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canCancelByParty = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished) && Model.Parties.Any(p => !p.IsCancelled);
+    bool canOtp = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -440,6 +442,67 @@
                         <div class="col-md-3"><input name="infoReceive" class="form-control form-control-sm" placeholder="Email/SĐT/Zalo (tùy chọn)" /></div>
                         <div class="col-md-2"><input name="remark" class="form-control form-control-sm" placeholder="Ghi chú" /></div>
                         <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-send me-1"></i>Ghi nhận gửi</button></div>
+                    </form>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-shield-lock me-1"></i>Mã OTP xác thực ký <span class="badge bg-secondary">@verifyOtps.Count</span></h6>
+                    <div class="small text-muted">Sinh mã cho 1 bên, hạn mặc định 2 phút</div>
+                </div>
+                @if (verifyOtps.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có mã OTP nào.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Mã OTP</th><th>Người ký</th><th>Hiệu lực</th><th>Hết hạn</th><th>Trạng thái</th></tr></thead>
+                        <tbody>
+                        @foreach (var o in verifyOtps)
+                        {
+                            <tr>
+                                <td class="fw-semibold font-monospace">@o.OtpCode</td>
+                                <td class="small">@o.UserCodeSign</td>
+                                <td class="small text-muted">@o.CreateDate.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                                <td class="small text-muted">@o.EndDate.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                                <td>
+                                    @if (o.UsedAt != null) { <span class="badge bg-success">Đã dùng</span> }
+                                    else if (o.State == OtpState.Active) { <span class="badge bg-warning text-dark">Còn hiệu lực</span> }
+                                    else { <span class="badge bg-secondary">@o.StateLabel</span> }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canOtp)
+                {
+                    <form asp-action="GenerateVerifyOtp" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-5">
+                            <select name="partyId" class="form-select form-select-sm" required>
+                                <option value="">— Bên cần sinh OTP —</option>
+                                @foreach (var p in Model.Parties.Where(x => !x.HasSigned).OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2"><input name="validMinutes" type="number" value="2" min="1" class="form-control form-control-sm" title="Hạn (phút)" /></div>
+                        <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-shield-lock me-1"></i>Sinh mã OTP</button></div>
+                    </form>
+                    <form asp-action="VerifyOtp" method="post" class="row g-2 mt-2">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4"><input name="otpCode" class="form-control form-control-sm font-monospace" placeholder="Nhập mã OTP" required /></div>
+                        <div class="col-md-4"><input name="userCodeSign" class="form-control form-control-sm" placeholder="Người ký (email/tên, tùy chọn)" /></div>
+                        <div class="col-md-4"><button class="btn btn-sm btn-outline-success w-100"><i class="bi bi-check2-circle me-1"></i>Xác thực OTP</button></div>
                     </form>
                 }
             </div>

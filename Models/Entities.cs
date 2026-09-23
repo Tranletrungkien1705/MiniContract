@@ -453,3 +453,46 @@ public class ContractSendHist : IOrgOwned
     };
     public string BulletinLabel => Bulletin == BulletinType.Otp ? "OTP" : "Hợp đồng";
 }
+
+// ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────────
+/// <summary>
+/// Trạng thái hiệu lực của mã OTP (tính từ thời điểm hết hạn + cờ hiệu lực).
+/// </summary>
+public enum OtpState { Active = 0, Expired = 1, Inactive = 2 }
+
+/// <summary>
+/// Mã OTP xác thực khi ký hợp đồng — port từ Contract_ContractVerifyOtp (QContract).
+/// Mỗi mã gắn với 1 hợp đồng (ContractCode) + 1 người ký (UserCodeSign), có thời hạn
+/// (EndDate) và cờ hiệu lực (FlagActive). Luật cốt lõi (Contract_ContractVerifyOtp_SaveX):
+/// khi sinh mã mới cho (hợp đồng, người ký) thì XOÁ toàn bộ mã cũ của cặp đó rồi ghi mã mới
+/// (delete all + insert); khi xác thực, mã phải còn hiệu lực và chưa hết hạn (EndDate >= now).
+/// Nguồn QContract: WAS_Contract_ContractVerifyOtp_Save → Contract_ContractVerifyOtp_SaveX
+/// + Contract_ContractVerifyOtp_GetX (sinh mã ngẫu nhiên 6 ký tự hex, hạn 2 phút).
+/// </summary>
+public class ContractVerifyOtp : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }             // hợp đồng áp dụng
+    public string ContractCode { get; set; } = "";  // ContractCode — số hợp đồng
+    public string OtpCode { get; set; } = "";       // OtpCode — mã OTP (6 ký tự hex)
+    public string UserCodeSign { get; set; } = "";  // UserCodeSign — người ký được xác thực
+    public DateTime CreateDate { get; set; } = DateTime.Now;  // CreateDate
+    public DateTime EndDate { get; set; }           // EndDate — hết hạn
+    public bool Active { get; set; } = true;        // FlagActive
+    public DateTime? UsedAt { get; set; }           // thời điểm mã được dùng để ký
+    public string CreatedBy { get; set; } = "";     // LogLUBy — người sinh mã
+    public Contract Contract { get; set; } = null!;
+
+    // ── tính toán ────────────────────
+    public OtpState State => !Active ? OtpState.Inactive
+        : (DateTime.Now > EndDate ? OtpState.Expired : OtpState.Active);
+    public bool IsUsable => State == OtpState.Active && UsedAt == null;
+    public string StateLabel => State switch
+    {
+        OtpState.Active => "Còn hiệu lực",
+        OtpState.Expired => "Hết hạn",
+        OtpState.Inactive => "Đã vô hiệu",
+        _ => State.ToString()
+    };
+}

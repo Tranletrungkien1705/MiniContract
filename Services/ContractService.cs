@@ -77,6 +77,11 @@ public interface IContractService
 
     // ── Hủy hợp đồng bởi một bên (Contract_ContractParty_Cancel) ─────
     Task<(bool ok, string msg)> CancelByPartyAsync(int contractId, int partyId, string? remark, string actor);
+
+    // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
+    Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId);
+    Task<ContractVerifyOtp> GenerateVerifyOtpAsync(int contractId, int partyId, int validMinutes, string actor);
+    Task<(bool ok, string msg)> VerifyOtpAsync(int contractId, string otpCode, string userCodeSign);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -778,6 +783,85 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             $"{p.Name} ({Ui.Role(p.Role)}) hủy {c.Kind.ToLower()} {c.Code}"
             + (string.IsNullOrWhiteSpace(remark) ? "" : $" — {remark.Trim()}"));
         return (true, $"{p.Name} đã hủy {c.Kind.ToLower()} {c.Code}.");
+    }
+
+    // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
+    // Nguồn QContract: WAS_Contract_ContractVerifyOtp_Save → Contract_ContractVerifyOtp_SaveX
+    // + Contract_ContractVerifyOtp_GetX (sinh mã ngẫu nhiên 6 ký tự hex, hạn 2 phút).
+    public Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId) =>
+        db.VerifyOtps.Where(x => x.ContractId == contractId)
+          .OrderByDescending(x => x.CreateDate).ThenByDescending(x => x.Id).ToListAsync();
+
+    // Sinh mã OTP mới cho (hợp đồng, người ký) — port từ Contract_ContractVerifyOtp_SaveX.
+    // Luật cốt lõi: XOÁ toàn bộ mã cũ của cặp (ContractCode, UserCodeSign) rồi ghi mã mới
+    // (delete all + insert); mã ngẫu nhiên 6 ký tự hex, hạn mặc định 2 phút.
+    public async Task<ContractVerifyOtp> GenerateVerifyOtpAsync(int contractId, int partyId, int validMinutes, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            throw new InvalidOperationException("Hợp đồng đã hủy hoặc đã kết thúc, không sinh OTP.");
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId)
+            ?? throw new KeyNotFoundException("Không tìm thấy bên tham gia.");
+        if (p.HasSigned) throw new InvalidOperationException($"{p.Name} đã ký rồi.");
+        if (validMinutes <= 0) validMinutes = 2;   // mặc định 2 phút như QContract
+        var userCodeSign = string.IsNullOrWhiteSpace(p.Email) ? p.Name : p.Email;
+        var now = DateTime.Now;
+
+        // Xoá toàn bộ mã OTP cũ của cặp (hợp đồng, người ký) — delete all.
+        var old = await db.VerifyOtps
+            .Where(x => x.ContractId == c.Id && x.UserCodeSign == userCodeSign).ToListAsync();
+        db.VerifyOtps.RemoveRange(old);
+
+        // Ghi mã mới — insert.
+        var otp = new ContractVerifyOtp
+        {
+            ContractId = c.Id, ContractCode = c.Code,
+            OtpCode = RandomHex(6), UserCodeSign = userCodeSign,
+            CreateDate = now, EndDate = now.AddMinutes(validMinutes),
+            Active = true, CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor
+        };
+        db.VerifyOtps.Add(otp);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, otp.CreatedBy,
+            $"Sinh mã OTP xác thực cho {p.Name} — hết hạn {otp.EndDate:HH:mm:ss}");
+        return otp;
+    }
+
+    // Xác thực mã OTP — port từ Contract_ContractVerifyOtp_SaveX (kiểm tra EndDate >= now).
+    // Mã phải còn hiệu lực (FlagActive) và chưa hết hạn; khi hợp lệ thì đánh dấu đã dùng.
+    public async Task<(bool ok, string msg)> VerifyOtpAsync(int contractId, string otpCode, string userCodeSign)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (string.IsNullOrWhiteSpace(otpCode)) return (false, "Cần nhập mã OTP.");
+
+        var code = otpCode.Trim();
+        var who = (userCodeSign ?? "").Trim();
+        var now = DateTime.Now;
+
+        // Tìm mã còn hiệu lực + chưa hết hạn của hợp đồng (và người ký nếu có).
+        var otp = await db.VerifyOtps
+            .Where(x => x.ContractId == c.Id && x.OtpCode == code && x.Active && x.EndDate >= now)
+            .Where(x => string.IsNullOrWhiteSpace(who) || x.UserCodeSign == who)
+            .OrderByDescending(x => x.CreateDate)
+            .FirstOrDefaultAsync();
+        if (otp == null) return (false, "Mã OTP không đúng hoặc đã hết hạn.");
+        if (otp.UsedAt != null) return (false, "Mã OTP này đã được sử dụng.");
+
+        otp.UsedAt = now;
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, who == "" ? "web" : who,
+            $"Xác thực OTP thành công cho {otp.UserCodeSign}");
+        return (true, $"Xác thực OTP thành công cho {otp.UserCodeSign}.");
+    }
+
+    // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).
+    private static string RandomHex(int n)
+    {
+        var bytes = new byte[(n + 1) / 2];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        return Convert.ToHexString(bytes)[..n].ToLowerInvariant();
     }
 
     private async Task<(Contract? c, ContractParty? p, string? err)> LoadForSign(int contractId, int partyId)
