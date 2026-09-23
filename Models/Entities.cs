@@ -1367,3 +1367,27 @@ public class CurrencyExchange : IOrgOwned
     public string RateLabel => $"{BuyRate:N0} / {SellRate:N0}";   // mua / bán
     public bool HasRate => BuyRate > 0 || SellRate > 0;
 }
+
+// ── Tham số hệ thống (Mst_Param) ─────────────────────
+/// <summary>
+/// Tham số hệ thống (cấu hình dạng key-value) — port từ Mst_Param (QContract).
+/// Mỗi bản ghi là 1 tham số (ParamCode) gắn với 1 mạng (NetworkID) và giá trị (ParamValue).
+/// Khóa nghiệp vụ là ParamCode.
+/// Luật cốt lõi (Mst_Param_CheckDB / _Create / _Update / _Delete):
+///  - ParamCode bắt buộc khi tạo (nếu rỗng → lỗi Mst_Param_Create_InvalidParamCode);
+///  - khi tạo, ParamCode KHÔNG được trùng (FlagExistToCheck = No → Mst_Param_CheckDB_ParamCodeExist);
+///  - khi sửa/xóa, ParamCode phải tồn tại (FlagExistToCheck = Yes → Mst_Param_CheckDB_ParamCodeNotFound);
+///  - sửa là cập nhật từng phần (chỉ ParamValue khi có trong danh sách cột cập nhật).
+/// </summary>
+public class SystemParam : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string ParamCode { get; set; } = "";       // ParamCode — mã tham số hệ thống
+    public string? NetworkID { get; set; }             // NetworkID — mạng áp dụng
+    public string ParamValue { get; set; } = "";      // ParamValue — giá trị tham số
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    // ── tính toán ────────────────────
+    public bool HasValue => !string.IsNullOrWhiteSpace(ParamValue);   // đã có giá trị
+}

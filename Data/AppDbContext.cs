@@ -47,6 +47,7 @@ public class AppDbContext : DbContext
     public DbSet<UserNotifyType> UserNotifyTypes => Set<UserNotifyType>();
     public DbSet<TempType> TempTypes => Set<TempType>();
     public DbSet<CurrencyExchange> Currencies => Set<CurrencyExchange>();
+    public DbSet<SystemParam> SystemParams => Set<SystemParam>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -321,6 +322,12 @@ public class AppDbContext : DbContext
             e.Property(x => x.SellRate).HasPrecision(18, 4);
             e.Property(x => x.InterEx).HasPrecision(18, 4);
             e.HasIndex(x => new { x.OrgId, x.CurrencyCode }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<SystemParam>(e =>
+        {
+            e.Ignore(x => x.HasValue);
+            e.HasIndex(x => new { x.OrgId, x.ParamCode }).IsUnique();
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

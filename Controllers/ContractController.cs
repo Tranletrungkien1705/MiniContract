@@ -1253,4 +1253,39 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Currencies));
     }
+
+    // ── Tham số hệ thống (Mst_Param) ─────────────────
+    // Danh mục tham số hệ thống (key-value) — port từ Mst_Param (QContract).
+    public async Task<IActionResult> SystemParams()
+    {
+        return View(await svc.SystemParamsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveSystemParam(int id, string paramCode, string? networkId, string? paramValue)
+    {
+        if (string.IsNullOrWhiteSpace(paramCode))
+        {
+            TempData["Error"] = "Cần mã tham số hệ thống (ParamCode).";
+            return RedirectToAction(nameof(SystemParams));
+        }
+        try
+        {
+            await svc.SaveSystemParamAsync(new SystemParam
+            {
+                Id = id, ParamCode = paramCode.Trim(), NetworkID = networkId, ParamValue = paramValue ?? ""
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật tham số hệ thống." : "Đã thêm tham số hệ thống.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(SystemParams));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteSystemParam(int id)
+    {
+        var (ok, msg) = await svc.DeleteSystemParamAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(SystemParams));
+    }
 }

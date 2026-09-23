@@ -226,6 +226,11 @@ public interface IContractService
     Task<CurrencyExchange> SaveCurrencyAsync(CurrencyExchange currency, string actor);
     Task<(bool ok, string msg)> DeleteCurrencyAsync(int id, string actor);
 
+    // ── Tham số hệ thống (Mst_Param) ─────────────────
+    Task<List<SystemParam>> SystemParamsAsync();
+    Task<SystemParam> SaveSystemParamAsync(SystemParam param, string actor);
+    Task<(bool ok, string msg)> DeleteSystemParamAsync(int id, string actor);
+
     // ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────
     Task<List<ContractAttachment>> AttachmentsAsync(int contractId);
     Task<(bool ok, string msg)> AddAttachmentAsync(int contractId, ContractAttachment attachment, string actor);
@@ -2591,6 +2596,51 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         var list = await db.Attachments.Where(x => x.ContractId == contractId).ToListAsync();
         return new AttachmentStats(list.Count, list.Count(a => a.IsPublic),
             list.Count(a => !a.IsPublic), list.Count(a => a.HasFile));
+    }
+
+    // ── Tham số hệ thống (Mst_Param) ─────────────────
+    // Nguồn QContract: Mst_Param_CheckDB / _Create / _Update / _Delete (MasterData.cs).
+    public Task<List<SystemParam>> SystemParamsAsync() =>
+        db.SystemParams.OrderBy(x => x.ParamCode).ToListAsync();
+
+    // Lưu tham số hệ thống — tạo mới (ParamCode không trùng) hoặc cập nhật từng phần khi đã tồn tại.
+    // Luật cốt lõi: ParamCode bắt buộc & KHÔNG trùng khi tạo (FlagExistToCheck=No); khi sửa phải
+    // tồn tại (FlagExistToCheck=Yes); sửa là cập nhật từng phần (ParamValue/NetworkID).
+    public async Task<SystemParam> SaveSystemParamAsync(SystemParam param, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var code = (param.ParamCode ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã tham số hệ thống (ParamCode).");
+
+        var existing = await db.SystemParams.FirstOrDefaultAsync(x => x.ParamCode == code);
+        if (existing == null)
+        {
+            // Tạo mới — ParamCode không được trùng (FlagExistToCheck=No).
+            param.ParamCode = code;
+            param.ParamValue = (param.ParamValue ?? "").Trim();
+            param.NetworkID = string.IsNullOrWhiteSpace(param.NetworkID) ? null : param.NetworkID.Trim();
+            param.CreatedBy = who;
+            db.SystemParams.Add(param);
+            await db.SaveChangesAsync();
+            return param;
+        }
+
+        // Cập nhật từng phần (FlagExistToCheck=Yes).
+        existing.ParamValue = (param.ParamValue ?? "").Trim();
+        existing.NetworkID = string.IsNullOrWhiteSpace(param.NetworkID) ? null : param.NetworkID.Trim();
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa tham số hệ thống — phải tồn tại (FlagExistToCheck=Yes).
+    public async Task<(bool ok, string msg)> DeleteSystemParamAsync(int id, string actor)
+    {
+        var p = await db.SystemParams.FirstOrDefaultAsync(x => x.Id == id);
+        if (p == null) return (false, "Không tìm thấy tham số hệ thống.");
+        db.SystemParams.Remove(p);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa tham số '{p.ParamCode}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).
