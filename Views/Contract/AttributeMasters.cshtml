@@ -1,0 +1,69 @@
+@model List<AttributeContract>
+@{
+    ViewData["Title"] = "Danh mục trường động hợp đồng";
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm trường động</h6>
+            <form asp-action="SaveAttributeMaster" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="0" />
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Mã trường (AttributeContractCode)</label>
+                    <input name="code" class="form-control" placeholder="VD: LOAI_HD" required />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Tên trường (AttributeName)</label>
+                    <input name="name" class="form-control" placeholder="VD: Loại hợp đồng" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Giá trị mặc định (tùy chọn)</label>
+                    <input name="defaultValues" class="form-control" placeholder="VD: Mua bán" />
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="active" value="true" checked id="amActive" />
+                    <label class="form-check-label small" for="amActive">Đang hiệu lực</label>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Thêm trường động</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Danh mục trường động (thuộc tính động) dùng để gán giá trị cho hợp đồng — port từ <code>Mst_Attribute_Contract</code> (QContract). Mã trường không được trùng.</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-list-ul me-2"></i>Danh mục trường động <span class="badge bg-secondary">@Model.Count</span></h6>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="text-muted small">Chưa có trường động nào.</div>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Mã trường</th><th>Tên trường</th><th>Giá trị mặc định</th><th>Hiệu lực</th><th style="width:44px"></th></tr></thead>
+                    <tbody>
+                    @foreach (var m in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold"><code>@m.Code</code></td>
+                            <td>@m.Name</td>
+                            <td class="small text-muted">@(string.IsNullOrWhiteSpace(m.DefaultValues) ? "—" : m.DefaultValues)</td>
+                            <td>@if (m.Active) { <span class="badge bg-success">Đang dùng</span> } else { <span class="badge bg-secondary">Ngừng</span> }</td>
+                            <td>
+                                <form asp-action="DeleteAttributeMaster" method="post" onsubmit="return confirm('Xóa trường động này?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@m.Id" />
+                                    <button class="btn btn-sm btn-outline-danger" title="Xóa"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div></div>
+    </div>
+</div>

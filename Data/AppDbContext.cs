@@ -28,6 +28,9 @@ public class AppDbContext : DbContext
     public DbSet<ContractSigner> Signers => Set<ContractSigner>();
     public DbSet<ContractSendHist> SendHistory => Set<ContractSendHist>();
     public DbSet<ContractDetail> Details => Set<ContractDetail>();
+    public DbSet<AttributeContract> AttributeContracts => Set<AttributeContract>();
+    public DbSet<ContractAttribute> ContractAttributes => Set<ContractAttribute>();
+    public DbSet<ContractAttributeDtl> ContractAttributeDtls => Set<ContractAttributeDtl>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
     public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
@@ -178,6 +181,21 @@ public class AppDbContext : DbContext
             e.Property(x => x.ValDiscount).HasPrecision(18, 2);
             e.Property(x => x.VATRate).HasPrecision(18, 2);
             e.HasOne(x => x.Contract).WithMany(x => x.Details).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<AttributeContract>(e =>
+        {
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractAttribute>(e =>
+        {
+            e.HasOne(x => x.Contract).WithMany(x => x.Attributes).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractAttributeDtl>(e =>
+        {
+            e.HasOne(x => x.Contract).WithMany(x => x.AttributeDetails).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<FinishedContractReason>(e =>

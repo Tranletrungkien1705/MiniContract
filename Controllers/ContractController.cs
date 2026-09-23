@@ -61,6 +61,9 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.PartySignStats = await svc.PartySignStatsAsync(id);
         ViewBag.Details = await svc.DetailsAsync(id);
         ViewBag.DetailStats = await svc.DetailStatsAsync(id);
+        ViewBag.Attributes = await svc.AttributesAsync(id);
+        ViewBag.AttributeDetails = await svc.AttributeDetailsAsync(id);
+        ViewBag.AttributeMasters = await svc.AttributeMastersAsync(activeOnly: true);
         return View(c);
     }
 
@@ -932,6 +935,79 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> DeleteDetail(int id, int detailId)
     {
         var (ok, msg) = await svc.DeleteDetailAsync(id, detailId, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Trường động của hợp đồng (Contract_Attribute_Contract) ───────
+    // Danh mục trường động (Mst_Attribute_Contract) — port từ Mst_Attribute_Contract (QContract).
+    public async Task<IActionResult> AttributeMasters()
+    {
+        return View(await svc.AttributeMastersAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveAttributeMaster(int id, string code, string? name, string? defaultValues, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            TempData["Error"] = "Cần mã trường động.";
+            return RedirectToAction(nameof(AttributeMasters));
+        }
+        try
+        {
+            await svc.SaveAttributeMasterAsync(new AttributeContract
+            {
+                Id = id, Code = code.Trim(), Name = name?.Trim() ?? "", DefaultValues = defaultValues, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật trường động." : "Đã thêm trường động.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(AttributeMasters));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteAttributeMaster(int id)
+    {
+        var (ok, msg) = await svc.DeleteAttributeMasterAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(AttributeMasters));
+    }
+
+    // Lưu trường động cấp hợp đồng — GHI ĐÈ TOÀN BỘ (delete all + insert all).
+    // Mỗi dòng: mã trường | giá trị.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveAttributes(int id, string? attributes)
+    {
+        var list = new List<ContractAttribute>();
+        foreach (var raw in (attributes ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = raw.Split('|', 2);
+            var code = parts[0].Trim();
+            var value = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(value)) continue;
+            list.Add(new ContractAttribute { AttributeContractCode = code, AttributeValue = value });
+        }
+        var (ok, msg) = await svc.SaveAttributesAsync(id, list, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Lưu trường động cấp chi tiết — GHI ĐÈ TOÀN BỘ. Mỗi dòng: thứ tự | mã trường | giá trị.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveAttributeDetails(int id, string? attributes)
+    {
+        var list = new List<ContractAttributeDtl>();
+        foreach (var raw in (attributes ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = raw.Split('|');
+            var idx = parts.Length > 0 && int.TryParse(parts[0].Trim(), out var n) ? n : 1;
+            var code = parts.Length > 1 ? parts[1].Trim() : "";
+            var value = parts.Length > 2 ? parts[2].Trim() : "";
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(value)) continue;
+            list.Add(new ContractAttributeDtl { Idx = idx, AttributeContractCode = code, AttributeValue = value });
+        }
+        var (ok, msg) = await svc.SaveAttributeDetailsAsync(id, list, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

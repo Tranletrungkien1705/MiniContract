@@ -160,6 +160,15 @@ public interface IContractService
     Task<ContractDetail> AddDetailAsync(int contractId, ContractDetail detail, string actor);
     Task<(bool ok, string msg)> DeleteDetailAsync(int contractId, int detailId, string actor);
     Task<DetailStats> DetailStatsAsync(int contractId);
+
+    // ── Trường động của hợp đồng (Contract_Attribute_Contract) ───────
+    Task<List<AttributeContract>> AttributeMastersAsync(bool activeOnly = false);
+    Task<AttributeContract> SaveAttributeMasterAsync(AttributeContract master, string actor);
+    Task<(bool ok, string msg)> DeleteAttributeMasterAsync(int id, string actor);
+    Task<List<ContractAttribute>> AttributesAsync(int contractId);
+    Task<(bool ok, string msg)> SaveAttributesAsync(int contractId, List<ContractAttribute> attributes, string actor);
+    Task<List<ContractAttributeDtl>> AttributeDetailsAsync(int contractId);
+    Task<(bool ok, string msg)> SaveAttributeDetailsAsync(int contractId, List<ContractAttributeDtl> attributes, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -1880,6 +1889,151 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         var tax = ds.Sum(d => d.ValTax);
         var discount = ds.Sum(d => d.ValDiscount);
         return new DetailStats(ds.Count, total, tax, discount, total - discount + tax);
+    }
+
+    // ── Trường động của hợp đồng (Contract_Attribute_Contract) ───────
+    // Nguồn QContract: Mst_Attribute_Contract_CheckDB / _CreateX / _UpdateX / _DeleteX
+    // + Contract_Contract_SaveX (lưu trường động cấp hợp đồng/chi tiết).
+    public async Task<List<AttributeContract>> AttributeMastersAsync(bool activeOnly = false)
+    {
+        var q = db.AttributeContracts.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.Code).ToListAsync();
+    }
+
+    // Lưu 1 trường động (danh mục) — port từ Mst_Attribute_Contract_CreateX / _UpdateX.
+    // Luật cốt lõi: mã trường bắt buộc; khi tạo mã KHÔNG được trùng; khi sửa mã phải tồn tại.
+    public async Task<AttributeContract> SaveAttributeMasterAsync(AttributeContract master, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(master.Code))
+            throw new InvalidOperationException("Cần mã trường động (AttributeContractCode).");
+        master.Code = master.Code.Trim();
+        master.Name = string.IsNullOrWhiteSpace(master.Name) ? master.Code : master.Name.Trim();
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+
+        if (master.Id > 0)
+        {
+            var existing = await db.AttributeContracts.FirstOrDefaultAsync(x => x.Id == master.Id)
+                ?? throw new InvalidOperationException("Không tìm thấy trường động.");
+            // Mã trường không được trùng với bản ghi khác.
+            if (await db.AttributeContracts.AnyAsync(x => x.Id != master.Id && x.Code == master.Code))
+                throw new InvalidOperationException($"Mã trường động '{master.Code}' đã tồn tại.");
+            existing.Code = master.Code;
+            existing.Name = master.Name;
+            existing.DefaultValues = master.DefaultValues;
+            existing.Active = master.Active;
+            await db.SaveChangesAsync();
+            return existing;
+        }
+
+        // Tạo mới: mã trường KHÔNG được trùng (FlagExistToCheck = No).
+        if (await db.AttributeContracts.AnyAsync(x => x.Code == master.Code))
+            throw new InvalidOperationException($"Mã trường động '{master.Code}' đã tồn tại.");
+        master.CreatedBy = who;
+        db.AttributeContracts.Add(master);
+        await db.SaveChangesAsync();
+        return master;
+    }
+
+    public async Task<(bool ok, string msg)> DeleteAttributeMasterAsync(int id, string actor)
+    {
+        var m = await db.AttributeContracts.FirstOrDefaultAsync(x => x.Id == id);
+        if (m == null) return (false, "Không tìm thấy trường động.");
+        db.AttributeContracts.Remove(m);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa trường động '{m.Name}'.");
+    }
+
+    public Task<List<ContractAttribute>> AttributesAsync(int contractId) =>
+        db.ContractAttributes.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Id).ToListAsync();
+
+    // Lưu trường động cấp hợp đồng — GHI ĐÈ TOÀN BỘ (delete all + insert all), đúng như
+    // Contract_Contract_SaveX (QContract). Mỗi trường: mã bắt buộc + phải tồn tại & đang hiệu lực
+    // trong Mst_Attribute_Contract; giá trị bắt buộc (không rỗng).
+    public async Task<(bool ok, string msg)> SaveAttributesAsync(int contractId, List<ContractAttribute> attributes, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không cập nhật trường động.");
+
+        var masters = await db.AttributeContracts.Where(x => x.Active).ToListAsync();
+        var clean = new List<ContractAttribute>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in attributes ?? [])
+        {
+            var code = (a.AttributeContractCode ?? "").Trim();
+            var value = (a.AttributeValue ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(value)) continue;
+            if (string.IsNullOrWhiteSpace(code))
+                return (false, "Mỗi trường động phải có mã trường (AttributeContractCode).");
+            if (string.IsNullOrWhiteSpace(value))
+                return (false, $"Trường động '{code}' phải có giá trị (AttributeValue).");
+            var master = masters.FirstOrDefault(m => m.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+            if (master == null)
+                return (false, $"Mã trường động '{code}' không tồn tại hoặc đã ngừng hiệu lực.");
+            if (!seen.Add(code)) continue;   // loại trùng theo mã trường
+            clean.Add(new ContractAttribute
+            {
+                ContractId = c.Id, AttributeContractCode = master.Code, AttributeName = master.Name,
+                AttributeValue = value, CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor
+            });
+        }
+
+        var old = await db.ContractAttributes.Where(x => x.ContractId == c.Id).ToListAsync();
+        db.ContractAttributes.RemoveRange(old);
+        db.ContractAttributes.AddRange(clean);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+            $"Cập nhật trường động hợp đồng — {clean.Count} trường");
+        return (true, $"Đã cập nhật trường động hợp đồng — {clean.Count} trường.");
+    }
+
+    public Task<List<ContractAttributeDtl>> AttributeDetailsAsync(int contractId) =>
+        db.ContractAttributeDtls.Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.Idx).ThenBy(x => x.Id).ToListAsync();
+
+    // Lưu trường động cấp chi tiết — GHI ĐÈ TOÀN BỘ (delete all + insert all).
+    public async Task<(bool ok, string msg)> SaveAttributeDetailsAsync(int contractId, List<ContractAttributeDtl> attributes, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không cập nhật trường động.");
+
+        var masters = await db.AttributeContracts.Where(x => x.Active).ToListAsync();
+        var clean = new List<ContractAttributeDtl>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in attributes ?? [])
+        {
+            var code = (a.AttributeContractCode ?? "").Trim();
+            var value = (a.AttributeValue ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(value)) continue;
+            if (string.IsNullOrWhiteSpace(code))
+                return (false, "Mỗi trường động phải có mã trường (AttributeContractCode).");
+            if (string.IsNullOrWhiteSpace(value))
+                return (false, $"Trường động '{code}' phải có giá trị (AttributeValue).");
+            var master = masters.FirstOrDefault(m => m.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+            if (master == null)
+                return (false, $"Mã trường động '{code}' không tồn tại hoặc đã ngừng hiệu lực.");
+            var key = $"{a.Idx}|{code}";
+            if (!seen.Add(key)) continue;
+            clean.Add(new ContractAttributeDtl
+            {
+                ContractId = c.Id, Idx = a.Idx <= 0 ? 1 : a.Idx,
+                AttributeContractCode = master.Code, AttributeName = master.Name,
+                AttributeValue = value, CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor
+            });
+        }
+
+        var old = await db.ContractAttributeDtls.Where(x => x.ContractId == c.Id).ToListAsync();
+        db.ContractAttributeDtls.RemoveRange(old);
+        db.ContractAttributeDtls.AddRange(clean);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+            $"Cập nhật trường động chi tiết hợp đồng — {clean.Count} trường");
+        return (true, $"Đã cập nhật trường động chi tiết — {clean.Count} trường.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

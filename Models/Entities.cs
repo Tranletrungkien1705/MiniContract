@@ -359,6 +359,8 @@ public class Contract : IOrgOwned
     public List<ContractSigner> Signers { get; set; } = [];   // người ký của hợp đồng (theo bên)
     public List<ContractSendHist> SendHistory { get; set; } = [];   // lịch sử gửi cho các bên
     public List<ContractDetail> Details { get; set; } = [];   // chi tiết hàng hóa/dịch vụ (Contract_ContractDtl)
+    public List<ContractAttribute> Attributes { get; set; } = [];   // trường động cấp hợp đồng (Contract_Attribute_Contract)
+    public List<ContractAttributeDtl> AttributeDetails { get; set; } = [];   // trường động cấp chi tiết (Contract_Attribute_ContractDtl)
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
@@ -492,6 +494,72 @@ public class ContractDetail : IOrgOwned
     // ── tính toán ────────────────────────────────────────────────────
     public decimal LineTotal => ValContract - ValDiscount + ValTax;   // tổng dòng (sau chiết khấu + thuế)
     public string UnitLabel => string.IsNullOrWhiteSpace(UnitName) ? (UnitCode ?? "—") : UnitName;
+}
+
+// ── Danh mục trường động (Mst_Attribute_Contract) ────────────────────
+/// <summary>
+/// Danh mục trường động (thuộc tính động) của hợp đồng — port từ Mst_Attribute_Contract (QContract).
+/// Mỗi trường động có mã (AttributeContractCode), tên hiển thị (AttributeName) và giá trị mặc định
+/// (DefaultValues). Luật cốt lõi (Mst_Attribute_Contract_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - AttributeContractCode bắt buộc khi tạo;
+///  - khi tạo, mã trường KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, mã trường phải tồn tại (FlagExistToCheck = Yes).
+/// </summary>
+public class AttributeContract : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // AttributeContractCode — mã trường động
+    public string Name { get; set; } = "";          // AttributeName — tên trường động
+    public string? DefaultValues { get; set; }        // DefaultValues — giá trị mặc định
+    public bool Active { get; set; } = true;          // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";      // LogLUBy
+}
+
+// ── Trường động của hợp đồng (Contract_Attribute_Contract) ───────────
+/// <summary>
+/// Giá trị trường động ở cấp HỢP ĐỒNG (header) — port từ Contract_Attribute_Contract (QContract).
+/// Mỗi dòng gắn 1 hợp đồng (ContractCode) với 1 mã trường động (AttributeContractCode) và giá trị
+/// (AttributeValue). Luật cốt lõi (Contract_Contract_SaveX):
+///  - AttributeContractCode bắt buộc và phải tồn tại & đang hiệu lực trong Mst_Attribute_Contract;
+///  - AttributeValue bắt buộc (không rỗng);
+///  - khi lưu, GHI ĐÈ toàn bộ trường động cũ của hợp đồng (delete all + insert all).
+/// </summary>
+public class ContractAttribute : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public string AttributeContractCode { get; set; } = "";  // AttributeContractCode — mã trường động
+    public string AttributeName { get; set; } = "";          // AttributeName — tên trường động
+    public string AttributeValue { get; set; } = "";         // AttributeValue — giá trị
+    public bool Active { get; set; } = true;                 // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";              // LogLUBy
+    public Contract Contract { get; set; } = null!;
+}
+
+// ── Trường động chi tiết của hợp đồng (Contract_Attribute_ContractDtl) ──
+/// <summary>
+/// Giá trị trường động ở cấp CHI TIẾT (detail) — port từ Contract_Attribute_ContractDtl (QContract).
+/// Giống Contract_Attribute_Contract nhưng gắn theo dòng chi tiết (Idx) của hợp đồng.
+/// Luật cốt lõi: mã trường bắt buộc + phải tồn tại & đang hiệu lực; giá trị bắt buộc;
+/// khi lưu GHI ĐÈ toàn bộ (delete all + insert all).
+/// </summary>
+public class ContractAttributeDtl : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int Idx { get; set; } = 1;                        // Idx — thứ tự dòng chi tiết
+    public string AttributeContractCode { get; set; } = "";  // AttributeContractCode — mã trường động
+    public string AttributeName { get; set; } = "";          // AttributeName — tên trường động
+    public string AttributeValue { get; set; } = "";         // AttributeValue — giá trị
+    public bool Active { get; set; } = true;                 // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";              // LogLUBy
+    public Contract Contract { get; set; } = null!;
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────
