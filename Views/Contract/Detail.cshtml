@@ -15,6 +15,7 @@
     var sgStats = (SignerStats)(ViewBag.SignerStats ?? new SignerStats(0, 0, 0, 0));
     var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
     var verifyOtps = (List<ContractVerifyOtp>)(ViewBag.VerifyOtps ?? new List<ContractVerifyOtp>());
+    var psStats = (PartySignStats)(ViewBag.PartySignStats ?? new PartySignStats(0, 0, 0, false));
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
@@ -23,6 +24,7 @@
     bool canCancelByParty = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished) && Model.Parties.Any(p => !p.IsCancelled);
     bool canOtp = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canSigner = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
+    bool canPartySign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
 }
 
 <div class="row g-3">
@@ -477,6 +479,68 @@
                         <div class="col-md-1"><input name="idx" type="number" value="@(signers.Count + 1)" min="1" class="form-control form-control-sm" title="Thứ tự" /></div>
                         <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm người ký</button></div>
                     </form>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-pen me-1"></i>Ký hợp đồng theo bên <span class="badge bg-secondary">@psStats.Confirmed/@psStats.Total</span></h6>
+                    <div class="small text-muted">
+                        @if (psStats.AllConfirmed)
+                        {
+                            <span class="badge bg-success">Đủ chữ ký các bên</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Còn @psStats.Pending bên chưa ký</span>
+                        }
+                    </div>
+                </div>
+                <div class="small text-muted mb-2">Mỗi bên ký hợp đồng (kèm xác thực OTP/token/phiên bản file). Khi <b>tất cả các bên</b> đã ký, hợp đồng tự chuyển sang <b>Hoàn tất</b>.</div>
+                @if (Model.Parties.Count == 0)
+                {
+                    <div class="text-muted small">Hợp đồng chưa có bên tham gia.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Bên</th><th>Người ký</th><th>Token</th><th>Trạng thái</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                        {
+                            <tr>
+                                <td><span class="badge bg-secondary me-1">@Ui.Role(p.Role)</span><b>@p.Name</b></td>
+                                <td class="small">@(p.UserNameSign ?? "—")<div class="text-muted" style="font-size:11px">@(p.UserCodeSign ?? "")</div></td>
+                                <td class="small text-muted font-monospace">@(p.UserToken ?? "—")</td>
+                                <td>
+                                    @if (p.IsConfirmed)
+                                    {
+                                        <span class="text-success small"><i class="bi bi-patch-check-fill me-1"></i>Đã ký · @p.SignDateUTC?.ToString("dd/MM/yyyy HH:mm")</span>
+                                        @if (p.SignBy != null) { <div class="text-muted" style="font-size:11px">bởi @p.SignBy</div> }
+                                    }
+                                    else if (p.IsCancelled) { <span class="badge bg-dark">Đã hủy</span> }
+                                    else { <span class="badge bg-warning text-dark">Chờ ký</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (canPartySign && !p.IsConfirmed && !p.IsCancelled)
+                                    {
+                                        <form asp-action="PartySign" method="post" class="d-flex gap-1 justify-content-end flex-wrap">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@Model.Id" />
+                                            <input type="hidden" name="partyId" value="@p.Id" />
+                                            <input name="userNameSign" class="form-control form-control-sm" style="width:130px" value="@p.Name" placeholder="Tên người ký" />
+                                            <input name="userToken" class="form-control form-control-sm" style="width:110px" value="@p.UserToken" placeholder="Token" />
+                                            <input name="otpCode" class="form-control form-control-sm font-monospace" style="width:90px" placeholder="OTP" />
+                                            <button class="btn btn-sm btn-primary"><i class="bi bi-pen me-1"></i>Ký</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
                 }
             </div>
         </div>

@@ -58,7 +58,8 @@ public enum HistoryAction
     SignLinkRevoked = 7,  // thu hồi link ký công khai
     Approved = 8,    // phê duyệt hợp đồng (Contract_Contract_Approved)
     PartyCancelled = 9,   // một bên hủy hợp đồng (Contract_ContractParty_Cancel)
-    UpdateRemark = 10     // cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark)
+    UpdateRemark = 10,    // cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark)
+    PartySigned = 11      // một bên ký hợp đồng (Contract_Contract_PartySign)
 }
 
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
@@ -386,6 +387,8 @@ public class Contract : IOrgOwned
     public bool AllChecked => Checkers.Count > 0 && Checkers.All(c => c.HasChecked);
     public int SignerConfirmedCount => Signers.Count(s => s.IsConfirmed);
     public bool AllSignersConfirmed => Signers.Count > 0 && Signers.All(s => s.IsConfirmed);
+    public int PartyConfirmedCount => Parties.Count(p => p.IsConfirmed);   // số bên đã ký hợp đồng
+    public bool AllPartiesConfirmed => Parties.Count > 0 && Parties.All(p => p.IsConfirmed);
 }
 
 // ── Các bên tham gia ─────────────────────────────────────────────────
@@ -408,10 +411,23 @@ public class ContractParty : IOrgOwned
     public DateTime? CancelledAt { get; set; }                       // CancelDTimeUTC
     public string? CancelledBy { get; set; }                         // CancelBy
     public string? Remark { get; set; }                              // Remark
+
+    // -- Ky hop dong boi mot ben (Contract_Contract_PartySign) --
+    // Nguon QContract: Contract_ContractParty.UserCodeSign/UserNameSign/InfoToken/
+    // SignDateUTC/SignBy + UserToken (token nguoi ky) + ContractFileVersion (phien ban file da ky).
+    public string? UserCodeSign { get; set; }                        // UserCodeSign — ma nguoi ky
+    public string? UserNameSign { get; set; }                        // UserNameSign — ten nguoi ky
+    public string? InfoToken { get; set; }                           // InfoToken — thong tin token khi ky
+    public string? UserToken { get; set; }                           // UserToken — token xac thuc nguoi ky
+    public DateTime? SignDateUTC { get; set; }                       // SignDateUTC — thoi diem ky
+    public string? SignBy { get; set; }                              // SignBy — nguoi thuc hien ky
+    public string? ContractFileVersion { get; set; }                 // ContractFileVersion — phien ban file da ky
+
     public Contract Contract { get; set; } = null!;
 
     // -- tinh toan --
     public bool IsCancelled => Status == PartyStatus.Cancelled;
+    public bool IsConfirmed => Status == PartyStatus.Confirmed;      // da ky hop dong
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────

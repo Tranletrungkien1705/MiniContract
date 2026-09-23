@@ -86,6 +86,8 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.AllChecked);
             e.Ignore(x => x.SignerConfirmedCount);
             e.Ignore(x => x.AllSignersConfirmed);
+            e.Ignore(x => x.PartyConfirmedCount);
+            e.Ignore(x => x.AllPartiesConfirmed);
             e.Ignore(x => x.IsApproved);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
@@ -95,6 +97,7 @@ public class AppDbContext : DbContext
         b.Entity<ContractParty>(e =>
         {
             e.Ignore(x => x.IsCancelled);
+            e.Ignore(x => x.IsConfirmed);
             e.HasOne(x => x.Contract).WithMany(x => x.Parties).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });

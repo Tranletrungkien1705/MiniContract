@@ -58,6 +58,7 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.SignerStats = await svc.SignerStatsAsync(id);
         ViewBag.SendHistory = await svc.SendHistoryAsync(id);
         ViewBag.VerifyOtps = await svc.VerifyOtpsAsync(id);
+        ViewBag.PartySignStats = await svc.PartySignStatsAsync(id);
         return View(c);
     }
 
@@ -215,6 +216,18 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> MarkSignerSent(int id, int signerId)
     {
         var (ok, msg) = await svc.MarkSignerSentAsync(id, signerId, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Ký hợp đồng bởi một bên (Contract_Contract_PartySign) ────────
+    // Một bên ký hợp đồng (kèm xác thực OTP/token/phiên bản file) — port từ
+    // WAS_Contract_Contract_PartySign (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> PartySign(int id, int partyId, string? userCodeSign, string? userNameSign,
+        string? userToken, string? otpCode, string? fileVersion)
+    {
+        var (ok, msg) = await svc.PartySignAsync(id, partyId, userCodeSign, userNameSign, userToken, otpCode, fileVersion, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }
