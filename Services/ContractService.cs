@@ -57,6 +57,11 @@ public interface IContractService
     // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────
     Task<List<ContractUserInContract>> UserAssignmentsAsync(int contractId);
     Task<(bool ok, string msg)> SaveUserAssignmentsAsync(int contractId, List<ContractUserInContract> users, string actor);
+
+    // ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────
+    Task<List<ContractSendHist>> SendHistoryAsync(int contractId, BulletinType? bulletin = null);
+    Task<ContractSendHist> AddSendHistAsync(int contractId, int? partyId, ChannelType channel, BulletinType bulletin, string? infoReceive, string? remark, string actor);
+    Task<(bool ok, string msg)> ResendAsync(int contractId, List<int> sendHistIds, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -519,6 +524,74 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         await LogAsync(c.Id, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor,
             $"Phân quyền hợp đồng cho {clean.Count} người dùng" + (clean.Count > 0 ? ": " + string.Join(", ", clean.Select(x => x.UserName)) : ""));
         return (true, $"Đã cập nhật phân quyền hợp đồng — {clean.Count} người dùng.");
+    }
+
+    // ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────
+    // Nguồn QContract: WAS_Contract_SendHist_Get → Contract_SendHist_GetX (tra cứu theo
+    // ContractCode + BulletinType, sắp theo thời gian gửi tăng dần).
+    public Task<List<ContractSendHist>> SendHistoryAsync(int contractId, BulletinType? bulletin = null)
+    {
+        var q = db.SendHistory.Include(x => x.Party).Where(x => x.ContractId == contractId);
+        if (bulletin.HasValue) q = q.Where(x => x.Bulletin == bulletin.Value);
+        return q.OrderBy(x => x.SentAt).ThenBy(x => x.Id).ToListAsync();
+    }
+
+    // Ghi 1 bản ghi lịch sử gửi — port từ WAS_Contract_SendHist_Add → Contract_SendHist_SaveX.
+    // Thông tin nhận (InfoReceive) mặc định lấy từ bên nhận theo kênh nếu không truyền vào.
+    public async Task<ContractSendHist> AddSendHistAsync(int contractId, int? partyId, ChannelType channel,
+        BulletinType bulletin, string? infoReceive, string? remark, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        var p = partyId.HasValue ? c.Parties.FirstOrDefault(x => x.Id == partyId.Value) : null;
+        if (partyId.HasValue && p == null)
+            throw new InvalidOperationException("Bên nhận không thuộc hợp đồng này.");
+
+        var info = string.IsNullOrWhiteSpace(infoReceive)
+            ? (channel == ChannelType.Email ? p?.Email : p?.Phone)
+            : infoReceive.Trim();
+
+        var h = new ContractSendHist
+        {
+            ContractId = c.Id, PartyId = p?.Id, PartyName = p?.Name ?? "",
+            UserName = p?.Name ?? "", UserToken = p != null ? $"ut_{p.Id}" : null,
+            Channel = channel, Bulletin = bulletin, InfoReceive = info,
+            Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim(),
+            SentBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor
+        };
+        db.SendHistory.Add(h);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, h.SentBy,
+            $"Gửi {h.BulletinLabel} cho {h.PartyName} qua {h.ChannelLabel}" + (info != null ? $" → {info}" : ""));
+        return h;
+    }
+
+    // Gửi lại (resend) các bản ghi đã chọn — port từ ContractReSendHist → ResendChannel (QContract).
+    // Mỗi lần gửi lại tạo 1 bản ghi lịch sử mới (giữ nguyên bản ghi cũ) để có vết gửi đầy đủ.
+    public async Task<(bool ok, string msg)> ResendAsync(int contractId, List<int> sendHistIds, string actor)
+    {
+        var c = await db.Contracts.FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không gửi lại.");
+        if (sendHistIds == null || sendHistIds.Count == 0)
+            return (false, "Chưa chọn bản ghi để gửi lại.");
+
+        var src = await db.SendHistory.Where(x => x.ContractId == contractId && sendHistIds.Contains(x.Id)).ToListAsync();
+        if (src.Count == 0) return (false, "Không tìm thấy bản ghi gửi để gửi lại.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        foreach (var s in src)
+            db.SendHistory.Add(new ContractSendHist
+            {
+                ContractId = c.Id, PartyId = s.PartyId, PartyName = s.PartyName,
+                UserName = s.UserName, UserToken = s.UserToken, Channel = s.Channel,
+                Bulletin = s.Bulletin, InfoReceive = s.InfoReceive,
+                Remark = "Gửi lại", SentBy = who
+            });
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, who, $"Gửi lại {src.Count} bản tin cho các bên");
+        return (true, $"Đã gửi lại {src.Count} bản tin.");
     }
 
     // ── helpers ──────────────────────────────────────────────────────

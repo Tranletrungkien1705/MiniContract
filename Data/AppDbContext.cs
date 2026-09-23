@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractElement> Elements => Set<ContractElement>();
     public DbSet<ContractChecker> Checkers => Set<ContractChecker>();
     public DbSet<ContractUserInContract> UserAssignments => Set<ContractUserInContract>();
+    public DbSet<ContractSendHist> SendHistory => Set<ContractSendHist>();
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -78,6 +79,14 @@ public class AppDbContext : DbContext
         b.Entity<ContractUserInContract>(e =>
         {
             e.HasOne(x => x.Contract).WithMany(x => x.UserAssignments).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractSendHist>(e =>
+        {
+            e.Ignore(x => x.ChannelLabel);
+            e.Ignore(x => x.BulletinLabel);
+            e.HasOne(x => x.Contract).WithMany(x => x.SendHistory).HasForeignKey(x => x.ContractId);
+            e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<FinishedContractReason>(e =>

@@ -10,9 +10,11 @@
     var checkers = (List<ContractChecker>)(ViewBag.Checkers ?? new List<ContractChecker>());
     var ckStats = (CheckerStats)(ViewBag.CheckerStats ?? new CheckerStats(0, 0, 0, CheckerStatus.None));
     var userAssignments = (List<ContractUserInContract>)(ViewBag.UserAssignments ?? new List<ContractUserInContract>());
+    var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canAssign = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
+    bool canSend = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -313,6 +315,79 @@
                         <div class="small text-muted mb-2">Mỗi dòng 1 người dùng: <code>mã</code> | <code>tên</code> | <code>email</code> (cách nhau bằng dấu <b>|</b>). Lưu sẽ <b>ghi đè toàn bộ</b> danh sách phân quyền hiện tại.</div>
                         <textarea name="userCodes" class="form-control form-control-sm mb-2" rows="3" placeholder="vd: kt.le | Lê Thị Kiểm | kt.le@corp.vn"></textarea>
                         <button class="btn btn-sm btn-outline-primary"><i class="bi bi-save me-1"></i>Cập nhật phân quyền</button>
+                    </form>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-send-check me-1"></i>Lịch sử gửi hợp đồng <span class="badge bg-secondary">@sendHistory.Count</span></h6>
+                    <div class="small text-muted">Gửi cho các bên qua Email / SMS / Zalo</div>
+                </div>
+                @if (sendHistory.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có lần gửi nào.</div>
+                }
+                else
+                {
+                    <form asp-action="Resend" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th style="width:30px"></th><th>Bên nhận</th><th>Kênh</th><th>Bản tin</th><th>Thông tin nhận</th><th>Thời gian</th></tr></thead>
+                            <tbody>
+                            @foreach (var sh in sendHistory)
+                            {
+                                <tr>
+                                    <td>@if (canSend) { <input type="checkbox" name="sendHistIds" value="@sh.Id" class="form-check-input" /> }</td>
+                                    <td><b>@sh.PartyName</b>@if (sh.Remark != null) { <div class="text-muted" style="font-size:11px">@sh.Remark</div> }</td>
+                                    <td><span class="badge bg-@(sh.Channel == ChannelType.Email ? "primary" : sh.Channel == ChannelType.Sms ? "info" : "success")">@sh.ChannelLabel</span></td>
+                                    <td><span class="badge bg-@(sh.Bulletin == BulletinType.Otp ? "warning text-dark" : "secondary")">@sh.BulletinLabel</span></td>
+                                    <td class="small">@(sh.InfoReceive ?? "—")</td>
+                                    <td class="small text-muted">@sh.SentAt.ToString("dd/MM/yyyy HH:mm") · @sh.SentBy</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                        @if (canSend)
+                        {
+                            <button class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-arrow-repeat me-1"></i>Gửi lại các bản tin đã chọn</button>
+                        }
+                    </form>
+                }
+
+                @if (canSend)
+                {
+                    <form asp-action="AddSendHist" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-3">
+                            <select name="partyId" class="form-select form-select-sm">
+                                <option value="">— Bên nhận —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <select name="channel" class="form-select form-select-sm">
+                                <option value="0">Email</option>
+                                <option value="1">SMS</option>
+                                <option value="2">Zalo</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <select name="bulletin" class="form-select form-select-sm">
+                                <option value="0">Hợp đồng</option>
+                                <option value="1">OTP</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3"><input name="infoReceive" class="form-control form-control-sm" placeholder="Email/SĐT/Zalo (tùy chọn)" /></div>
+                        <div class="col-md-2"><input name="remark" class="form-control form-control-sm" placeholder="Ghi chú" /></div>
+                        <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-send me-1"></i>Ghi nhận gửi</button></div>
                     </form>
                 }
             </div>

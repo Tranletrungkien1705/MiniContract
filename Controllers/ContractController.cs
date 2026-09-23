@@ -53,7 +53,31 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.Checkers = await svc.CheckersAsync(id);
         ViewBag.CheckerStats = await svc.CheckerStatsAsync(id);
         ViewBag.UserAssignments = await svc.UserAssignmentsAsync(id);
+        ViewBag.SendHistory = await svc.SendHistoryAsync(id);
         return View(c);
+    }
+
+    // ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────
+    // Ghi 1 bản ghi gửi cho 1 bên qua 1 kênh — port từ Contract_SendHist (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddSendHist(int id, int? partyId, ChannelType channel, BulletinType bulletin, string? infoReceive, string? remark)
+    {
+        try
+        {
+            await svc.AddSendHistAsync(id, partyId, channel, bulletin, infoReceive, remark, "web");
+            TempData["Success"] = "Đã ghi nhận gửi hợp đồng.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // Gửi lại các bản tin đã chọn — port từ ContractReSendHist (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Resend(int id, int[]? sendHistIds)
+    {
+        var (ok, msg) = await svc.ResendAsync(id, (sendHistIds ?? []).ToList(), "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
     }
 
     // ── Ô ký trên hợp đồng (Contract_ContractElement) ────────────────

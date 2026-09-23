@@ -62,6 +62,18 @@ public enum HistoryAction
 public enum SignLinkState { Active = 0, Expired = 1, Revoked = 2 }
 
 /// <summary>
+/// Kênh gửi hợp đồng cho các bên — port từ TConst.ChannelType / Client_Mst_ChannelType (QContract):
+/// EMAIL = gửi email, SMS = tin nhắn, ZALO = Zalo ZNS.
+/// </summary>
+public enum ChannelType { Email = 0, Sms = 1, Zalo = 2 }
+
+/// <summary>
+/// Loại bản tin gửi — port từ TConst.Client_BulletinType (QContract):
+/// CONTRACT = gửi hợp đồng để ký, OTP = gửi mã OTP xác thực.
+/// </summary>
+public enum BulletinType { Contract = 0, Otp = 1 }
+
+/// <summary>
 /// Loại ô ký trên hợp đồng — port từ TConst.ElementType (QContract):
 /// ELECTRONIC = ký điện tử, SHORT = ký tắt, DIGITAL = ký số.
 /// </summary>
@@ -139,6 +151,7 @@ public class Contract : IOrgOwned
     public List<ContractElement> Elements { get; set; } = [];   // các ô ký trên bản thể hiện
     public List<ContractChecker> Checkers { get; set; } = [];   // người kiểm tra hợp đồng (theo thứ tự)
     public List<ContractUserInContract> UserAssignments { get; set; } = [];  // người dùng được phân quyền
+    public List<ContractSendHist> SendHistory { get; set; } = [];   // lịch sử gửi cho các bên
 
     // ── Kiểm tra hợp đồng (checker) ──────────────────
     // Nguồn QContract: Contract_Checker + ContractStatus.PENDING/ONPROCESS.
@@ -333,4 +346,42 @@ public class ContractUserInContract : IOrgOwned
     public string AssignedBy { get; set; } = "";    // LogLUBy — người thực hiện phân quyền
 
     public Contract Contract { get; set; } = null!;
+}
+
+// ── Lịch sử gửi hợp đồng (Contract_SendHist) ─────────────────────────
+/// <summary>
+/// Lịch sử gửi hợp đồng cho các bên qua từng kênh — port từ Contract_SendHist (QContract).
+/// Mỗi bản ghi lưu: hợp đồng, bên nhận (PartyCode), người nhận (UserName/UserToken),
+/// thời điểm gửi (DTimeSend), kênh gửi (ChannelType: EMAIL/SMS/ZALO), loại bản tin
+/// (BulletinType: CONTRACT/OTP) và thông tin nhận (InfoReceive: email/số điện thoại/Zalo).
+/// Nguồn QContract: WAS_Contract_SendHist_Add → Contract_SendHist_SaveX (insert) +
+/// WAS_Contract_SendHist_Get → Contract_SendHist_GetX (tra cứu theo ContractCode/BulletinType).
+/// </summary>
+public class ContractSendHist : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int? PartyId { get; set; }               // PartyCode — bên nhận
+    public string PartyName { get; set; } = "";     // PartyName — tên bên nhận
+    public string UserName { get; set; } = "";      // UserName — tên người nhận
+    public string? UserToken { get; set; }          // UserToken — định danh người nhận
+    public ChannelType Channel { get; set; } = ChannelType.Email;   // ChannelType
+    public BulletinType Bulletin { get; set; } = BulletinType.Contract;  // BulletinType
+    public string? InfoReceive { get; set; }        // InfoReceive — email/số ĐT/Zalo nhận
+    public DateTime SentAt { get; set; } = DateTime.Now;  // DTimeSend
+    public string? Remark { get; set; }             // Remark — ghi chú
+    public string SentBy { get; set; } = "";        // LogLUBy — người thực hiện gửi
+    public Contract Contract { get; set; } = null!;
+    public ContractParty? Party { get; set; }
+
+    // ── tính toán ────────────────────
+    public string ChannelLabel => Channel switch
+    {
+        ChannelType.Email => "Email",
+        ChannelType.Sms => "SMS",
+        ChannelType.Zalo => "Zalo",
+        _ => Channel.ToString()
+    };
+    public string BulletinLabel => Bulletin == BulletinType.Otp ? "OTP" : "Hợp đồng";
 }
