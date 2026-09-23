@@ -519,6 +519,19 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Cập nhật hợp đồng sau phê duyệt (Contract_ContractParty_UpdAfterApproved) ──
+    // Cập nhật giá trị hợp đồng/đã thanh toán/loại/ghi chú của một bên sau khi đã phê duyệt —
+    // port từ WAS_Contract_ContractParty_UpdAfterApproved (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateAfterApproved(int id, int partyId, decimal valContract, decimal valPaymented,
+        string? contractType, string? contractTypeName, string? remark)
+    {
+        var (ok, msg) = await svc.UpdateAfterApprovedAsync(id, partyId, valContract, valPaymented,
+            contractType, contractTypeName, remark, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> SignCks(int id, int partyId)
     {

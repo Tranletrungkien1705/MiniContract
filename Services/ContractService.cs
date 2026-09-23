@@ -99,6 +99,10 @@ public interface IContractService
     // ── Cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark) ──
     Task<(bool ok, string msg)> UpdatePartyRemarkAsync(int contractId, int partyId, string? remark, string actor);
 
+    // ── Cập nhật hợp đồng sau phê duyệt (Contract_ContractParty_UpdAfterApproved) ──
+    Task<(bool ok, string msg)> UpdateAfterApprovedAsync(int contractId, int partyId, decimal valContract,
+        decimal valPaymented, string? contractType, string? contractTypeName, string? remark, string actor);
+
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
     Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId);
     Task<ContractVerifyOtp> GenerateVerifyOtpAsync(int contractId, int partyId, int validMinutes, string actor);
@@ -1080,6 +1084,51 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             $"Cập nhật ghi chú cho {p.Name} ({Ui.Role(p.Role)})"
             + (newRemark != null ? $" — {newRemark}" : " — (xóa ghi chú)"));
         return (true, $"Đã cập nhật ghi chú cho {p.Name}.");
+    }
+
+    // ── Cập nhật hợp đồng sau phê duyệt (Contract_ContractParty_UpdAfterApproved) ──
+    // Nguồn QContract: WAS_Contract_ContractParty_UpdAfterApproved → Contract_ContractParty_UpdAfterApprovedX.
+    // Luật cốt lõi:
+    //  - hợp đồng phải tồn tại và đang ở trạng thái ONPROCESS/CONFIRMED (đã gửi/đã duyệt, chưa hủy/kết thúc);
+    //  - bên cập nhật phải thuộc hợp đồng (Contract_ContractParty_CheckDB, FlagExistToCheck=Yes);
+    //  - ValContract >= 0 và ValPaymented >= 0 (nếu âm → lỗi InvalidValContract/InvalidValPaymented);
+    //  - cập nhật ValContract, ValExchange (= ValContract * CurrencyRate), ValPaymented,
+    //    ContractType/ContractTypeName, Remark; tính lại ValRemain = ValContract - ValPaymented;
+    //  - ghi nhật ký thao tác "PartyUpdAfterApproved".
+    public async Task<(bool ok, string msg)> UpdateAfterApprovedAsync(int contractId, int partyId, decimal valContract,
+        decimal valPaymented, string? contractType, string? contractTypeName, string? remark, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        // Hợp đồng phải đang xử lý (đã gửi/đã duyệt) — port từ Contract_Contract_CheckDB (ONPROCESS, CONFIRMED).
+        if (c.Status is not (ContractStatus.Sent or ContractStatus.PartiallySigned or ContractStatus.Completed))
+            return (false, "Chỉ cập nhật giá trị hợp đồng sau khi hợp đồng đã gửi/đã phê duyệt.");
+
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId);
+        if (p == null) return (false, "Bên cần cập nhật không thuộc hợp đồng này.");
+
+        // Kiểm tra giá trị không âm — port từ Contract_ContractParty_UpdAfterApprovedX_InvalidValContract/ValPaymented.
+        if (valContract < 0) return (false, "Giá trị hợp đồng không được âm.");
+        if (valPaymented < 0) return (false, "Giá trị đã thanh toán không được âm.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var rate = c.CurrencyRate <= 0 ? 1 : c.CurrencyRate;
+        p.ValContract = valContract;
+        p.ValExchange = valContract * rate;                 // ValExchange = ValContract * CurrencyRate
+        p.ValPaymented = valPaymented;
+        p.ValRemain = valContract - valPaymented;           // ValRemain = ValContract - ValPaymented
+        p.ContractType = string.IsNullOrWhiteSpace(contractType) ? null : contractType.Trim();
+        p.ContractTypeName = string.IsNullOrWhiteSpace(contractTypeName) ? null : contractTypeName.Trim();
+        p.Remark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim();
+        p.ValueUpdatedAt = DateTime.Now;
+        p.ValueUpdatedBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.PartyUpdAfterApproved, who,
+            $"Cập nhật giá trị hợp đồng cho {p.Name} ({Ui.Role(p.Role)}): "
+            + $"giá trị {p.ValContract:N0} đ, đã thanh toán {p.ValPaymented:N0} đ, còn lại {p.ValRemain:N0} đ"
+            + (p.ContractTypeName != null ? $" — loại: {p.ContractTypeName}" : ""));
+        return (true, $"Đã cập nhật giá trị hợp đồng cho {p.Name}.");
     }
 
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────

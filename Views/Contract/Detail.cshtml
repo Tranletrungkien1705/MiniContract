@@ -25,6 +25,7 @@
     bool canOtp = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canSigner = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canPartySign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
+    bool canUpdAfterApproved = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned or ContractStatus.Completed;
 }
 
 <div class="row g-3">
@@ -541,6 +542,62 @@
                         }
                         </tbody>
                     </table>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin me-1"></i>Cập nhật giá trị sau phê duyệt</h6>
+                    <div class="small text-muted">Tỉ giá quy đổi: <b>@Model.CurrencyRate.ToString("N2")</b></div>
+                </div>
+                <div class="small text-muted mb-2">Sau khi hợp đồng đã gửi/đã phê duyệt, cập nhật <b>giá trị hợp đồng</b>, <b>đã thanh toán</b>, loại hợp đồng và ghi chú cho từng bên. Giá trị còn lại = giá trị hợp đồng − đã thanh toán.</div>
+                @if (Model.Parties.Count == 0)
+                {
+                    <div class="text-muted small">Hợp đồng chưa có bên tham gia.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Bên</th><th class="text-end">Giá trị HĐ</th><th class="text-end">Đã thanh toán</th><th class="text-end">Còn lại</th><th>Loại HĐ</th><th>Cập nhật</th></tr></thead>
+                        <tbody>
+                        @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                        {
+                            <tr>
+                                <td><span class="badge bg-secondary me-1">@Ui.Role(p.Role)</span><b>@p.Name</b></td>
+                                <td class="text-end">@p.ValContract.ToString("N0")</td>
+                                <td class="text-end">@p.ValPaymented.ToString("N0")</td>
+                                <td class="text-end fw-semibold">@p.ValRemain.ToString("N0")</td>
+                                <td class="small">@(p.ContractTypeName ?? p.ContractType ?? "—")</td>
+                                <td class="small text-muted">@(p.ValueUpdatedAt != null ? $"{p.ValueUpdatedAt:dd/MM/yyyy HH:mm} · {p.ValueUpdatedBy}" : "—")</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canUpdAfterApproved && Model.Parties.Count > 0)
+                {
+                    <form asp-action="UpdateAfterApproved" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-3">
+                            <select name="partyId" class="form-select form-select-sm" required>
+                                <option value="">— Bên cập nhật —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2"><input name="valContract" type="number" step="0.01" min="0" value="0" class="form-control form-control-sm" placeholder="Giá trị HĐ" required /></div>
+                        <div class="col-md-2"><input name="valPaymented" type="number" step="0.01" min="0" value="0" class="form-control form-control-sm" placeholder="Đã thanh toán" required /></div>
+                        <div class="col-md-2"><input name="contractTypeName" class="form-control form-control-sm" placeholder="Tên loại HĐ" /></div>
+                        <div class="col-md-3"><input name="remark" class="form-control form-control-sm" placeholder="Ghi chú" /></div>
+                        <input type="hidden" name="contractType" value="" />
+                        <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-cash-coin me-1"></i>Cập nhật giá trị</button></div>
+                    </form>
                 }
             </div>
         </div>

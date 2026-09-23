@@ -77,6 +77,7 @@ public class AppDbContext : DbContext
         b.Entity<Contract>(e =>
         {
             e.Property(x => x.Value).HasPrecision(18, 2);
+            e.Property(x => x.CurrencyRate).HasPrecision(18, 4);
             e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
             e.Ignore(x => x.IsOpen);
             e.Ignore(x => x.SignedCount);
@@ -98,6 +99,11 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.IsCancelled);
             e.Ignore(x => x.IsConfirmed);
+            e.Ignore(x => x.HasValue);
+            e.Property(x => x.ValContract).HasPrecision(18, 2);
+            e.Property(x => x.ValPaymented).HasPrecision(18, 2);
+            e.Property(x => x.ValRemain).HasPrecision(18, 2);
+            e.Property(x => x.ValExchange).HasPrecision(18, 2);
             e.HasOne(x => x.Contract).WithMany(x => x.Parties).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });

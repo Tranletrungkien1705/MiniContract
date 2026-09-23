@@ -61,6 +61,7 @@ public static class Ui
         HistoryAction.PartyCancelled => ("Bên hủy", "dark", "bi-person-x"),
         HistoryAction.UpdateRemark => ("Sửa ghi chú", "info", "bi-pencil-square"),
         HistoryAction.PartySigned => ("Bên ký", "primary", "bi-pen"),
+        HistoryAction.PartyUpdAfterApproved => ("Cập nhật sau duyệt", "info", "bi-cash-coin"),
         _ => (a.ToString(), "secondary", "bi-dot")
     };
 }

@@ -59,7 +59,8 @@ public enum HistoryAction
     Approved = 8,    // phê duyệt hợp đồng (Contract_Contract_Approved)
     PartyCancelled = 9,   // một bên hủy hợp đồng (Contract_ContractParty_Cancel)
     UpdateRemark = 10,    // cập nhật ghi chú của một bên (Contract_Contract_Party_UpdateRemark)
-    PartySigned = 11      // một bên ký hợp đồng (Contract_Contract_PartySign)
+    PartySigned = 11,     // một bên ký hợp đồng (Contract_Contract_PartySign)
+    PartyUpdAfterApproved = 12  // cập nhật hợp đồng sau phê duyệt (Contract_ContractParty_UpdAfterApproved)
 }
 
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
@@ -316,6 +317,7 @@ public class Contract : IOrgOwned
     public int? TypeId { get; set; }
     public string Body { get; set; } = "";       // nội dung hợp đồng
     public decimal Value { get; set; }           // giá trị hợp đồng
+    public decimal CurrencyRate { get; set; } = 1;  // CurrencyRate — tỉ giá quy đổi (dùng khi cập nhật giá trị sau phê duyệt)
     public ContractStatus Status { get; set; } = ContractStatus.Draft;
     public string CreatedBy { get; set; } = "";
     public string? Note { get; set; }
@@ -423,11 +425,25 @@ public class ContractParty : IOrgOwned
     public string? SignBy { get; set; }                              // SignBy — nguoi thuc hien ky
     public string? ContractFileVersion { get; set; }                 // ContractFileVersion — phien ban file da ky
 
+    // -- Cap nhat hop dong sau phe duyet (Contract_ContractParty_UpdAfterApproved) --
+    // Nguon QContract: Contract_ContractParty.ValContract/ValPaymented/ValRemain/ValExchange/
+    // ContractType/ContractTypeName. Sau khi hop dong duoc phe duyet, ben cap nhat gia tri hop dong,
+    // gia tri da thanh toan, loai hop dong va ghi chu; ValRemain = ValContract - ValPaymented.
+    public decimal ValContract { get; set; }                         // ValContract — gia tri hop dong
+    public decimal ValPaymented { get; set; }                        // ValPaymented — gia tri da thanh toan
+    public decimal ValRemain { get; set; }                           // ValRemain — gia tri con lai
+    public decimal ValExchange { get; set; }                         // ValExchange — gia tri quy doi (= ValContract * ti gia)
+    public string? ContractType { get; set; }                        // ContractType — loai hop dong (ma)
+    public string? ContractTypeName { get; set; }                    // ContractTypeName — ten loai hop dong
+    public DateTime? ValueUpdatedAt { get; set; }                    // LogLUDTimeUTC — thoi diem cap nhat gia tri
+    public string? ValueUpdatedBy { get; set; }                      // LogLUBy — nguoi cap nhat gia tri
+
     public Contract Contract { get; set; } = null!;
 
     // -- tinh toan --
     public bool IsCancelled => Status == PartyStatus.Cancelled;
     public bool IsConfirmed => Status == PartyStatus.Confirmed;      // da ky hop dong
+    public bool HasValue => ValContract > 0;                         // da co gia tri hop dong
 }
 
 // ── Chữ ký (CKS / OTP) ───────────────────────────────────────────────
