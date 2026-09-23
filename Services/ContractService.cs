@@ -13,6 +13,9 @@ public record ElementStats(int Total, int Signed, int Electronic, int Short, int
 /// <summary>Thống kê người kiểm tra — port từ Contract_Checker (QContract).</summary>
 public record CheckerStats(int Total, int Checked, int Pending, CheckerStatus Status);
 
+/// <summary>Thống kê phê duyệt hợp đồng — port từ Contract_Contract_Approved (QContract).</summary>
+public record ApproveStats(int Checkers, int Approved, bool IsApproved, string? ApprovedBy, DateTime? ApprovedAt);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -48,6 +51,10 @@ public interface IContractService
     Task<ContractChecker> AddCheckerAsync(int contractId, ContractChecker checker);
     Task<(bool ok, string msg)> AcceptCheckAsync(int contractId, int checkerId, string? remark);
     Task<CheckerStats> CheckerStatsAsync(int contractId);
+
+    // ── Phê duyệt hợp đồng (Contract_Contract_Approved) ──────────────
+    Task<(bool ok, string msg)> ApproveAsync(int contractId, string userCode, string? remark);
+    Task<ApproveStats> ApproveStatsAsync(int contractId);
 
     // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
     Task<List<FinishedContractReason>> FinishReasonsAsync(bool activeOnly = false);
@@ -435,6 +442,68 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             checkers.Count(x => x.HasChecked),
             checkers.Count(x => !x.HasChecked),
             c.CheckerStatus);
+    }
+
+    // ── Phê duyệt hợp đồng (Contract_Contract_Approved) ──────────────
+    // Nguồn QContract: WAS_Contract_Contract_Approved → Contract_Contract_ApprovedX.
+    // Luật cốt lõi: chỉ người có vai trò KIỂM TRA (FlagChecker=1) mới được phê duyệt;
+    // hợp đồng phải đang ở trạng thái chờ kiểm tra (PENDING/ONPROCESS); khi duyệt,
+    // hợp đồng chuyển sang ONPROCESS, ghi nhận ApprDTimeUTC/ApprBy và đánh dấu
+    // ApprovedDTimeUTC cho người kiểm tra.
+    public async Task<(bool ok, string msg)> ApproveAsync(int contractId, string userCode, string? remark)
+    {
+        var c = await db.Contracts.Include(x => x.Checkers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không thể phê duyệt.");
+        if (c.IsApproved) return (false, $"Hợp đồng đã được phê duyệt bởi {c.ApprovedBy}.");
+
+        var who = string.IsNullOrWhiteSpace(userCode) ? "web" : userCode.Trim();
+        // Người phê duyệt phải là người kiểm tra (FlagChecker=1) — nếu là người ký (FlagChecker=0) thì từ chối.
+        var checker = c.Checkers.FirstOrDefault(x => x.IsChecker &&
+            (x.UserCode.Equals(who, StringComparison.OrdinalIgnoreCase) || x.UserName.Equals(who, StringComparison.OrdinalIgnoreCase)));
+        if (checker == null)
+        {
+            var signer = c.Checkers.FirstOrDefault(x => !x.IsChecker &&
+                (x.UserCode.Equals(who, StringComparison.OrdinalIgnoreCase) || x.UserName.Equals(who, StringComparison.OrdinalIgnoreCase)));
+            if (signer != null) return (false, $"{who} là người ký, không có quyền phê duyệt hợp đồng.");
+            return (false, $"{who} không nằm trong danh sách người kiểm tra của hợp đồng.");
+        }
+
+        // Phải kiểm tra xong mới được duyệt (đủ người kiểm tra trước đó).
+        if (checker.Sequential)
+        {
+            var earlier = c.Checkers.Where(x => x.IsChecker && x.Idx < checker.Idx && !x.HasChecked).ToList();
+            if (earlier.Count > 0)
+                return (false, $"Phải kiểm tra theo thứ tự — còn {earlier.Count} người kiểm tra trước chưa xử lý.");
+        }
+
+        var now = DateTime.Now;
+        checker.HasChecked = true;
+        checker.CheckedAt ??= now;
+        checker.ApprovedAt = now;
+        if (!string.IsNullOrWhiteSpace(remark)) checker.Remark = remark.Trim();
+
+        c.ApprovedAt = now;
+        c.ApprovedBy = who;
+        c.CheckerStatus = CheckerStatus.OnProcess;   // ONPROCESS — đã kiểm tra/duyệt xong
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Approved, who,
+            $"{who} phê duyệt {c.Kind.ToLower()} {c.Code}" + (string.IsNullOrWhiteSpace(remark) ? "" : $" — {remark.Trim()}"));
+        return (true, $"Đã phê duyệt {c.Kind.ToLower()} {c.Code}.");
+    }
+
+    // Thống kê phê duyệt — port từ Contract_Contract_Approved (QContract).
+    public async Task<ApproveStats> ApproveStatsAsync(int contractId)
+    {
+        var c = await db.Contracts.Include(x => x.Checkers).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return new ApproveStats(0, 0, false, null, null);
+        var checkers = c.Checkers.Where(x => x.IsChecker).ToList();
+        return new ApproveStats(
+            checkers.Count,
+            checkers.Count(x => x.ApprovedAt != null),
+            c.IsApproved, c.ApprovedBy, c.ApprovedAt);
     }
 
     // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────

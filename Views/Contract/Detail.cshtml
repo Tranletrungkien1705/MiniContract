@@ -9,10 +9,12 @@
     var elStats = (ElementStats)(ViewBag.ElementStats ?? new ElementStats(0, 0, 0, 0, 0));
     var checkers = (List<ContractChecker>)(ViewBag.Checkers ?? new List<ContractChecker>());
     var ckStats = (CheckerStats)(ViewBag.CheckerStats ?? new CheckerStats(0, 0, 0, CheckerStatus.None));
+    var apStats = (ApproveStats)(ViewBag.ApproveStats ?? new ApproveStats(0, 0, false, null, null));
     var userAssignments = (List<ContractUserInContract>)(ViewBag.UserAssignments ?? new List<ContractUserInContract>());
     var sendHistory = (List<ContractSendHist>)(ViewBag.SendHistory ?? new List<ContractSendHist>());
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
+    bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
     bool canAssign = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canSend = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
@@ -280,6 +282,50 @@
                 }
             </div>
         </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-patch-check me-1"></i>Phê duyệt hợp đồng</h6>
+                    <div class="small text-muted">
+                        @if (apStats.IsApproved)
+                        {
+                            <span class="badge bg-success">Đã phê duyệt</span>
+                            <span class="ms-1">bởi <b>@apStats.ApprovedBy</b> · @apStats.ApprovedAt?.ToString("dd/MM/yyyy HH:mm")</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Chưa phê duyệt</span>
+                            <span class="ms-1">Đã duyệt <b>@apStats.Approved/@apStats.Checkers</b> người kiểm tra</span>
+                        }
+                    </div>
+                </div>
+                <div class="small text-muted mb-2">Chỉ người có vai trò <b>Người kiểm tra</b> mới được phê duyệt hợp đồng (người ký không có quyền duyệt).</div>
+                @if (canApprove)
+                {
+                    <form asp-action="Approve" method="post" class="row g-2">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4">
+                            <select name="userCode" class="form-select form-select-sm" required>
+                                <option value="">— Người phê duyệt —</option>
+                                @foreach (var ck in checkers.Where(x => x.IsChecker))
+                                {
+                                    <option value="@ck.UserCode">@ck.UserName (@ck.UserCode)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-5"><input name="remark" class="form-control form-control-sm" placeholder="Ghi chú phê duyệt (tùy chọn)" /></div>
+                        <div class="col-md-3"><button class="btn btn-sm btn-success w-100"><i class="bi bi-patch-check me-1"></i>Phê duyệt</button></div>
+                    </form>
+                }
+                else if (apStats.IsApproved)
+                {
+                    <div class="alert alert-success small mb-0"><i class="bi bi-check-circle me-1"></i>Hợp đồng đã được phê duyệt lúc @apStats.ApprovedAt?.ToString("dd/MM/yyyy HH:mm") bởi <b>@apStats.ApprovedBy</b>.</div>
+                }
+            </div>
+        </div>
+
         <div class="card mt-3">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">

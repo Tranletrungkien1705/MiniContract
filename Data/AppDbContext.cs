@@ -47,6 +47,7 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.ElementSignedCount);
             e.Ignore(x => x.CheckedCount);
             e.Ignore(x => x.AllChecked);
+            e.Ignore(x => x.IsApproved);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasOne(x => x.Parent).WithMany(x => x.Annexes).HasForeignKey(x => x.ParentContractId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
@@ -81,6 +82,7 @@ public class AppDbContext : DbContext
         b.Entity<ContractChecker>(e =>
         {
             e.Ignore(x => x.RoleLabel);
+            e.Ignore(x => x.HasApproved);
             e.HasOne(x => x.Contract).WithMany(x => x.Checkers).HasForeignKey(x => x.ContractId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });

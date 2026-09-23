@@ -52,6 +52,7 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.ElementStats = await svc.ElementStatsAsync(id);
         ViewBag.Checkers = await svc.CheckersAsync(id);
         ViewBag.CheckerStats = await svc.CheckerStatsAsync(id);
+        ViewBag.ApproveStats = await svc.ApproveStatsAsync(id);
         ViewBag.UserAssignments = await svc.UserAssignmentsAsync(id);
         ViewBag.SendHistory = await svc.SendHistoryAsync(id);
         return View(c);
@@ -138,6 +139,16 @@ public class ContractController(IContractService svc) : Controller
     public async Task<IActionResult> AcceptCheck(int id, int checkerId, string? remark)
     {
         var (ok, msg) = await svc.AcceptCheckAsync(id, checkerId, remark);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Phê duyệt hợp đồng (Contract_Contract_Approved) ──────────────
+    // Người kiểm tra phê duyệt hợp đồng — port từ WAS_Contract_Contract_Approved (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Approve(int id, string userCode, string? remark)
+    {
+        var (ok, msg) = await svc.ApproveAsync(id, userCode, remark);
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }

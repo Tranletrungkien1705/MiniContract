@@ -55,7 +55,8 @@ public enum HistoryAction
     Cancelled = 4,   // hủy hợp đồng
     Remark = 5,      // ghi chú/ghi chú xử lý
     SignLinkCreated = 6,  // tạo link ký công khai
-    SignLinkRevoked = 7   // thu hồi link ký công khai
+    SignLinkRevoked = 7,  // thu hồi link ký công khai
+    Approved = 8     // phê duyệt hợp đồng (Contract_Contract_Approved)
 }
 
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
@@ -207,9 +208,16 @@ public class Contract : IOrgOwned
     public string? FinishDescription { get; set; }   // FinishDescription
     public DateTime? FinishedAt { get; set; }        // FinishedDTimeUTC
 
+    // ── Phê duyệt hợp đồng (approval) ────────────────
+    // Nguồn QContract: Contract_Contract_ApprovedX — khi người kiểm tra phê duyệt,
+    // hợp đồng ghi nhận thời điểm (ApprDTimeUTC) + người duyệt (ApprBy).
+    public DateTime? ApprovedAt { get; set; }        // ApprDTimeUTC
+    public string? ApprovedBy { get; set; }          // ApprBy
+
     // ── tính toán ────────────────────────────────────────────────────
     public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished);
     public bool IsFinished => Status == ContractStatus.Finished;
+    public bool IsApproved => ApprovedAt != null;
     public int SignedCount => Parties.Count(p => p.HasSigned);
     public string Kind => IsAnnex ? "Phụ lục" : "Hợp đồng";
     public int ElementSignedCount => Elements.Count(e => e.IsSigned);
@@ -362,11 +370,13 @@ public class ContractChecker : IOrgOwned
     public bool Sequential { get; set; } = true;    // FlagSeq: 1 = kiểm tra theo thứ tự, 0 = không cần
     public string? Remark { get; set; }             // ghi chú khi kiểm tra
     public DateTime? CheckedAt { get; set; }        // CheckDTimeUTC — thời gian kiểm tra
+    public DateTime? ApprovedAt { get; set; }       // ApprovedDTimeUTC — thời gian duyệt
 
     public Contract Contract { get; set; } = null!;
 
     // ── tính toán ────────────────────────────────────────────────────
     public string RoleLabel => IsChecker ? "Người kiểm tra" : "Người ký";
+    public bool HasApproved => ApprovedAt != null;
 }
 
 // ── Phân quyền hợp đồng (Contract_UserInContract) ────────────────────

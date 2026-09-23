@@ -57,6 +57,7 @@ public static class Ui
         HistoryAction.Completed => ("Hoàn tất", "success", "bi-check-circle"),
         HistoryAction.Cancelled => ("Hủy", "dark", "bi-x-circle"),
         HistoryAction.Remark => ("Ghi chú", "warning", "bi-chat-left-text"),
+        HistoryAction.Approved => ("Phê duyệt", "success", "bi-patch-check"),
         _ => (a.ToString(), "secondary", "bi-dot")
     };
 }
