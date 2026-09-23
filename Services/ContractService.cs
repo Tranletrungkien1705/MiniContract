@@ -89,6 +89,13 @@ public interface IContractService
     Task<(bool ok, string msg)> DeleteTemplateAsync(int templateId, string actor);
     Task<int> CreateFromTemplateAsync(int templateId, string title, decimal value, string? body,
         List<ContractParty> parties, string actor);
+
+    // ── Nhóm hợp đồng mẫu (Contract_TempGroup) ───────────────────────
+    Task<List<ContractTemplateGroup>> TemplateGroupsAsync(bool activeOnly = false);
+    Task<ContractTemplateGroup?> TemplateGroupAsync(int id);
+    Task<ContractTemplateGroup> SaveTemplateGroupAsync(ContractTemplateGroup group,
+        List<ContractAttributeGroup> attributes, string actor);
+    Task<(bool ok, string msg)> DeleteTemplateGroupAsync(int groupId, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -948,6 +955,85 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         var id = await CreateAsync(c, parties);
         await LogAsync(id, HistoryAction.Remark, c.CreatedBy, $"Soạn hợp đồng từ mẫu '{t.Name}' ({t.Code})");
         return id;
+    }
+
+    // ── Nhóm hợp đồng mẫu (Contract_TempGroup) ───────────────────────
+    // Nguồn QContract: Contract_TempGroup_GetX / _CreateX / _UpdateX / _DeleteX / _CheckDB.
+    public async Task<List<ContractTemplateGroup>> TemplateGroupsAsync(bool activeOnly = false)
+    {
+        var q = db.TemplateGroups.Include(x => x.Attributes).AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.Name).ToListAsync();
+    }
+
+    public Task<ContractTemplateGroup?> TemplateGroupAsync(int id) =>
+        db.TemplateGroups.Include(x => x.Attributes).FirstOrDefaultAsync(x => x.Id == id);
+
+    // Lưu (thêm/cập nhật) nhóm hợp đồng mẫu + thuộc tính — port từ Contract_TempGroup_CreateX/_UpdateX.
+    // Luật cốt lõi: mã nhóm bắt buộc & KHÔNG trùng khi tạo; mỗi thuộc tính phải có mã + giá trị;
+    // khi cập nhật thì GHI ĐÈ toàn bộ thuộc tính cũ của nhóm (delete all + insert all).
+    public async Task<ContractTemplateGroup> SaveTemplateGroupAsync(ContractTemplateGroup group,
+        List<ContractAttributeGroup> attributes, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(group.Name))
+            throw new InvalidOperationException("Cần tên nhóm hợp đồng mẫu.");
+        if (string.IsNullOrWhiteSpace(group.Code))
+            group.Code = "G" + Guid.NewGuid().ToString("N")[..6].ToUpper();
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var existing = group.Id > 0 ? await db.TemplateGroups.Include(x => x.Attributes)
+            .FirstOrDefaultAsync(x => x.Id == group.Id) : null;
+
+        // Mã nhóm không trùng trong cùng Org — port từ Contract_TempGroup_CheckDB (Flag.No khi tạo).
+        var dup = await db.TemplateGroups.FirstOrDefaultAsync(x => x.Code == group.Code);
+        if (dup != null && dup.Id != group.Id)
+            throw new InvalidOperationException($"Mã nhóm '{group.Code}' đã tồn tại.");
+
+        // Chuẩn hoá + kiểm tra thuộc tính — port từ Contract_TempGroup_CreateX (mã + giá trị bắt buộc).
+        var clean = new List<ContractAttributeGroup>();
+        foreach (var a in attributes ?? [])
+        {
+            var code = (a.AttributeCode ?? "").Trim();
+            var val = (a.AttributeValue ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(val)) continue;
+            if (string.IsNullOrWhiteSpace(code))
+                throw new InvalidOperationException("Thuộc tính phải có mã (AttributeContractCode).");
+            if (string.IsNullOrWhiteSpace(val))
+                throw new InvalidOperationException($"Thuộc tính '{code}' phải có giá trị (AttributeValue).");
+            clean.Add(new ContractAttributeGroup { AttributeCode = code, AttributeValue = val, CreatedBy = who });
+        }
+
+        if (existing == null)
+        {
+            group.CreatedBy = who;
+            group.Attributes = clean;
+            db.TemplateGroups.Add(group);
+            existing = group;
+        }
+        else
+        {
+            existing.Name = group.Name.Trim();
+            existing.Body = group.Body;
+            existing.ContractName = group.ContractName;
+            existing.Remark = group.Remark;
+            existing.Active = group.Active;
+            // Ghi đè toàn bộ thuộc tính cũ (delete all + insert all).
+            db.AttributeGroups.RemoveRange(existing.Attributes);
+            existing.Attributes = clean;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa nhóm hợp đồng mẫu — port từ Contract_TempGroup_DeleteX (xóa kèm toàn bộ thuộc tính của nhóm).
+    public async Task<(bool ok, string msg)> DeleteTemplateGroupAsync(int groupId, string actor)
+    {
+        var g = await db.TemplateGroups.Include(x => x.Attributes).FirstOrDefaultAsync(x => x.Id == groupId);
+        if (g == null) return (false, "Không tìm thấy nhóm hợp đồng mẫu.");
+        db.AttributeGroups.RemoveRange(g.Attributes);   // delete all attributes
+        db.TemplateGroups.Remove(g);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa nhóm hợp đồng mẫu '{g.Name}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

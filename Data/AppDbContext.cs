@@ -13,6 +13,8 @@ public class AppDbContext : DbContext
     public DbSet<Org> Orgs => Set<Org>();
     public DbSet<ContractType> ContractTypes => Set<ContractType>();
     public DbSet<ContractTemplate> Templates => Set<ContractTemplate>();
+    public DbSet<ContractTemplateGroup> TemplateGroups => Set<ContractTemplateGroup>();
+    public DbSet<ContractAttributeGroup> AttributeGroups => Set<ContractAttributeGroup>();
     public DbSet<ContractNumberRule> NumberRules => Set<ContractNumberRule>();
     public DbSet<Contract> Contracts => Set<Contract>();
     public DbSet<ContractParty> Parties => Set<ContractParty>();
@@ -37,6 +39,17 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.TypeName);
             e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractTemplateGroup>(e =>
+        {
+            e.Ignore(x => x.AttributeCount);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractAttributeGroup>(e =>
+        {
+            e.HasOne(x => x.Group).WithMany(x => x.Attributes).HasForeignKey(x => x.GroupId);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<ContractNumberRule>(e =>

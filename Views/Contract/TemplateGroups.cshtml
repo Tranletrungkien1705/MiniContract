@@ -1,0 +1,94 @@
+@model List<ContractTemplateGroup>
+@{
+    ViewData["Title"] = "Nhóm hợp đồng mẫu";
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-plus-square me-2"></i>Thêm nhóm hợp đồng mẫu</h6>
+            <form asp-action="SaveTemplateGroup" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="0" />
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Tên nhóm</label>
+                    <input name="name" class="form-control" placeholder="VD: Nhóm hợp đồng thương mại" required />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Mã nhóm (tùy chọn)</label>
+                    <input name="code" class="form-control" placeholder="Để trống sẽ tự sinh" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Tên hợp đồng áp dụng</label>
+                    <input name="contractName" class="form-control" placeholder="VD: Hợp đồng mua bán" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Nội dung chung của nhóm</label>
+                    <textarea name="body" class="form-control" rows="3" placeholder="Nội dung dùng chung cho các hợp đồng trong nhóm…"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Thuộc tính dùng chung <span class="text-muted">(mỗi dòng: mã | giá trị)</span></label>
+                    <textarea name="attributes" class="form-control" rows="3" placeholder="VD:&#10;LOAI_HĐ | Mua bán&#10;THOI_HAN | 12 tháng"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Ghi chú (tùy chọn)</label>
+                    <input name="remark" class="form-control" />
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="active" value="true" checked />
+                    <label class="form-check-label small">Đang hiệu lực</label>
+                </div>
+                <button class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Thêm nhóm</button>
+            </form>
+            <p class="text-muted small mt-3 mb-0">Nhóm gom nhiều hợp đồng mẫu cùng chủ đề + thuộc tính dùng chung — port từ <code>Contract_TempGroup</code> (QContract).</p>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0"><i class="bi bi-collection me-2"></i>Danh mục nhóm <span class="badge bg-secondary">@Model.Count</span></h6>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="text-muted small">Chưa có nhóm hợp đồng mẫu nào.</div>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Mã</th><th>Tên nhóm</th><th>HĐ áp dụng</th><th>Thuộc tính</th><th>Hiệu lực</th><th class="text-end">Thao tác</th></tr></thead>
+                    <tbody>
+                    @foreach (var g in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@g.Code</td>
+                            <td>@g.Name</td>
+                            <td class="small text-muted">@(string.IsNullOrWhiteSpace(g.ContractName) ? "—" : g.ContractName)</td>
+                            <td>
+                                @if (g.Attributes.Count == 0)
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                                else
+                                {
+                                    foreach (var a in g.Attributes)
+                                    {
+                                        <span class="badge bg-light text-dark border me-1 mb-1">@a.AttributeCode: @a.AttributeValue</span>
+                                    }
+                                }
+                            </td>
+                            <td>@if (g.Active) { <span class="badge bg-success">Đang dùng</span> } else { <span class="badge bg-secondary">Ngừng</span> }</td>
+                            <td class="text-end">
+                                <form asp-action="DeleteTemplateGroup" method="post" class="d-inline" onsubmit="return confirm('Xóa nhóm @g.Name?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@g.Id" />
+                                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div></div>
+    </div>
+</div>

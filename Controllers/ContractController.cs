@@ -247,6 +247,53 @@ public class ContractController(IContractService svc) : Controller
         }
     }
 
+    // ── Nhóm hợp đồng mẫu (Contract_TempGroup) ───────────────────────
+    // Danh mục nhóm hợp đồng mẫu + thuộc tính dùng chung — port từ Contract_TempGroup (QContract).
+    public async Task<IActionResult> TemplateGroups()
+    {
+        return View(await svc.TemplateGroupsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveTemplateGroup(int id, string name, string? code, string? body,
+        string? contractName, string? remark, bool active, string? attributes)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            TempData["Error"] = "Cần tên nhóm hợp đồng mẫu.";
+            return RedirectToAction(nameof(TemplateGroups));
+        }
+        // Mỗi dòng thuộc tính: mã | giá trị
+        var attrs = new List<ContractAttributeGroup>();
+        foreach (var raw in (attributes ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = raw.Split('|');
+            var ac = parts.Length > 0 ? parts[0].Trim() : "";
+            var av = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrWhiteSpace(ac) && string.IsNullOrWhiteSpace(av)) continue;
+            attrs.Add(new ContractAttributeGroup { AttributeCode = ac, AttributeValue = av });
+        }
+        try
+        {
+            await svc.SaveTemplateGroupAsync(new ContractTemplateGroup
+            {
+                Id = id, Name = name.Trim(), Code = code?.Trim() ?? "", Body = body,
+                ContractName = contractName, Remark = remark, Active = active
+            }, attrs, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật nhóm hợp đồng mẫu." : "Đã thêm nhóm hợp đồng mẫu.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(TemplateGroups));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteTemplateGroup(int id)
+    {
+        var (ok, msg) = await svc.DeleteTemplateGroupAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(TemplateGroups));
+    }
+
     // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
     // Danh mục lý do kết thúc/chấm dứt hợp đồng — port từ Mst_FinishedContractReason (QContract).
     public async Task<IActionResult> FinishReasons()

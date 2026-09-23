@@ -140,6 +140,53 @@ public class ContractTemplate : IOrgOwned
     public string TypeName => Type?.Name ?? "—";
 }
 
+// ── Nhóm hợp đồng mẫu (Contract_TempGroup) ───────────────────────────
+/// <summary>
+/// Nhóm hợp đồng mẫu — port từ Contract_TempGroup (QContract).
+/// Một nhóm gom nhiều hợp đồng mẫu cùng chủ đề (VD: nhóm "Hợp đồng thương mại")
+/// và mang các thuộc tính dùng chung (Contract_Attribute_Group) để điền sẵn khi soạn.
+/// Luật cốt lõi (Contract_TempGroup_CreateX / _UpdateX / _DeleteX / _CheckDB):
+///  - ContractTGroupCode (mã nhóm) bắt buộc và KHÔNG trùng khi tạo;
+///  - khi sửa/xóa, mã nhóm phải tồn tại;
+///  - mỗi thuộc tính phải có AttributeContractCode + AttributeValue (không rỗng);
+///  - xóa nhóm thì xóa kèm toàn bộ thuộc tính của nhóm (delete all attributes).
+/// </summary>
+public class ContractTemplateGroup : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";            // ContractTGroupCode — mã nhóm
+    public string Name { get; set; } = "";            // ContracTGroupName — tên nhóm
+    public string? Body { get; set; }                  // ContractTGroupBody — nội dung chung của nhóm
+    public string? ContractName { get; set; }          // ContractName — tên hợp đồng áp dụng
+    public string? Remark { get; set; }                // Remark
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    public List<ContractAttributeGroup> Attributes { get; set; } = [];  // thuộc tính dùng chung của nhóm
+    // ── tính toán ────────────────────
+    public int AttributeCount => Attributes.Count;
+}
+
+// ── Thuộc tính nhóm hợp đồng mẫu (Contract_Attribute_Group) ──────────
+/// <summary>
+/// Thuộc tính (key-value) của một nhóm hợp đồng mẫu — port từ Contract_Attribute_Group (QContract).
+/// Mỗi dòng gắn 1 nhóm (ContractTGroupCode) với 1 mã thuộc tính (AttributeContractCode)
+/// và giá trị (AttributeValue). Luật cốt lõi: cả mã thuộc tính lẫn giá trị đều bắt buộc.
+/// </summary>
+public class ContractAttributeGroup : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int GroupId { get; set; }                   // FK tới nhóm hợp đồng mẫu
+    public string AttributeCode { get; set; } = "";    // AttributeContractCode — mã thuộc tính
+    public string AttributeValue { get; set; } = "";   // AttributeValue — giá trị thuộc tính
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    public ContractTemplateGroup Group { get; set; } = null!;
+}
+
 // ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
 /// <summary>
 /// Quy tắc sinh số hợp đồng cho một loại hợp đồng — port từ Mst_ContractTypeContractNo (QContract).
