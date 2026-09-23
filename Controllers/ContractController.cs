@@ -48,7 +48,42 @@ public class ContractController(IContractService svc) : Controller
         if (c == null) return NotFound();
         ViewBag.Annexes = await svc.AnnexesAsync(id);
         ViewBag.History = await svc.HistoryAsync(id);
+        ViewBag.Elements = await svc.ElementsAsync(id);
+        ViewBag.ElementStats = await svc.ElementStatsAsync(id);
         return View(c);
+    }
+
+    // ── Ô ký trên hợp đồng (Contract_ContractElement) ────────────────
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddElement(int id, string elementName, ElementType type, int? partyId,
+        int pageIdx, double elementX, double elementY, double elementWidth, double elementHeight)
+    {
+        if (string.IsNullOrWhiteSpace(elementName))
+        {
+            TempData["Error"] = "Cần tên ô ký.";
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+        try
+        {
+            await svc.AddElementAsync(id, new ContractElement
+            {
+                ElementName = elementName.Trim(), Type = type, PartyId = partyId,
+                PageIdx = pageIdx <= 0 ? 1 : pageIdx,
+                ElementX = elementX, ElementY = elementY,
+                ElementWidth = elementWidth, ElementHeight = elementHeight
+            });
+            TempData["Success"] = "Đã thêm ô ký.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SignElement(int id, int elementId, string? signerName)
+    {
+        var (ok, msg) = await svc.SignElementAsync(elementId, signerName ?? "", "web", HttpContext.Connection.RemoteIpAddress?.ToString());
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
     }
 
     // Ghi chú xử lý vào nhật ký thao tác (audit trail) của hợp đồng.
@@ -145,7 +180,7 @@ public class ContractController(IContractService svc) : Controller
         try
         {
             var link = await svc.CreateSignLinkAsync(id, partyId, validHours, "web");
-            var url = Url.Action(nameof(PublicSign), "Sign", new { token = link.Token }, Request.Scheme);
+            var url = Url.Action("PublicSign", "Sign", new { token = link.Token }, Request.Scheme);
             TempData["Success"] = $"Đã tạo link ký (hết hạn {link.EndDate:dd/MM/yyyy HH:mm}): {url}";
         }
         catch (Exception ex) { TempData["Error"] = ex.Message; }

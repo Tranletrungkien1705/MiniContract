@@ -1,0 +1,51 @@
+@model ContractSignLink
+@{
+    ViewData["Title"] = "Ký hợp đồng qua link";
+    var c = Model.Contract;
+    var (st, css) = Ui.Status(c.Status);
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <i class="bi bi-shield-lock text-primary" style="font-size:32px"></i>
+                    <h5 class="fw-bold mt-2 mb-0">Ký hợp đồng điện tử</h5>
+                    <div class="text-muted small">Link ký công khai — hết hạn @Model.EndDate.ToString("dd/MM/yyyy HH:mm")</div>
+                </div>
+
+                @if (ViewBag.Error != null)
+                {
+                    <div class="alert alert-danger small">@ViewBag.Error</div>
+                }
+
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-bold">@c.Title</div>
+                            <div class="text-muted small">Số @c.Code · @(c.Type?.Name ?? "—")</div>
+                        </div>
+                        <span class="badge bg-@css">@st</span>
+                    </div>
+                    <div class="mt-2 small"><span class="text-muted">Giá trị:</span> <b>@c.Value.ToString("N0") đ</b></div>
+                    <div class="mt-2 p-2 rounded small" style="background:#f6faf9;white-space:pre-wrap">@c.Body</div>
+                </div>
+
+                <div class="alert alert-info small">
+                    Bạn đang ký với vai trò <b>@Ui.Role(Model.Party.Role): @Model.Party.Name</b>.
+                </div>
+
+                <form asp-action="PublicSign" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="token" value="@Model.Token" />
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Họ tên người ký (để trống = dùng tên bên ký)</label>
+                        <input name="signerName" class="form-control" value="@Model.Party.Name" />
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-pen me-1"></i>Xác nhận ký hợp đồng</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

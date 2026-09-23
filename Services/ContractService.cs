@@ -7,6 +7,9 @@ namespace MiniContract.Services;
 public record ContractDash(int Total, int Draft, int AwaitingSign, int Completed, decimal TotalValue,
     List<(string Status, int Count)> ByStatus);
 
+/// <summary>Thống kê ô ký theo loại — port từ Contract_ContractElementSum (QContract).</summary>
+public record ElementStats(int Total, int Signed, int Electronic, int Short, int Digital);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -30,6 +33,12 @@ public interface IContractService
     Task RevokeSignLinkAsync(int linkId, string actor);
     Task<ContractSignLink?> ResolveSignLinkAsync(string token);
     Task<(bool ok, string msg)> SignViaLinkAsync(string token, string? signerName);
+
+    // ── Ô ký trên hợp đồng (Contract_ContractElement) ────────────────
+    Task<List<ContractElement>> ElementsAsync(int contractId);
+    Task<ContractElement> AddElementAsync(int contractId, ContractElement el);
+    Task<(bool ok, string msg)> SignElementAsync(int elementId, string signerName, string signFrom, string? ip);
+    Task<ElementStats> ElementStatsAsync(int contractId);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -253,6 +262,66 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         if (c.Status == ContractStatus.Completed)
             await LogAsync(c.Id, HistoryAction.Completed, "system", $"Đủ chữ ký các bên — {c.Code} hoàn tất");
         return (true, $"{name} đã ký hợp đồng {c.Code} qua link công khai.");
+    }
+
+    // ── Ô ký trên hợp đồng (Contract_ContractElement) ────────────────
+    // Nguồn QContract: WAS_Contract_ContractElement_Update (thêm/sửa ô ký) +
+    // WAS_Contract_ContractElement_Calc (thống kê theo ElementType).
+    public Task<List<ContractElement>> ElementsAsync(int contractId) =>
+        db.Elements.Include(x => x.Party).Where(x => x.ContractId == contractId)
+          .OrderBy(x => x.PageIdx).ThenBy(x => x.ElementY).ThenBy(x => x.ElementX).ToListAsync();
+
+    public async Task<ContractElement> AddElementAsync(int contractId, ContractElement el)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Completed or ContractStatus.Cancelled)
+            throw new InvalidOperationException("Hợp đồng đã kết thúc, không thêm ô ký.");
+        if (el.PartyId.HasValue && c.Parties.All(p => p.Id != el.PartyId.Value))
+            throw new InvalidOperationException("Bên sở hữu ô ký không thuộc hợp đồng này.");
+        if (string.IsNullOrWhiteSpace(el.ElementCode)) el.ElementCode = "EL" + Guid.NewGuid().ToString("N")[..6];
+        if (el.ElementWidth <= 0) el.ElementWidth = 120;
+        if (el.ElementHeight <= 0) el.ElementHeight = 40;
+        el.ContractId = c.Id;
+        el.IsSigned = false;
+        db.Elements.Add(el);
+        await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Remark, "web",
+            $"Thêm ô ký '{el.ElementName}' ({el.TypeLabel}) cho {(el.PartyId.HasValue ? c.Parties.First(p => p.Id == el.PartyId).Name : "—")}");
+        return el;
+    }
+
+    // Đánh dấu 1 ô ký đã được ký — port từ ElementSignStatus/ConfirmBy/ConfirmDTimeUTC (QContract).
+    public async Task<(bool ok, string msg)> SignElementAsync(int elementId, string signerName, string signFrom, string? ip)
+    {
+        var el = await db.Elements.Include(x => x.Contract).Include(x => x.Party)
+            .FirstOrDefaultAsync(x => x.Id == elementId);
+        if (el == null) return (false, "Không tìm thấy ô ký.");
+        if (el.IsSigned) return (false, "Ô ký này đã được ký rồi.");
+        if (el.Contract.Status is ContractStatus.Completed or ContractStatus.Cancelled)
+            return (false, "Hợp đồng đã kết thúc, không thể ký ô ký.");
+
+        el.IsSigned = true;
+        el.SignerName = string.IsNullOrWhiteSpace(signerName) ? (el.Party?.Name ?? "—") : signerName.Trim();
+        el.SignedAt = DateTime.Now;
+        el.SignFrom = string.IsNullOrWhiteSpace(signFrom) ? "web" : signFrom;
+        el.ElementIP = ip;
+        await db.SaveChangesAsync();
+        await LogAsync(el.ContractId, HistoryAction.Signed, el.SignerName,
+            $"Ký ô '{el.ElementName}' ({el.TypeLabel}) — từ {el.SignFrom}");
+        return (true, $"Đã ký ô '{el.ElementName}'.");
+    }
+
+    // Thống kê ô ký theo loại — port từ Contract_ContractElementSum (QContract).
+    public async Task<ElementStats> ElementStatsAsync(int contractId)
+    {
+        var els = await db.Elements.Where(x => x.ContractId == contractId).ToListAsync();
+        return new ElementStats(
+            els.Count,
+            els.Count(e => e.IsSigned),
+            els.Count(e => e.Type == ElementType.Electronic),
+            els.Count(e => e.Type == ElementType.Short),
+            els.Count(e => e.Type == ElementType.Digital));
     }
 
     // ── helpers ──────────────────────────────────────────────────────

@@ -54,6 +54,12 @@ public enum HistoryAction
 /// <summary>Trạng thái hiệu lực của link ký công khai (tính từ thời điểm hết hạn + cờ thu hồi).</summary>
 public enum SignLinkState { Active = 0, Expired = 1, Revoked = 2 }
 
+/// <summary>
+/// Loại ô ký trên hợp đồng — port từ TConst.ElementType (QContract):
+/// ELECTRONIC = ký điện tử, SHORT = ký tắt, DIGITAL = ký số.
+/// </summary>
+public enum ElementType { Electronic = 0, Short = 1, Digital = 2 }
+
 // ── Danh mục loại hợp đồng ───────────────────────────────────────────
 public class ContractType : IOrgOwned
 {
@@ -95,11 +101,13 @@ public class Contract : IOrgOwned
     public List<ContractSignature> Signatures { get; set; } = [];
     public List<ContractHistory> History { get; set; } = [];
     public List<ContractSignLink> SignLinks { get; set; } = [];
+    public List<ContractElement> Elements { get; set; } = [];   // các ô ký trên bản thể hiện
 
     // ── tính toán ────────────────────────────────────────────────────
     public bool IsOpen => Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     public int SignedCount => Parties.Count(p => p.HasSigned);
     public string Kind => IsAnnex ? "Phụ lục" : "Hợp đồng";
+    public int ElementSignedCount => Elements.Count(e => e.IsSigned);
 }
 
 // ── Các bên tham gia ─────────────────────────────────────────────────
@@ -116,21 +124,6 @@ public class ContractParty : IOrgOwned
     public int SignOrder { get; set; } = 1;
     public bool HasSigned { get; set; }
     public DateTime? SignedAt { get; set; }
-
-    public Contract Contract { get; set; } = null!;
-}
-
-// ── Lịch sử thao tác (audit trail) ───────────────────────────────────
-/// <summary>Nhật ký mọi thao tác trên hợp đồng: ai làm gì, lúc nào, mô tả. Bất biến (append-only).</summary>
-public class ContractHistory : IOrgOwned
-{
-    public int Id { get; set; }
-    public Guid OrgId { get; set; }
-    public int ContractId { get; set; }
-    public HistoryActionType Action { get; set; }
-    public string Actor { get; set; } = "";        // người thực hiện (web/api/seed hoặc tên bên ký)
-    public string Description { get; set; } = "";  // diễn giải thao tác
-    public DateTime At { get; set; } = DateTime.Now;
 
     public Contract Contract { get; set; } = null!;
 }
@@ -195,4 +188,48 @@ public class ContractSignLink : IOrgOwned
     public SignLinkState State => Revoked ? SignLinkState.Revoked
         : (DateTime.Now > EndDate ? SignLinkState.Expired : SignLinkState.Active);
     public bool IsUsable => State == SignLinkState.Active && UsedAt == null;
+}
+
+// ── Ô ký trên hợp đồng (Contract_ContractElement) ────────────────────
+/// <summary>
+/// Ô ký (signature field) đặt trên bản thể hiện hợp đồng — port từ Contract_ContractElement (QContract).
+/// Mỗi ô thuộc 1 bên (PartyCode), có loại ký (ElementType: ELECTRONIC/SHORT/DIGITAL), tọa độ + kích thước
+/// trên trang (PageIdx/ElementX/ElementY/ElementWidth/ElementHeight) và trạng thái đã ký hay chưa
+/// (ElementSignStatus). Nguồn QContract: WAS_Contract_ContractElement_Update / _Calc.
+/// </summary>
+public class ContractElement : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public int ContractId { get; set; }
+    public int? PartyId { get; set; }               // bên sở hữu ô ký (PartyCode)
+    public string ElementCode { get; set; } = "";   // mã tham số của ô
+    public string ElementName { get; set; } = "";   // tên trường hiển thị
+    public ElementType Type { get; set; } = ElementType.Electronic;
+
+    // ── vị trí trên trang ────────────────────────────────────────────
+    public int PageIdx { get; set; } = 1;           // số trang
+    public double ElementX { get; set; }            // tọa độ X
+    public double ElementY { get; set; }            // tọa độ Y
+    public double ElementWidth { get; set; }        // chiều rộng ô ký
+    public double ElementHeight { get; set; }       // chiều cao ô ký
+
+    // ── trạng thái ký ────────────────────────────────────────────────
+    public bool IsSigned { get; set; }              // ElementSignStatus: 0 chưa ký, 1 đã ký
+    public string? SignerName { get; set; }         // ConfirmBy — người ký
+    public DateTime? SignedAt { get; set; }         // ConfirmDTimeUTC — ngày ký
+    public string? SignFrom { get; set; }           // ký từ: web / app / link token
+    public string? ElementIP { get; set; }          // địa chỉ IP khi ký
+
+    public Contract Contract { get; set; } = null!;
+    public ContractParty? Party { get; set; }
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string TypeLabel => Type switch
+    {
+        ElementType.Electronic => "Ký điện tử",
+        ElementType.Short => "Ký tắt",
+        ElementType.Digital => "Ký số",
+        _ => Type.ToString()
+    };
 }

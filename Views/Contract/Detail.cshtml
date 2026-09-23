@@ -5,6 +5,9 @@
     bool canSign = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
     var annexes = (List<Contract>)(ViewBag.Annexes ?? new List<Contract>());
     var history = (List<ContractHistory>)(ViewBag.History ?? new List<ContractHistory>());
+    var elements = (List<ContractElement>)(ViewBag.Elements ?? new List<ContractElement>());
+    var elStats = (ElementStats)(ViewBag.ElementStats ?? new ElementStats(0, 0, 0, 0, 0));
+    bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
 }
 
 <div class="row g-3">
@@ -108,6 +111,91 @@
                 </div>
             </div>
         }
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-vector-pen me-1"></i>Ô ký trên hợp đồng <span class="badge bg-secondary">@elements.Count</span></h6>
+                    <div class="small text-muted">
+                        Đã ký <b>@elStats.Signed/@elStats.Total</b>
+                        · <span class="badge bg-primary">Điện tử @elStats.Electronic</span>
+                        <span class="badge bg-info">Ký tắt @elStats.Short</span>
+                        <span class="badge bg-success">Ký số @elStats.Digital</span>
+                    </div>
+                </div>
+                @if (elements.Count == 0)
+                {
+                    <div class="text-muted small">Chưa có ô ký nào.</div>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Tên ô</th><th>Loại</th><th>Bên</th><th>Trang / vị trí</th><th>Trạng thái</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var el in elements)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@el.ElementName<div class="text-muted" style="font-size:11px">@el.ElementCode</div></td>
+                                <td><span class="badge bg-@(el.Type == ElementType.Digital ? "success" : el.Type == ElementType.Short ? "info" : "primary")">@el.TypeLabel</span></td>
+                                <td class="small">@(el.Party?.Name ?? "—")</td>
+                                <td class="small text-muted">tr.@el.PageIdx · (@el.ElementX.ToString("0"),@el.ElementY.ToString("0")) @el.ElementWidth.ToString("0")×@el.ElementHeight.ToString("0")</td>
+                                <td>
+                                    @if (el.IsSigned)
+                                    {
+                                        <span class="text-success small"><i class="bi bi-patch-check-fill me-1"></i>@el.SignerName · @el.SignedAt?.ToString("dd/MM/yyyy HH:mm")</span>
+                                        @if (el.SignFrom != null) { <div class="text-muted" style="font-size:11px">từ @el.SignFrom @(el.ElementIP != null ? "· " + el.ElementIP : "")</div> }
+                                    }
+                                    else { <span class="badge bg-warning text-dark">Chưa ký</span> }
+                                </td>
+                                <td class="text-end">
+                                    @if (!el.IsSigned && canEditElements)
+                                    {
+                                        <form asp-action="SignElement" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@Model.Id" />
+                                            <input type="hidden" name="elementId" value="@el.Id" />
+                                            <button class="btn btn-sm btn-outline-success"><i class="bi bi-pen me-1"></i>Ký ô</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+
+                @if (canEditElements)
+                {
+                    <form asp-action="AddElement" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4"><input name="elementName" class="form-control form-control-sm" placeholder="Tên ô ký (VD: Chữ ký Bên A)" required /></div>
+                        <div class="col-md-2">
+                            <select name="type" class="form-select form-select-sm">
+                                <option value="0">Ký điện tử</option>
+                                <option value="1">Ký tắt</option>
+                                <option value="2">Ký số</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select name="partyId" class="form-select form-select-sm">
+                                <option value="">— Bên sở hữu —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-1"><input name="pageIdx" type="number" value="1" min="1" class="form-control form-control-sm" title="Trang" /></div>
+                        <div class="col-md-1"><input name="elementX" type="number" value="0" class="form-control form-control-sm" title="X" /></div>
+                        <div class="col-md-1"><input name="elementY" type="number" value="0" class="form-control form-control-sm" title="Y" /></div>
+                        <input type="hidden" name="elementWidth" value="120" />
+                        <input type="hidden" name="elementHeight" value="40" />
+                        <div class="col-12"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>Thêm ô ký</button></div>
+                    </form>
+                }
+            </div>
+        </div>
     </div>
 
     <div class="col-lg-4">

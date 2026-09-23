@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
     public DbSet<ContractHistory> Histories => Set<ContractHistory>();
     public DbSet<ContractSignLink> SignLinks => Set<ContractSignLink>();
+    public DbSet<ContractElement> Elements => Set<ContractElement>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -31,6 +32,7 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.IsOpen);
             e.Ignore(x => x.SignedCount);
             e.Ignore(x => x.Kind);
+            e.Ignore(x => x.ElementSignedCount);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
             e.HasOne(x => x.Parent).WithMany(x => x.Annexes).HasForeignKey(x => x.ParentContractId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
@@ -52,6 +54,13 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.State);
             e.Ignore(x => x.IsUsable);
             e.HasOne(x => x.Contract).WithMany(x => x.SignLinks).HasForeignKey(x => x.ContractId);
+            e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<ContractElement>(e =>
+        {
+            e.Ignore(x => x.TypeLabel);
+            e.HasOne(x => x.Contract).WithMany(x => x.Elements).HasForeignKey(x => x.ContractId);
             e.HasOne(x => x.Party).WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
