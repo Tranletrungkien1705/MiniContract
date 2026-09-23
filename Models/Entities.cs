@@ -697,3 +697,62 @@ public class OrgCertificate : IOrgOwned
         _ => $"{EffectiveFrom:dd/MM/yyyy} → {EffectiveTo:dd/MM/yyyy}"
     };
 }
+
+// ── Cấu hình ký của tổ chức (Mst_OrgSignConfig) ──────────────────────
+/// <summary>
+/// Loại ký của tổ chức — port từ TConst.SignType (QContract):
+/// REMOTE = ký từ xa (remote signing), SERVER = ký phía server, USBTOKEN = ký bằng USB Token.
+/// </summary>
+public enum SignType { Remote = 0, Server = 1, UsbToken = 2 }
+
+/// <summary>
+/// Cấu hình ký của một tổ chức — port từ Mst_OrgSignConfig (QContract).
+/// Mỗi bản ghi gắn 1 tổ chức (OrgID) với 1 loại ký (SignType: REMOTE/SERVER/USBTOKEN) và
+/// các tham số ký tương ứng: chứng thư (CANumber/CAOrg/CAEffDTimeUTCStart/CAEffDTimeUTCEnd),
+/// ký server (ServerSignFilePath/ServerSignPassword), ký từ xa (SupplierCode/
+/// RemoteSignAgreementUUID/RemoteSignPassCode) và hình thức xác thực (AuthenCode).
+/// Luật cốt lõi (Mst_OrgSignConfig_CheckDB / _CreateX / _UpdateX / _DeleteX):
+///  - khi tạo, AutoID KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, AutoID phải tồn tại (FlagExistToCheck = Yes);
+///  - với mỗi cặp (SignType, OrgID) chỉ được có TỐI ĐA 1 bản ghi đang hiệu lực
+///    (FlagActive=1) — nếu nhiều hơn 1 thì lỗi MoreThanOneActive.
+/// </summary>
+public class OrgSignConfig : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public SignType SignType { get; set; } = SignType.Remote;   // SignType — loại ký
+    public string? NetworkID { get; set; }                       // NetworkID
+    public string? OrgCode { get; set; }                         // OrgID — mã tổ chức (nghiệp vụ)
+    public string? CANumber { get; set; }                        // CANumber — số chứng thư số
+    public string? CAOrg { get; set; }                           // CAOrg — tổ chức cấp chứng thư
+    public DateTime? EffectiveFrom { get; set; }                 // CAEffDTimeUTCStart — hiệu lực từ
+    public DateTime? EffectiveTo { get; set; }                   // CAEffDTimeUTCEnd — hiệu lực đến
+    public string? ServerSignFilePath { get; set; }              // ServerSignFilePath — ký server: đường dẫn file
+    public string? ServerSignPassword { get; set; }              // ServerSignPassword — ký server: mật khẩu
+    public string? SupplierCode { get; set; }                    // SupplierCode — nhà cung cấp ký từ xa
+    public string? RemoteSignAgreementUUID { get; set; }         // RemoteSignAgreementUUID — mã hợp đồng ký từ xa
+    public string? RemoteSignPassCode { get; set; }              // RemoteSignPassCode — mã ký từ xa
+    public string? AuthenCode { get; set; }                      // AuthenCode — hình thức xác thực
+    public bool Active { get; set; } = true;                     // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;      // CreateDTimeUTC
+    public string CreatedBy { get; set; } = "";                 // CreateBy
+    public DateTime? UpdatedAt { get; set; }                     // UpdateDTimeUTC
+    public string? UpdatedBy { get; set; }                       // UpdateBy
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string SignTypeLabel => SignType switch
+    {
+        SignType.Remote => "Ký từ xa (REMOTE)",
+        SignType.Server => "Ký server (SERVER)",
+        SignType.UsbToken => "USB Token",
+        _ => SignType.ToString()
+    };
+    public string ValidityLabel => (EffectiveFrom, EffectiveTo) switch
+    {
+        (null, null) => "Không giới hạn",
+        (not null, null) => $"Từ {EffectiveFrom:dd/MM/yyyy}",
+        (null, not null) => $"Đến {EffectiveTo:dd/MM/yyyy}",
+        _ => $"{EffectiveFrom:dd/MM/yyyy} → {EffectiveTo:dd/MM/yyyy}"
+    };
+}

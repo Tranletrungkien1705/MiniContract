@@ -105,6 +105,11 @@ public interface IContractService
     Task<OrgCertificate> SaveCertificateAsync(OrgCertificate cert, string actor);
     Task<(bool ok, string msg)> DeleteCertificateAsync(int id, string actor);
 
+    // ── Cấu hình ký của tổ chức (Mst_OrgSignConfig) ──────────────────
+    Task<List<OrgSignConfig>> SignConfigsAsync(bool activeOnly = false);
+    Task<OrgSignConfig> SaveSignConfigAsync(OrgSignConfig config, string actor);
+    Task<(bool ok, string msg)> DeleteSignConfigAsync(int id, string actor);
+
     // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
     Task<(bool ok, string msg)> UpdateFileAsync(int contractId, string fileName, string? filePath, string? fileVersion, string actor);
 
@@ -1134,6 +1139,82 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.OrgCertificates.Remove(c);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa chứng thư '{c.CANumber}'.");
+    }
+
+    // ── Cấu hình ký của tổ chức (Mst_OrgSignConfig) ──────────────────
+    // Nguồn QContract: Mst_OrgSignConfig_GetX / _CreateX / _UpdateX / _DeleteX / _CheckDB.
+    public async Task<List<OrgSignConfig>> SignConfigsAsync(bool activeOnly = false)
+    {
+        var q = db.SignConfigs.AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.SignType).ThenBy(x => x.OrgCode).ToListAsync();
+    }
+
+    // Lưu (thêm/cập nhật) cấu hình ký — port từ Mst_OrgSignConfig_CreateX / _UpdateX (QContract).
+    // Luật cốt lõi: với mỗi cặp (SignType, OrgID) chỉ được có TỐI ĐA 1 bản ghi đang hiệu lực
+    // (FlagActive=1) — nếu nhiều hơn 1 thì lỗi MoreThanOneActive.
+    public async Task<OrgSignConfig> SaveSignConfigAsync(OrgSignConfig config, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(config.OrgCode))
+            throw new InvalidOperationException("Cần mã tổ chức (OrgID).");
+        config.OrgCode = config.OrgCode.Trim();
+
+        // Hiệu lực: nếu có cả hai mốc thì mốc kết thúc phải sau mốc bắt đầu.
+        if (config.EffectiveFrom.HasValue && config.EffectiveTo.HasValue && config.EffectiveTo < config.EffectiveFrom)
+            throw new InvalidOperationException("Hiệu lực đến phải sau hiệu lực từ.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var existing = config.Id > 0 ? await db.SignConfigs.FirstOrDefaultAsync(x => x.Id == config.Id) : null;
+
+        // Chỉ 1 bản ghi đang hiệu lực cho mỗi cặp (SignType, OrgID) — port từ Mst_OrgSignConfig_CheckDB_MoreThanOneActive.
+        if (config.Active)
+        {
+            var dup = await db.SignConfigs.FirstOrDefaultAsync(x =>
+                x.Active && x.SignType == config.SignType && x.OrgCode == config.OrgCode && x.Id != config.Id);
+            if (dup != null)
+                throw new InvalidOperationException(
+                    $"Đã có cấu hình ký '{config.SignTypeLabel}' đang hiệu lực cho tổ chức '{config.OrgCode}'.");
+        }
+
+        if (existing == null)
+        {
+            config.CreatedBy = who;
+            config.CreatedAt = DateTime.Now;
+            db.SignConfigs.Add(config);
+            existing = config;
+        }
+        else
+        {
+            // Cập nhật từng phần — port từ Mst_OrgSignConfig_UpdateX (Ft_Cols_Upd).
+            existing.SignType = config.SignType;
+            existing.NetworkID = config.NetworkID;
+            existing.OrgCode = config.OrgCode;
+            existing.CANumber = config.CANumber;
+            existing.CAOrg = config.CAOrg;
+            existing.EffectiveFrom = config.EffectiveFrom;
+            existing.EffectiveTo = config.EffectiveTo;
+            existing.ServerSignFilePath = config.ServerSignFilePath;
+            existing.ServerSignPassword = config.ServerSignPassword;
+            existing.SupplierCode = config.SupplierCode;
+            existing.RemoteSignAgreementUUID = config.RemoteSignAgreementUUID;
+            existing.RemoteSignPassCode = config.RemoteSignPassCode;
+            existing.AuthenCode = config.AuthenCode;
+            existing.Active = config.Active;
+            existing.UpdatedAt = DateTime.Now;
+            existing.UpdatedBy = who;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa cấu hình ký — port từ Mst_OrgSignConfig_DeleteX (phải tồn tại mới xóa được).
+    public async Task<(bool ok, string msg)> DeleteSignConfigAsync(int id, string actor)
+    {
+        var cfg = await db.SignConfigs.FirstOrDefaultAsync(x => x.Id == id);
+        if (cfg == null) return (false, "Không tìm thấy cấu hình ký.");
+        db.SignConfigs.Remove(cfg);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa cấu hình ký '{cfg.SignTypeLabel}' của tổ chức '{cfg.OrgCode}'.");
     }
 
     // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────

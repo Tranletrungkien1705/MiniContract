@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<FinishedContractReason> FinishReasons => Set<FinishedContractReason>();
     public DbSet<ContractVerifyOtp> VerifyOtps => Set<ContractVerifyOtp>();
     public DbSet<OrgCertificate> OrgCertificates => Set<OrgCertificate>();
+    public DbSet<OrgSignConfig> SignConfigs => Set<OrgSignConfig>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -158,6 +159,12 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.StateLabel);
             e.Ignore(x => x.ValidityLabel);
             e.HasIndex(x => new { x.OrgId, x.CANumber }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<OrgSignConfig>(e =>
+        {
+            e.Ignore(x => x.SignTypeLabel);
+            e.Ignore(x => x.ValidityLabel);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

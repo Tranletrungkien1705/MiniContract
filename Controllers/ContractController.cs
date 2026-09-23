@@ -613,6 +613,49 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Certificates));
     }
 
+    // ── Cấu hình ký của tổ chức (Mst_OrgSignConfig) ──────────────────
+    // Danh mục cấu hình ký (REMOTE/SERVER/USBTOKEN) của tổ chức — port từ Mst_OrgSignConfig (QContract).
+    public async Task<IActionResult> SignConfigs()
+    {
+        return View(await svc.SignConfigsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveSignConfig(int id, SignType signType, string? networkId, string orgCode,
+        string? caNumber, string? caOrg, DateTime? effectiveFrom, DateTime? effectiveTo,
+        string? serverSignFilePath, string? serverSignPassword, string? supplierCode,
+        string? remoteSignAgreementUUID, string? remoteSignPassCode, string? authenCode, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(orgCode))
+        {
+            TempData["Error"] = "Cần mã tổ chức (OrgID).";
+            return RedirectToAction(nameof(SignConfigs));
+        }
+        try
+        {
+            await svc.SaveSignConfigAsync(new OrgSignConfig
+            {
+                Id = id, SignType = signType, NetworkID = networkId?.Trim(), OrgCode = orgCode.Trim(),
+                CANumber = caNumber?.Trim(), CAOrg = caOrg?.Trim(),
+                EffectiveFrom = effectiveFrom, EffectiveTo = effectiveTo,
+                ServerSignFilePath = serverSignFilePath?.Trim(), ServerSignPassword = serverSignPassword,
+                SupplierCode = supplierCode?.Trim(), RemoteSignAgreementUUID = remoteSignAgreementUUID?.Trim(),
+                RemoteSignPassCode = remoteSignPassCode, AuthenCode = authenCode?.Trim(), Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật cấu hình ký." : "Đã thêm cấu hình ký.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(SignConfigs));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteSignConfig(int id)
+    {
+        var (ok, msg) = await svc.DeleteSignConfigAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(SignConfigs));
+    }
+
     // ── File hợp đồng (Contract_Contract_UpdateFilePath) ─────────────
     // Cập nhật file bản thể hiện (PDF) đã ký của hợp đồng — port từ
     // WAS_Contract_Contract_UpdateFilePath (QContract). ContractFileName bắt buộc.
