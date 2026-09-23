@@ -63,6 +63,37 @@ public static class Seeder
                     [("Công ty HTC", PartyRole.PartyA, "hr@corp.vn", false), ("Nguyễn Văn A", PartyRole.PartyB, "vana@gmail.com", false)])
             );
             await db.SaveChangesAsync();
+
+            // Phụ lục mẫu: gắn vào hợp đồng gốc đã hoàn tất (HD...-0001).
+            var parent = await db.Contracts.OrderBy(c => c.Id).FirstAsync();
+            var annex = new Contract
+            {
+                Code = $"PL{DateTime.Now:yyMM}-0001", Title = "Phụ lục 01 — điều chỉnh giá trị hợp đồng",
+                TypeId = parent.TypeId, Body = "Hai bên thống nhất điều chỉnh giá trị hợp đồng gốc tăng thêm 20.000.000 đ.",
+                Value = 20_000_000, Status = ContractStatus.Draft, CreatedBy = "seed",
+                IsAnnex = true, ParentContractId = parent.Id, ParentContractCode = parent.Code,
+                CreatedAt = DateTime.Now.AddDays(-1)
+            };
+            annex.Parties.Add(new ContractParty { Name = "Công ty HTC", Role = PartyRole.PartyA, Email = "htc@corp.vn", SignOrder = 1 });
+            annex.Parties.Add(new ContractParty { Name = "Đại lý Minh Anh", Role = PartyRole.PartyB, Email = "minhanh@dl.vn", SignOrder = 2 });
+            db.Contracts.Add(annex);
+            await db.SaveChangesAsync();
+
+            // Nhật ký thao tác mẫu (audit trail) cho vài hợp đồng — dựng "vòng đời" có thể kiểm toán.
+            var all = await db.Contracts.OrderBy(c => c.Id).ToListAsync();
+            var hist = new List<ContractHistory>();
+            foreach (var c in all)
+            {
+                hist.Add(new ContractHistory { ContractId = c.Id, Action = HistoryAction.Created, Actor = c.CreatedBy, Description = $"Tạo {c.Kind.ToLower()} {c.Code}", At = c.CreatedAt });
+                if (c.SentAt != null)
+                    hist.Add(new ContractHistory { ContractId = c.Id, Action = HistoryAction.Sent, Actor = c.CreatedBy, Description = $"Gửi {c.Kind.ToLower()} {c.Code} cho {c.Parties.Count} bên ký", At = c.SentAt.Value });
+                foreach (var p in c.Parties.Where(x => x.HasSigned))
+                    hist.Add(new ContractHistory { ContractId = c.Id, Action = HistoryAction.Signed, Actor = p.Name, Description = $"{p.Name} ký — {Ui.Role(p.Role)}", At = p.SignedAt ?? c.CreatedAt });
+                if (c.CompletedAt != null)
+                    hist.Add(new ContractHistory { ContractId = c.Id, Action = HistoryAction.Completed, Actor = "system", Description = $"Đủ chữ ký các bên — {c.Code} hoàn tất", At = c.CompletedAt.Value });
+            }
+            db.Histories.AddRange(hist);
+            await db.SaveChangesAsync();
         }
     }
 
@@ -70,7 +101,7 @@ public static class Seeder
     {
         if (!db.Database.IsNpgsql()) return;
         var def = TenantContext.DefaultOrgId;
-        var tables = new[] { "ContractTypes", "Contracts", "Parties", "Signatures" };
+        var tables = new[] { "ContractTypes", "Contracts", "Parties", "Signatures", "Histories" };
         var sql = new List<string>
         {
             "CREATE TABLE IF NOT EXISTS minicontract.\"Orgs\" (\"Id\" uuid PRIMARY KEY, \"Name\" text NOT NULL DEFAULT '', \"ApiKey\" text NOT NULL DEFAULT '', \"CreatedAt\" timestamp NOT NULL DEFAULT now())",
@@ -78,6 +109,9 @@ public static class Seeder
         };
         foreach (var t in tables)
             sql.Add($"ALTER TABLE minicontract.\"{t}\" ADD COLUMN IF NOT EXISTS \"OrgId\" uuid NOT NULL DEFAULT '{def}'");
+        sql.Add("ALTER TABLE minicontract.\"Contracts\" ADD COLUMN IF NOT EXISTS \"IsAnnex\" boolean NOT NULL DEFAULT false");
+        sql.Add("ALTER TABLE minicontract.\"Contracts\" ADD COLUMN IF NOT EXISTS \"ParentContractId\" integer NULL");
+        sql.Add("ALTER TABLE minicontract.\"Contracts\" ADD COLUMN IF NOT EXISTS \"ParentContractCode\" text NULL");
         foreach (var s in sql)
             try { await db.Database.ExecuteSqlRawAsync(s); } catch { }
     }

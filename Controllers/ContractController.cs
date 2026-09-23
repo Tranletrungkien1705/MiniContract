@@ -46,7 +46,46 @@ public class ContractController(IContractService svc) : Controller
     {
         var c = await svc.GetAsync(id);
         if (c == null) return NotFound();
+        ViewBag.Annexes = await svc.AnnexesAsync(id);
         return View(c);
+    }
+
+    // ── Phụ lục hợp đồng ─────────────────────────────
+    public async Task<IActionResult> CreateAnnex(int id)
+    {
+        var parent = await svc.GetAsync(id);
+        if (parent == null) return NotFound();
+        if (parent.IsAnnex) { TempData["Error"] = "Không thể tạo phụ lục của một phụ lục."; return RedirectToAction(nameof(Detail), new { id }); }
+        ViewBag.Parent = parent;
+        return View();
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateAnnex(int id, string title, decimal value, string body,
+        string partyAName, string? partyAEmail, string partyBName, string? partyBEmail)
+    {
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(partyAName) || string.IsNullOrWhiteSpace(partyBName))
+        {
+            TempData["Error"] = "Cần tiêu đề và tên 2 bên.";
+            return RedirectToAction(nameof(CreateAnnex), new { id });
+        }
+        var annex = new Contract { Title = title.Trim(), Value = value, Body = body ?? "", CreatedBy = "web" };
+        var parties = new List<ContractParty>
+        {
+            new() { Name = partyAName.Trim(), Email = partyAEmail, Role = PartyRole.PartyA },
+            new() { Name = partyBName.Trim(), Email = partyBEmail, Role = PartyRole.PartyB },
+        };
+        try
+        {
+            var annexId = await svc.CreateAnnexAsync(id, annex, parties);
+            TempData["Success"] = "Đã tạo phụ lục nháp.";
+            return RedirectToAction(nameof(Detail), new { id = annexId });
+        }
+        catch (Exception ex)
+        {
+            TempData["Error"] = ex.Message;
+            return RedirectToAction(nameof(Detail), new { id });
+        }
     }
 
     [HttpPost, ValidateAntiForgeryToken]

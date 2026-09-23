@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Contract> Contracts => Set<Contract>();
     public DbSet<ContractParty> Parties => Set<ContractParty>();
     public DbSet<ContractSignature> Signatures => Set<ContractSignature>();
+    public DbSet<ContractHistory> Histories => Set<ContractHistory>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -28,7 +29,9 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
             e.Ignore(x => x.IsOpen);
             e.Ignore(x => x.SignedCount);
+            e.Ignore(x => x.Kind);
             e.HasOne(x => x.Type).WithMany().HasForeignKey(x => x.TypeId);
+            e.HasOne(x => x.Parent).WithMany(x => x.Annexes).HasForeignKey(x => x.ParentContractId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<ContractParty>(e =>
@@ -37,6 +40,11 @@ public class AppDbContext : DbContext
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<ContractSignature>().HasQueryFilter(x => x.OrgId == _orgId);
+        b.Entity<ContractHistory>(e =>
+        {
+            e.HasOne(x => x.Contract).WithMany(x => x.History).HasForeignKey(x => x.ContractId);
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
     }
 
     public override int SaveChanges() { StampOrg(); return base.SaveChanges(); }

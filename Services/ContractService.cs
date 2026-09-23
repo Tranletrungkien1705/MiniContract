@@ -13,11 +13,15 @@ public interface IContractService
     Task<Contract?> GetAsync(int id);
     Task<List<ContractType>> TypesAsync();
     Task<int> CreateAsync(Contract c, List<ContractParty> parties);
+    Task<int> CreateAnnexAsync(int parentId, Contract annex, List<ContractParty> parties);
+    Task<List<Contract>> AnnexesAsync(int parentId);
     Task SendAsync(int id);
     Task CancelAsync(int id);
     Task<(bool ok, string msg)> SignCksAsync(int contractId, int partyId);
     string OtpGenerate(int partyId);
     Task<(bool ok, string msg)> SignOtpAsync(int contractId, int partyId, string code);
+    Task<List<ContractHistory>> HistoryAsync(int contractId);
+    Task AddRemarkAsync(int contractId, string actor, string remark);
     Task<ContractDash> DashboardAsync();
 }
 
@@ -51,8 +55,40 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         }
         db.Contracts.Add(c);
         await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Created, c.CreatedBy, $"Tạo {c.Kind.ToLower()} {c.Code}");
         return c.Id;
     }
+
+    // Tạo phụ lục cho 1 hợp đồng gốc. Nguồn QContract: FlagContractAnnex=1 + ContractRefNo = số HĐ cha.
+    public async Task<int> CreateAnnexAsync(int parentId, Contract annex, List<ContractParty> parties)
+    {
+        var parent = await db.Contracts.FirstOrDefaultAsync(x => x.Id == parentId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng gốc.");
+        if (parent.IsAnnex) throw new InvalidOperationException("Không thể tạo phụ lục của một phụ lục.");
+        if (parent.Status == ContractStatus.Cancelled) throw new InvalidOperationException("Hợp đồng gốc đã hủy, không tạo phụ lục.");
+
+        var count = await db.Contracts.CountAsync();
+        annex.Code = $"PL{DateTime.Now:yyMM}-{count + 1:D4}";
+        annex.Status = ContractStatus.Draft;
+        annex.IsAnnex = true;
+        annex.ParentContractId = parent.Id;
+        annex.ParentContractCode = parent.Code;
+        int order = 1;
+        foreach (var p in parties.Where(p => !string.IsNullOrWhiteSpace(p.Name)))
+        {
+            p.SignOrder = order++;
+            annex.Parties.Add(p);
+        }
+        db.Contracts.Add(annex);
+        await db.SaveChangesAsync();
+        await LogAsync(annex.Id, HistoryAction.Created, annex.CreatedBy, $"Tạo phụ lục {annex.Code} cho hợp đồng {parent.Code}");
+        await LogAsync(parent.Id, HistoryAction.Remark, annex.CreatedBy, $"Phát sinh phụ lục {annex.Code}");
+        return annex.Id;
+    }
+
+    public Task<List<Contract>> AnnexesAsync(int parentId) =>
+        db.Contracts.Include(c => c.Parties).Where(c => c.ParentContractId == parentId)
+          .OrderByDescending(c => c.CreatedAt).ToListAsync();
 
     public async Task SendAsync(int id)
     {
@@ -62,6 +98,7 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         c.Status = ContractStatus.Sent;
         c.SentAt = DateTime.Now;
         await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Sent, c.CreatedBy, $"Gửi {c.Kind.ToLower()} {c.Code} cho {c.Parties.Count} bên ký");
     }
 
     public async Task CancelAsync(int id)
@@ -70,6 +107,7 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         if (c.Status == ContractStatus.Completed) throw new InvalidOperationException("Không hủy hợp đồng đã hoàn tất.");
         c.Status = ContractStatus.Cancelled;
         await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Cancelled, c.CreatedBy, $"Hủy {c.Kind.ToLower()} {c.Code}");
     }
 
     public async Task<(bool ok, string msg)> SignCksAsync(int contractId, int partyId)
@@ -85,6 +123,9 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         });
         MarkSigned(c, p);
         await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Signed, p.Name, $"{p.Name} ký số (CKS) — {Ui.Role(p.Role)}");
+        if (c.Status == ContractStatus.Completed)
+            await LogAsync(c.Id, HistoryAction.Completed, "system", $"Đủ chữ ký các bên — {c.Code} hoàn tất");
         return (true, $"{p.Name} đã ký số (CKS) hợp đồng {c.Code}.");
     }
 
@@ -103,7 +144,19 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         });
         MarkSigned(c, p);
         await db.SaveChangesAsync();
+        await LogAsync(c.Id, HistoryAction.Signed, p.Name, $"{p.Name} ký qua OTP — {Ui.Role(p.Role)}");
+        if (c.Status == ContractStatus.Completed)
+            await LogAsync(c.Id, HistoryAction.Completed, "system", $"Đủ chữ ký các bên — {c.Code} hoàn tất");
         return (true, $"{p.Name} đã ký qua OTP hợp đồng {c.Code}.");
+    }
+
+    public Task<List<ContractHistory>> HistoryAsync(int contractId) =>
+        db.Histories.Where(h => h.ContractId == contractId).OrderByDescending(h => h.At).ToListAsync();
+
+    public async Task AddRemarkAsync(int contractId, string actor, string remark)
+    {
+        if (string.IsNullOrWhiteSpace(remark)) return;
+        await LogAsync(contractId, HistoryAction.Remark, string.IsNullOrWhiteSpace(actor) ? "web" : actor, remark.Trim());
     }
 
     public async Task<ContractDash> DashboardAsync()
@@ -139,5 +192,17 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         var allSigned = c.Parties.All(x => x.HasSigned);
         if (allSigned) { c.Status = ContractStatus.Completed; c.CompletedAt = DateTime.Now; }
         else c.Status = ContractStatus.PartiallySigned;
+    }
+
+    // Ghi 1 dòng nhật ký thao tác (audit trail) — port từ Contract_Contract_HistAction (QContract).
+    private async Task LogAsync(int contractId, HistoryAction action, string actor, string description)
+    {
+        db.Histories.Add(new ContractHistory
+        {
+            ContractId = contractId, Action = action,
+            Actor = string.IsNullOrWhiteSpace(actor) ? "system" : actor,
+            Description = description
+        });
+        await db.SaveChangesAsync();
     }
 }
