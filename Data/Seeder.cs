@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MiniContract.Models;
+using MiniContract.Services;
 
 namespace MiniContract.Data;
 
