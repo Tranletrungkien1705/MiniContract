@@ -25,6 +25,9 @@ public record PartySignStats(int Total, int Confirmed, int Pending, bool AllConf
 /// <summary>Thống kê chi tiết hợp đồng — port từ Contract_ContractDtl (QContract).</summary>
 public record DetailStats(int Lines, decimal Total, decimal Tax, decimal Discount, decimal GrandTotal);
 
+/// <summary>Thống kê thông tin bên tham gia — port từ Contract_ContractParty (QContract).</summary>
+public record PartyInfoStats(int Total, int WithInfo, int EmailSent);
+
 public interface IContractService
 {
     Task<List<Contract>> ListAsync(ContractStatus? status, string? q);
@@ -105,6 +108,13 @@ public interface IContractService
     // ── Cập nhật hợp đồng sau phê duyệt (Contract_ContractParty_UpdAfterApproved) ──
     Task<(bool ok, string msg)> UpdateAfterApprovedAsync(int contractId, int partyId, decimal valContract,
         decimal valPaymented, string? contractType, string? contractTypeName, string? remark, string actor);
+
+    // ── Cập nhật thông tin bên tham gia (Contract_ContractParty_Update) ──
+    Task<(bool ok, string msg)> UpdatePartyAsync(int contractId, int partyId, ContractParty info, string actor);
+    Task<PartyInfoStats> PartyInfoStatsAsync(int contractId);
+
+    // ── Ghi nhận gửi email cho bên (Contract_ContractParty_UpdEmailSend) ──
+    Task<(bool ok, string msg)> MarkPartyEmailSentAsync(int contractId, int partyId, string? emailSend, string actor);
 
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────
     Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId);
@@ -1171,6 +1181,91 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
             + $"giá trị {p.ValContract:N0} đ, đã thanh toán {p.ValPaymented:N0} đ, còn lại {p.ValRemain:N0} đ"
             + (p.ContractTypeName != null ? $" — loại: {p.ContractTypeName}" : ""));
         return (true, $"Đã cập nhật giá trị hợp đồng cho {p.Name}.");
+    }
+
+    // ── Cập nhật thông tin bên tham gia (Contract_ContractParty_Update) ──
+    // Nguồn QContract: WAS_Contract_ContractParty_Update → Contract_ContractParty_UpdateX.
+    // Luật cốt lõi: ContractCode bắt buộc (rỗng → lỗi Contract_ContractParty_UpdateX); bên phải
+    // thuộc hợp đồng (Contract_ContractParty_CheckDB, FlagExistToCheck=Yes); cập nhật thông tin
+    // pháp lý + liên hệ của bên (địa chỉ, MST, email, SĐT, website, ngân hàng, người đại diện).
+    public async Task<(bool ok, string msg)> UpdatePartyAsync(int contractId, int partyId, ContractParty info, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không cập nhật thông tin bên.");
+
+        // ContractCode bắt buộc — port từ Contract_ContractParty_UpdateX (strContractCode rỗng → lỗi).
+        if (string.IsNullOrWhiteSpace(c.Code))
+            return (false, "Hợp đồng chưa có số (ContractCode), không cập nhật được.");
+
+        // Bên phải thuộc hợp đồng — port từ Contract_ContractParty_CheckDB (FlagExistToCheck=Yes).
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId);
+        if (p == null) return (false, "Bên cần cập nhật không thuộc hợp đồng này.");
+        if (string.IsNullOrWhiteSpace(info.Name))
+            return (false, "Cần tên bên tham gia.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        p.Name = info.Name.Trim();
+        p.TaxCode = string.IsNullOrWhiteSpace(info.TaxCode) ? null : info.TaxCode.Trim();
+        p.Email = string.IsNullOrWhiteSpace(info.Email) ? null : info.Email.Trim();
+        p.Phone = string.IsNullOrWhiteSpace(info.Phone) ? null : info.Phone.Trim();
+        p.Address = string.IsNullOrWhiteSpace(info.Address) ? null : info.Address.Trim();
+        p.Website = string.IsNullOrWhiteSpace(info.Website) ? null : info.Website.Trim();
+        p.BankCode = string.IsNullOrWhiteSpace(info.BankCode) ? null : info.BankCode.Trim();
+        p.BankName = string.IsNullOrWhiteSpace(info.BankName) ? null : info.BankName.Trim();
+        p.BankAccountNo = string.IsNullOrWhiteSpace(info.BankAccountNo) ? null : info.BankAccountNo.Trim();
+        p.RepresentName = string.IsNullOrWhiteSpace(info.RepresentName) ? null : info.RepresentName.Trim();
+        p.RepresentPosition = string.IsNullOrWhiteSpace(info.RepresentPosition) ? null : info.RepresentPosition.Trim();
+        p.InfoUpdatedAt = DateTime.Now;
+        p.InfoUpdatedBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Remark, who,
+            $"Cập nhật thông tin {Ui.Role(p.Role)} '{p.Name}'"
+            + (p.TaxCode != null ? $" — MST {p.TaxCode}" : "")
+            + (p.RepresentName != null ? $" — người đại diện {p.RepresentName}" : ""));
+        return (true, $"Đã cập nhật thông tin {Ui.Role(p.Role)} '{p.Name}'.");
+    }
+
+    // Thống kê thông tin bên tham gia — port từ Contract_ContractParty (QContract).
+    public async Task<PartyInfoStats> PartyInfoStatsAsync(int contractId)
+    {
+        var parties = await db.Parties.Where(x => x.ContractId == contractId).ToListAsync();
+        return new PartyInfoStats(
+            parties.Count,
+            parties.Count(p => p.HasInfo),
+            parties.Count(p => p.EmailSent));
+    }
+
+    // ── Ghi nhận gửi email cho bên (Contract_ContractParty_UpdEmailSend) ──
+    // Nguồn QContract: WAS_Contract_ContractParty_UpdEmailSend → Contract_ContractParty_UpdEmailSendX.
+    // Luật cốt lõi: bên phải tồn tại (Contract_ContractParty_CheckDB, FlagExistToCheck=Yes);
+    // khi gửi mail, ghi nhận EmailSend (email đã dùng) + SendEmailDTimeUTC + SendEmailBy.
+    public async Task<(bool ok, string msg)> MarkPartyEmailSentAsync(int contractId, int partyId, string? emailSend, string actor)
+    {
+        var c = await db.Contracts.Include(x => x.Parties).FirstOrDefaultAsync(x => x.Id == contractId);
+        if (c == null) return (false, "Không tìm thấy hợp đồng.");
+        if (c.Status is ContractStatus.Cancelled or ContractStatus.Finished)
+            return (false, "Hợp đồng đã hủy hoặc đã kết thúc, không gửi mail.");
+
+        // Bên phải tồn tại — port từ Contract_ContractParty_CheckDB (FlagExistToCheck=Yes).
+        var p = c.Parties.FirstOrDefault(x => x.Id == partyId);
+        if (p == null) return (false, "Bên nhận mail không thuộc hợp đồng này.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor.Trim();
+        var email = string.IsNullOrWhiteSpace(emailSend) ? p.Email : emailSend.Trim();
+        if (string.IsNullOrWhiteSpace(email))
+            return (false, $"Bên '{p.Name}' chưa có email nhận thông báo.");
+
+        p.EmailSend = email;
+        p.SendEmailDTimeUTC = DateTime.Now;
+        p.SendEmailBy = who;
+        await db.SaveChangesAsync();
+
+        await LogAsync(c.Id, HistoryAction.Sent, who,
+            $"Gửi mail thông báo cho {Ui.Role(p.Role)} '{p.Name}' → {email}");
+        return (true, $"Đã ghi nhận gửi mail cho {p.Name} → {email}.");
     }
 
     // ── Mã OTP xác thực ký hợp đồng (Contract_ContractVerifyOtp) ─────

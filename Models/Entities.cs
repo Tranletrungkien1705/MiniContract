@@ -446,12 +446,36 @@ public class ContractParty : IOrgOwned
     public DateTime? ValueUpdatedAt { get; set; }                    // LogLUDTimeUTC — thoi diem cap nhat gia tri
     public string? ValueUpdatedBy { get; set; }                      // LogLUBy — nguoi cap nhat gia tri
 
+    // -- Cap nhat thong tin ben tham gia (Contract_ContractParty_Update) --
+    // Nguon QContract: Contract_ContractParty.CustomerAddress/CustomerWebsite/BankCode/BankName/
+    // BankAccountNo/RepresentName/RepresentPosition. Cap nhat thong tin phap ly + lien he cua ben
+    // (khoa nghiep vu la cap (ContractCode, MST)); ContractCode bat buoc.
+    public string? Address { get; set; }                             // CustomerAddress — dia chi ben
+    public string? Website { get; set; }                             // CustomerWebsite — website ben
+    public string? BankCode { get; set; }                            // BankCode — ma ngan hang
+    public string? BankName { get; set; }                            // BankName — ten ngan hang
+    public string? BankAccountNo { get; set; }                       // BankAccountNo — so tai khoan
+    public string? RepresentName { get; set; }                       // RepresentName — nguoi dai dien
+    public string? RepresentPosition { get; set; }                   // RepresentPosition — chuc vu nguoi dai dien
+    public DateTime? InfoUpdatedAt { get; set; }                     // LogLUDTimeUTC — thoi diem cap nhat thong tin
+    public string? InfoUpdatedBy { get; set; }                       // LogLUBy — nguoi cap nhat thong tin
+
+    // -- Ghi nhan gui email cho ben (Contract_ContractParty_UpdEmailSend) --
+    // Nguon QContract: Contract_ContractParty.EmailSend/SendEmailDTimeUTC/SendEmailBy.
+    // Khi gui thong bao (mail) cho ben, he thong ghi nhan email da dung + thoi diem + nguoi gui.
+    public string? EmailSend { get; set; }                           // EmailSend — email nhan thong bao
+    public DateTime? SendEmailDTimeUTC { get; set; }                 // SendEmailDTimeUTC — thoi diem gui mail
+    public string? SendEmailBy { get; set; }                         // SendEmailBy — nguoi gui mail
+
     public Contract Contract { get; set; } = null!;
 
     // -- tinh toan --
     public bool IsCancelled => Status == PartyStatus.Cancelled;
     public bool IsConfirmed => Status == PartyStatus.Confirmed;      // da ky hop dong
     public bool HasValue => ValContract > 0;                         // da co gia tri hop dong
+    public bool HasInfo => !string.IsNullOrWhiteSpace(Address) || !string.IsNullOrWhiteSpace(TaxCode)
+        || !string.IsNullOrWhiteSpace(RepresentName);                // da co thong tin phap ly
+    public bool EmailSent => SendEmailDTimeUTC != null;              // da gui mail thong bao
 }
 
 // ── Chi tiết hợp đồng (Contract_ContractDtl) ─────────────────────────

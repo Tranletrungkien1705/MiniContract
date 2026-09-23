@@ -21,6 +21,7 @@
     var attributes = (List<ContractAttribute>)(ViewBag.Attributes ?? new List<ContractAttribute>());
     var attributeDetails = (List<ContractAttributeDtl>)(ViewBag.AttributeDetails ?? new List<ContractAttributeDtl>());
     var attributeMasters = (List<AttributeContract>)(ViewBag.AttributeMasters ?? new List<AttributeContract>());
+    var partyInfoStats = (PartyInfoStats)(ViewBag.PartyInfoStats ?? new PartyInfoStats(0, 0, 0));
     bool canEditElements = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canCheck = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled);
     bool canApprove = Model.Status is not (ContractStatus.Completed or ContractStatus.Cancelled or ContractStatus.Finished) && !Model.IsApproved;
@@ -33,6 +34,7 @@
     bool canUpdAfterApproved = Model.Status is ContractStatus.Sent or ContractStatus.PartiallySigned or ContractStatus.Completed;
     bool canEditDetails = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
     bool canEditAttributes = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
+    bool canEditParty = Model.Status is not (ContractStatus.Cancelled or ContractStatus.Finished);
 }
 
 <div class="row g-3">
@@ -958,6 +960,105 @@
                     </form>
                 }
                 <p class="text-muted small mt-2 mb-0">Trường động (thuộc tính động) cấp hợp đồng/chi tiết — port từ <code>Contract_Attribute_Contract</code> + <code>Contract_Attribute_ContractDtl</code> (QContract). Lưu là ghi đè toàn bộ.</p>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-people me-1"></i>Thông tin bên tham gia <span class="badge bg-secondary">@Model.Parties.Count</span></h6>
+                    <span class="small text-muted">Đã có thông tin: <b>@partyInfoStats.WithInfo</b> · Đã gửi mail: <b>@partyInfoStats.EmailSent</b></span>
+                </div>
+                @if (Model.Parties.Count == 0)
+                {
+                    <div class="text-muted small">Hợp đồng chưa có bên tham gia.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr><th>Bên</th><th>MST</th><th>Liên hệ</th><th>Ngân hàng</th><th>Người đại diện</th><th>Mail thông báo</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@p.Name</div>
+                                            <span class="badge bg-light text-dark">@Ui.Role(p.Role)</span>
+                                            @if (p.HasInfo) { <span class="badge bg-info text-dark">Có thông tin</span> }
+                                        </td>
+                                        <td class="small">@(p.TaxCode ?? "—")</td>
+                                        <td class="small">
+                                            @(p.Email ?? "—")<br />
+                                            <span class="text-muted">@(p.Phone ?? "—")@(p.Address != null ? " · " + p.Address : "")</span>
+                                        </td>
+                                        <td class="small">@(p.BankName ?? "—")@(p.BankAccountNo != null ? " · " + p.BankAccountNo : "")</td>
+                                        <td class="small">@(p.RepresentName ?? "—")@(p.RepresentPosition != null ? " (" + p.RepresentPosition + ")" : "")</td>
+                                        <td class="small">
+                                            @if (p.EmailSent)
+                                            {
+                                                <span class="badge bg-success">Đã gửi</span>
+                                                <div class="text-muted" style="font-size:11px">@p.EmailSend · @p.SendEmailDTimeUTC?.ToString("dd/MM/yyyy HH:mm")</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Chưa gửi</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (canEditParty)
+                {
+                    <form asp-action="UpdateParty" method="post" class="row g-2 mt-3 pt-3 border-top">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-4">
+                            <select name="partyId" class="form-select form-select-sm" required>
+                                <option value="">— Bên cần cập nhật —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4"><input name="name" class="form-control form-control-sm" placeholder="Tên bên" required /></div>
+                        <div class="col-md-4"><input name="taxCode" class="form-control form-control-sm" placeholder="Mã số thuế (MST)" /></div>
+                        <div class="col-md-4"><input name="email" class="form-control form-control-sm" placeholder="Email" /></div>
+                        <div class="col-md-4"><input name="phone" class="form-control form-control-sm" placeholder="Số điện thoại" /></div>
+                        <div class="col-md-4"><input name="website" class="form-control form-control-sm" placeholder="Website" /></div>
+                        <div class="col-md-6"><input name="address" class="form-control form-control-sm" placeholder="Địa chỉ" /></div>
+                        <div class="col-md-3"><input name="bankName" class="form-control form-control-sm" placeholder="Tên ngân hàng" /></div>
+                        <div class="col-md-3"><input name="bankAccountNo" class="form-control form-control-sm" placeholder="Số tài khoản" /></div>
+                        <div class="col-md-4"><input name="representName" class="form-control form-control-sm" placeholder="Người đại diện" /></div>
+                        <div class="col-md-4"><input name="representPosition" class="form-control form-control-sm" placeholder="Chức vụ người đại diện" /></div>
+                        <input type="hidden" name="bankCode" value="" />
+                        <div class="col-md-4"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-save me-1"></i>Cập nhật thông tin bên</button></div>
+                    </form>
+
+                    <form asp-action="MarkPartyEmailSent" method="post" class="row g-2 mt-2">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.Id" />
+                        <div class="col-md-5">
+                            <select name="partyId" class="form-select form-select-sm" required>
+                                <option value="">— Bên nhận mail —</option>
+                                @foreach (var p in Model.Parties.OrderBy(x => x.SignOrder))
+                                {
+                                    <option value="@p.Id">@Ui.Role(p.Role): @p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4"><input name="emailSend" class="form-control form-control-sm" placeholder="Email gửi (mặc định lấy email bên)" /></div>
+                        <div class="col-md-3"><button class="btn btn-sm btn-outline-success w-100"><i class="bi bi-envelope-check me-1"></i>Ghi nhận gửi mail</button></div>
+                    </form>
+                    <p class="text-muted small mt-2 mb-0">Cập nhật thông tin pháp lý/liên hệ của bên + ghi nhận gửi mail thông báo — port từ <code>Contract_ContractParty_Update</code> + <code>Contract_ContractParty_UpdEmailSend</code> (QContract).</p>
+                }
             </div>
         </div>
     </div>

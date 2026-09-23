@@ -64,6 +64,7 @@ public class ContractController(IContractService svc) : Controller
         ViewBag.Attributes = await svc.AttributesAsync(id);
         ViewBag.AttributeDetails = await svc.AttributeDetailsAsync(id);
         ViewBag.AttributeMasters = await svc.AttributeMastersAsync(activeOnly: true);
+        ViewBag.PartyInfoStats = await svc.PartyInfoStatsAsync(id);
         return View(c);
     }
 
@@ -533,6 +534,35 @@ public class ContractController(IContractService svc) : Controller
     {
         var (ok, msg) = await svc.UpdateAfterApprovedAsync(id, partyId, valContract, valPaymented,
             contractType, contractTypeName, remark, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Cập nhật thông tin bên tham gia (Contract_ContractParty_Update) ──
+    // Cập nhật thông tin pháp lý + liên hệ của một bên — port từ
+    // WAS_Contract_ContractParty_Update (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateParty(int id, int partyId, string name, string? taxCode, string? email,
+        string? phone, string? address, string? website, string? bankCode, string? bankName,
+        string? bankAccountNo, string? representName, string? representPosition)
+    {
+        var (ok, msg) = await svc.UpdatePartyAsync(id, partyId, new ContractParty
+        {
+            Name = name, TaxCode = taxCode, Email = email, Phone = phone, Address = address, Website = website,
+            BankCode = bankCode, BankName = bankName, BankAccountNo = bankAccountNo,
+            RepresentName = representName, RepresentPosition = representPosition
+        }, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    // ── Ghi nhận gửi email cho bên (Contract_ContractParty_UpdEmailSend) ──
+    // Ghi nhận đã gửi mail thông báo cho một bên — port từ
+    // WAS_Contract_ContractParty_UpdEmailSend (QContract).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> MarkPartyEmailSent(int id, int partyId, string? emailSend)
+    {
+        var (ok, msg) = await svc.MarkPartyEmailSentAsync(id, partyId, emailSend, "web");
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(Detail), new { id });
     }
