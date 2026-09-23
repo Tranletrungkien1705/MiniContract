@@ -1135,4 +1135,42 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(TempTypes));
     }
+
+    // ── Tỷ giá ngoại tệ (Mst_CurrencyEx) ─────────────────────────────
+    // Danh mục tỷ giá ngoại tệ (mua/bán/quy đổi) — port từ Mst_CurrencyEx (QContract).
+    public async Task<IActionResult> Currencies()
+    {
+        return View(await svc.CurrenciesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveCurrency(int id, string currencyCode, string currencyName,
+        string? baseCurrencyCode, decimal buyRate, decimal sellRate, decimal interEx, string? remark)
+    {
+        if (string.IsNullOrWhiteSpace(currencyCode))
+        {
+            TempData["Error"] = "Cần mã ngoại tệ (CurrencyCode).";
+            return RedirectToAction(nameof(Currencies));
+        }
+        try
+        {
+            await svc.SaveCurrencyAsync(new CurrencyExchange
+            {
+                Id = id, CurrencyCode = currencyCode.Trim(), CurrencyName = currencyName?.Trim() ?? "",
+                BaseCurrencyCode = baseCurrencyCode?.Trim(), BuyRate = buyRate, SellRate = sellRate,
+                InterEx = interEx, Remark = remark
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật tỷ giá ngoại tệ." : "Đã thêm tỷ giá ngoại tệ.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Currencies));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteCurrency(int id)
+    {
+        var (ok, msg) = await svc.DeleteCurrencyAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Currencies));
+    }
 }

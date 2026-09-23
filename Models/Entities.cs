@@ -1271,3 +1271,39 @@ public class TempType : IOrgOwned
     // ── tính toán ────────────────────────────────────────────────────
     public bool HasImage => !string.IsNullOrWhiteSpace(ImageFilePath);   // đã có ảnh xem trước
 }
+
+// ── Tỷ giá ngoại tệ (Mst_CurrencyEx) ─────────────────────────────────
+/// <summary>
+/// Tỷ giá ngoại tệ của hệ thống — port từ Mst_CurrencyEx (QContract).
+/// Mỗi bản ghi là 1 loại ngoại tệ (CurrencyCode) quy đổi về 1 đồng tiền gốc
+/// (BaseCurrencyCode, thường là VND) với tỷ giá mua (BuyRate), tỷ giá bán (SellRate)
+/// và tỷ giá quy đổi liên ngân hàng (InterEx).
+/// Khóa nghiệp vụ là CurrencyCode.
+/// Luật cốt lõi (Mst_CurrencyEx_CheckDB / _Create / _Update / _Delete):
+///  - CurrencyCode bắt buộc khi tạo; khi tạo mã tiền KHÔNG được trùng (FlagExistToCheck = No);
+///  - khi sửa/xóa, mã tiền phải tồn tại (FlagExistToCheck = Yes);
+///  - CurrencyName bắt buộc (không rỗng);
+///  - nếu có BaseCurrencyCode thì đồng tiền gốc phải tồn tại (Mst_CurrencyEx_CheckDB);
+///  - sửa là cập nhật từng phần (CurrencyName / BuyRate / SellRate / InterEx / Remark).
+/// </summary>
+public class CurrencyExchange : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string CurrencyCode { get; set; } = "";       // CurrencyCode — mã ngoại tệ (VD: USD)
+    public string? NetworkID { get; set; }                // NetworkID
+    public string CurrencyName { get; set; } = "";        // CurrencyName — tên ngoại tệ
+    public string? BaseCurrencyCode { get; set; }         // BaseCurrencyCode — đồng tiền gốc (VD: VND)
+    public decimal BuyRate { get; set; }                  // BuyRate — tỷ giá mua
+    public decimal SellRate { get; set; }                 // SellRate — tỷ giá bán
+    public decimal InterEx { get; set; }                  // InterEx — tỷ giá quy đổi liên ngân hàng
+    public string? Remark { get; set; }                   // Remark — ghi chú
+    public DateTime? UpdatedTime { get; set; }            // UpdatedTime — thời điểm cập nhật tỷ giá
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";           // LogLUBy
+
+    // ── tính toán ────────────────────────────────────────────────────
+    public string BaseLabel => string.IsNullOrWhiteSpace(BaseCurrencyCode) ? "—" : BaseCurrencyCode!;
+    public string RateLabel => $"{BuyRate:N0} / {SellRate:N0}";   // mua / bán
+    public bool HasRate => BuyRate > 0 || SellRate > 0;
+}

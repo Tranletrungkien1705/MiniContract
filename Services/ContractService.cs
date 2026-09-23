@@ -191,6 +191,11 @@ public interface IContractService
     Task<List<TempType>> TempTypesAsync(bool activeOnly = false);
     Task<TempType> SaveTempTypeAsync(TempType type, string actor);
     Task<(bool ok, string msg)> DeleteTempTypeAsync(int id, string actor);
+
+    // ── Tỷ giá ngoại tệ (Mst_CurrencyEx) ─────────────────────────────
+    Task<List<CurrencyExchange>> CurrenciesAsync();
+    Task<CurrencyExchange> SaveCurrencyAsync(CurrencyExchange currency, string actor);
+    Task<(bool ok, string msg)> DeleteCurrencyAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -2306,6 +2311,70 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         db.TempTypes.Remove(t);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa loại mẫu in '{t.Name}'.");
+    }
+
+    // ── Tỷ giá ngoại tệ (Mst_CurrencyEx) ─────────────────────────────
+    // Nguồn QContract: Mst_CurrencyEx_CheckDB / _Create / _Update / _Delete (Master.cs).
+    public Task<List<CurrencyExchange>> CurrenciesAsync() =>
+        db.Currencies.OrderBy(x => x.CurrencyCode).ToListAsync();
+
+    // Lưu tỷ giá ngoại tệ — tạo mới (CurrencyCode không trùng) hoặc cập nhật từng phần khi đã tồn tại.
+    // Luật cốt lõi: CurrencyCode bắt buộc & KHÔNG trùng khi tạo (FlagExistToCheck=No); khi sửa phải
+    // tồn tại (FlagExistToCheck=Yes); CurrencyName bắt buộc; nếu có BaseCurrencyCode thì đồng tiền
+    // gốc phải tồn tại (Mst_CurrencyEx_CheckDB).
+    public async Task<CurrencyExchange> SaveCurrencyAsync(CurrencyExchange currency, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var code = (currency.CurrencyCode ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã ngoại tệ (CurrencyCode).");
+        if (string.IsNullOrWhiteSpace(currency.CurrencyName))
+            throw new InvalidOperationException("Cần tên ngoại tệ (CurrencyName).");
+
+        var baseCode = (currency.BaseCurrencyCode ?? "").Trim();
+        var existing = await db.Currencies.FirstOrDefaultAsync(x => x.CurrencyCode == code);
+        if (existing == null)
+        {
+            // Tạo mới — CurrencyCode không được trùng (FlagExistToCheck=No).
+            // Nếu có đồng tiền gốc thì phải tồn tại (Mst_CurrencyEx_CheckDB, FlagExistToCheck=Yes).
+            if (!string.IsNullOrEmpty(baseCode) &&
+                !await db.Currencies.AnyAsync(x => x.CurrencyCode == baseCode))
+                throw new InvalidOperationException($"Đồng tiền gốc '{baseCode}' không tồn tại.");
+
+            currency.CurrencyCode = code;
+            currency.CurrencyName = currency.CurrencyName.Trim();
+            currency.BaseCurrencyCode = string.IsNullOrEmpty(baseCode) ? null : baseCode;
+            currency.UpdatedTime = DateTime.Now;
+            currency.CreatedBy = who;
+            db.Currencies.Add(currency);
+            await db.SaveChangesAsync();
+            return currency;
+        }
+
+        // Cập nhật từng phần (FlagExistToCheck=Yes).
+        if (!string.IsNullOrEmpty(baseCode) &&
+            !await db.Currencies.AnyAsync(x => x.CurrencyCode == baseCode))
+            throw new InvalidOperationException($"Đồng tiền gốc '{baseCode}' không tồn tại.");
+
+        existing.CurrencyName = currency.CurrencyName.Trim();
+        existing.BaseCurrencyCode = string.IsNullOrEmpty(baseCode) ? null : baseCode;
+        existing.BuyRate = currency.BuyRate;
+        existing.SellRate = currency.SellRate;
+        existing.InterEx = currency.InterEx;
+        existing.Remark = currency.Remark;
+        existing.UpdatedTime = DateTime.Now;
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa tỷ giá ngoại tệ — phải tồn tại (FlagExistToCheck=Yes).
+    public async Task<(bool ok, string msg)> DeleteCurrencyAsync(int id, string actor)
+    {
+        var c = await db.Currencies.FirstOrDefaultAsync(x => x.Id == id);
+        if (c == null) return (false, "Không tìm thấy tỷ giá ngoại tệ.");
+        db.Currencies.Remove(c);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa tỷ giá '{c.CurrencyCode}'.");
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

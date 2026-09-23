@@ -45,6 +45,7 @@ public class AppDbContext : DbContext
     public DbSet<NotifyType> NotifyTypes => Set<NotifyType>();
     public DbSet<UserNotifyType> UserNotifyTypes => Set<UserNotifyType>();
     public DbSet<TempType> TempTypes => Set<TempType>();
+    public DbSet<CurrencyExchange> Currencies => Set<CurrencyExchange>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -292,6 +293,17 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.HasImage);
             e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<CurrencyExchange>(e =>
+        {
+            e.Ignore(x => x.BaseLabel);
+            e.Ignore(x => x.RateLabel);
+            e.Ignore(x => x.HasRate);
+            e.Property(x => x.BuyRate).HasPrecision(18, 4);
+            e.Property(x => x.SellRate).HasPrecision(18, 4);
+            e.Property(x => x.InterEx).HasPrecision(18, 4);
+            e.HasIndex(x => new { x.OrgId, x.CurrencyCode }).IsUnique();
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }
