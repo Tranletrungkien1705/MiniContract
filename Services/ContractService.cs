@@ -82,6 +82,13 @@ public interface IContractService
     Task<List<ContractVerifyOtp>> VerifyOtpsAsync(int contractId);
     Task<ContractVerifyOtp> GenerateVerifyOtpAsync(int contractId, int partyId, int validMinutes, string actor);
     Task<(bool ok, string msg)> VerifyOtpAsync(int contractId, string otpCode, string userCodeSign);
+
+    // ── Hợp đồng mẫu (Contract_TempContract) ─────────────────────────
+    Task<List<ContractTemplate>> TemplatesAsync(bool activeOnly = false);
+    Task<ContractTemplate> SaveTemplateAsync(ContractTemplate template, string actor);
+    Task<(bool ok, string msg)> DeleteTemplateAsync(int templateId, string actor);
+    Task<int> CreateFromTemplateAsync(int templateId, string title, decimal value, string? body,
+        List<ContractParty> parties, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
@@ -854,6 +861,93 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         await LogAsync(c.Id, HistoryAction.Remark, who == "" ? "web" : who,
             $"Xác thực OTP thành công cho {otp.UserCodeSign}");
         return (true, $"Xác thực OTP thành công cho {otp.UserCodeSign}.");
+    }
+
+    // ── Hợp đồng mẫu (Contract_TempContract) ─────────────────────────
+    // Nguồn QContract: Contract_TempContract_SaveX / _CheckDB / _GetX.
+    // Luật cốt lõi: mã mẫu + tên mẫu bắt buộc; tên mẫu KHÔNG trùng trong cùng Org;
+    // loại hợp đồng phải tồn tại & đang hiệu lực; không xóa mẫu đang được hợp đồng dùng.
+    public async Task<List<ContractTemplate>> TemplatesAsync(bool activeOnly = false)
+    {
+        var q = db.Templates.Include(x => x.Type).AsQueryable();
+        if (activeOnly) q = q.Where(x => x.Active);
+        return await q.OrderBy(x => x.Name).ToListAsync();
+    }
+
+    // Lưu (thêm/cập nhật) hợp đồng mẫu — port từ Contract_TempContract_SaveX (QContract).
+    public async Task<ContractTemplate> SaveTemplateAsync(ContractTemplate template, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(template.Name))
+            throw new InvalidOperationException("Cần tên hợp đồng mẫu.");
+        if (string.IsNullOrWhiteSpace(template.Code))
+            template.Code = "M" + Guid.NewGuid().ToString("N")[..6].ToUpper();
+
+        // Loại hợp đồng phải tồn tại (nếu có chọn) — port từ Mst_ContractType_CheckDB.
+        if (template.TypeId.HasValue &&
+            !await db.ContractTypes.AnyAsync(t => t.Id == template.TypeId.Value))
+            throw new InvalidOperationException("Loại hợp đồng không tồn tại.");
+
+        // Tên mẫu không trùng trong cùng Org — port từ Contract_TempContract_SaveX (TContracNameExist).
+        var dup = await db.Templates.FirstOrDefaultAsync(x => x.Name == template.Name);
+        if (dup != null && dup.Id != template.Id)
+            throw new InvalidOperationException($"Tên mẫu '{template.Name}' đã tồn tại.");
+
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var existing = template.Id > 0 ? await db.Templates.FirstOrDefaultAsync(x => x.Id == template.Id) : null;
+        if (existing == null)
+        {
+            template.CreatedBy = who;
+            db.Templates.Add(template);
+            existing = template;
+        }
+        else
+        {
+            existing.Name = template.Name.Trim();
+            existing.TypeId = template.TypeId;
+            existing.Body = template.Body ?? "";
+            existing.Remark = template.Remark;
+            existing.Active = template.Active;
+        }
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa hợp đồng mẫu — port từ Contract_TempContract_SaveX (nhánh delete).
+    // Chặn xóa nếu mẫu đang được hợp đồng sử dụng (Contract_Contract.TContractCode).
+    public async Task<(bool ok, string msg)> DeleteTemplateAsync(int templateId, string actor)
+    {
+        var t = await db.Templates.FirstOrDefaultAsync(x => x.Id == templateId);
+        if (t == null) return (false, "Không tìm thấy hợp đồng mẫu.");
+        var used = await db.Contracts.CountAsync(c => c.TemplateId == t.Id);
+        if (used > 0)
+            return (false, $"Mẫu '{t.Name}' đang được {used} hợp đồng sử dụng, không thể xóa.");
+        db.Templates.Remove(t);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa hợp đồng mẫu '{t.Name}'.");
+    }
+
+    // Soạn hợp đồng mới từ mẫu — port từ luồng Create(tcontractcode) (QContract).
+    // Copy loại + nội dung mẫu (nếu không nhập nội dung riêng), ghi nhận TemplateCode.
+    public async Task<int> CreateFromTemplateAsync(int templateId, string title, decimal value, string? body,
+        List<ContractParty> parties, string actor)
+    {
+        var t = await db.Templates.FirstOrDefaultAsync(x => x.Id == templateId)
+            ?? throw new KeyNotFoundException("Không tìm thấy hợp đồng mẫu.");
+        if (!t.Active) throw new InvalidOperationException($"Mẫu '{t.Name}' đã ngừng hiệu lực.");
+
+        var c = new Contract
+        {
+            Title = string.IsNullOrWhiteSpace(title) ? t.Name : title.Trim(),
+            TypeId = t.TypeId,
+            Body = string.IsNullOrWhiteSpace(body) ? t.Body : body,
+            Value = value,
+            CreatedBy = string.IsNullOrWhiteSpace(actor) ? "web" : actor,
+            TemplateId = t.Id,
+            TemplateCode = t.Code
+        };
+        var id = await CreateAsync(c, parties);
+        await LogAsync(id, HistoryAction.Remark, c.CreatedBy, $"Soạn hợp đồng từ mẫu '{t.Name}' ({t.Code})");
+        return id;
     }
 
     // Sinh chuỗi hex ngẫu nhiên độ dài n — port từ CUtils.GetRandomHexNumber (QContract).

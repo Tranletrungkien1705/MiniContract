@@ -175,6 +175,78 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ── Hợp đồng mẫu (Contract_TempContract) ─────────────────────────
+    // Danh mục hợp đồng mẫu — port từ Contract_TempContract (QContract).
+    public async Task<IActionResult> Templates()
+    {
+        ViewBag.Types = await svc.TypesAsync();
+        return View(await svc.TemplatesAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveTemplate(int id, string name, int? typeId, string? body, string? remark, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            TempData["Error"] = "Cần tên hợp đồng mẫu.";
+            return RedirectToAction(nameof(Templates));
+        }
+        try
+        {
+            await svc.SaveTemplateAsync(new ContractTemplate
+            {
+                Id = id, Name = name.Trim(), TypeId = typeId, Body = body ?? "", Remark = remark, Active = active
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật hợp đồng mẫu." : "Đã thêm hợp đồng mẫu.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(Templates));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteTemplate(int id)
+    {
+        var (ok, msg) = await svc.DeleteTemplateAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Templates));
+    }
+
+    // Soạn hợp đồng mới từ mẫu — port từ luồng Create(tcontractcode) (QContract).
+    public async Task<IActionResult> CreateFromTemplate(int id)
+    {
+        var t = (await svc.TemplatesAsync()).FirstOrDefault(x => x.Id == id);
+        if (t == null) return NotFound();
+        ViewBag.Template = t;
+        return View();
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateFromTemplate(int id, string title, decimal value, string? body,
+        string partyAName, string? partyAEmail, string partyBName, string? partyBEmail)
+    {
+        if (string.IsNullOrWhiteSpace(partyAName) || string.IsNullOrWhiteSpace(partyBName))
+        {
+            TempData["Error"] = "Cần tên 2 bên.";
+            return RedirectToAction(nameof(CreateFromTemplate), new { id });
+        }
+        var parties = new List<ContractParty>
+        {
+            new() { Name = partyAName.Trim(), Email = partyAEmail, Role = PartyRole.PartyA },
+            new() { Name = partyBName.Trim(), Email = partyBEmail, Role = PartyRole.PartyB },
+        };
+        try
+        {
+            var newId = await svc.CreateFromTemplateAsync(id, title, value, body, parties, "web");
+            TempData["Success"] = "Đã soạn hợp đồng từ mẫu.";
+            return RedirectToAction(nameof(Detail), new { id = newId });
+        }
+        catch (Exception ex)
+        {
+            TempData["Error"] = ex.Message;
+            return RedirectToAction(nameof(CreateFromTemplate), new { id });
+        }
+    }
+
     // ── Lý do kết thúc hợp đồng (Mst_FinishedContractReason) ─────────
     // Danh mục lý do kết thúc/chấm dứt hợp đồng — port từ Mst_FinishedContractReason (QContract).
     public async Task<IActionResult> FinishReasons()

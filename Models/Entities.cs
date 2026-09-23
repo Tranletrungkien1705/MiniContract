@@ -112,6 +112,34 @@ public class ContractType : IOrgOwned
     public ContractNumberRule? NumberRule { get; set; }   // quy tắc đánh số của loại này (nếu có)
 }
 
+// ── Hợp đồng mẫu (Contract_TempContract) ─────────────────────────────
+/// <summary>
+/// Hợp đồng mẫu (template) — port từ Contract_TempContract (QContract).
+/// Mẫu dùng để soạn nhanh hợp đồng mới: chọn mẫu → copy loại + nội dung mẫu.
+/// Luật cốt lõi (Contract_TempContract_SaveX / _CheckDB):
+///  - TContractCode (mã mẫu) bắt buộc;
+///  - TContracName (tên mẫu) bắt buộc và KHÔNG trùng trong cùng Org;
+///  - ContractType phải tồn tại và đang hiệu lực;
+///  - Không xóa mẫu đang được hợp đồng sử dụng (Contract_Contract.TContractCode).
+/// </summary>
+public class ContractTemplate : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";            // TContractCode — mã mẫu
+    public string Name { get; set; } = "";            // TContracName — tên mẫu
+    public int? TypeId { get; set; }                   // ContractType — loại hợp đồng áp dụng
+    public string Body { get; set; } = "";            // TContractBody — nội dung mẫu
+    public string? Remark { get; set; }                // Remark
+    public bool Active { get; set; } = true;           // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // CreateDTimeUTC
+    public string CreatedBy { get; set; } = "";        // CreateBy
+    public ContractType? Type { get; set; }
+
+    // ── tính toán ────────────────────
+    public string TypeName => Type?.Name ?? "—";
+}
+
 // ── Quy tắc đánh số hợp đồng theo loại (Mst_ContractTypeContractNo) ──
 /// <summary>
 /// Quy tắc sinh số hợp đồng cho một loại hợp đồng — port từ Mst_ContractTypeContractNo (QContract).
@@ -187,6 +215,10 @@ public class Contract : IOrgOwned
     public bool IsAnnex { get; set; }                       // true = đây là phụ lục của 1 hợp đồng gốc
     public int? ParentContractId { get; set; }              // FK tới hợp đồng gốc (null nếu là hợp đồng)
     public string? ParentContractCode { get; set; }         // số HĐ gốc (ContractRefNo) — lưu để tra cứu nhanh
+    // ── Hợp đồng mẫu (Contract_TempContract) ─────────
+    // Nguồn QContract: Contract_Contract.TContractCode — hợp đồng được soạn từ mẫu nào.
+    public int? TemplateId { get; set; }                    // FK tới hợp đồng mẫu (null nếu soạn tay)
+    public string? TemplateCode { get; set; }               // TContractCode — mã mẫu đã dùng
 
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? SentAt { get; set; }
@@ -194,6 +226,7 @@ public class Contract : IOrgOwned
 
     public ContractType? Type { get; set; }
     public Contract? Parent { get; set; }
+    public ContractTemplate? Template { get; set; }         // hợp đồng mẫu đã dùng để soạn
     public List<Contract> Annexes { get; set; } = [];       // các phụ lục của hợp đồng này
     public List<ContractParty> Parties { get; set; } = [];
     public List<ContractSignature> Signatures { get; set; } = [];
