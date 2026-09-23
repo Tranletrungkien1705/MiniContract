@@ -1288,4 +1288,39 @@ public class ContractController(IContractService svc) : Controller
         TempData[ok ? "Success" : "Error"] = msg;
         return RedirectToAction(nameof(SystemParams));
     }
+
+    // ── Tham số riêng (Mst_ParamPrivate) ─────────────
+    // Danh mục tham số riêng theo mạng (key-value) — port từ Mst_ParamPrivate (QContract).
+    public async Task<IActionResult> PrivateParams()
+    {
+        return View(await svc.PrivateParamsAsync());
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SavePrivateParam(int id, string paramCode, string? networkId, string? paramValue)
+    {
+        if (string.IsNullOrWhiteSpace(paramCode))
+        {
+            TempData["Error"] = "Cần mã tham số riêng (ParamCode).";
+            return RedirectToAction(nameof(PrivateParams));
+        }
+        try
+        {
+            await svc.SavePrivateParamAsync(new PrivateParam
+            {
+                Id = id, ParamCode = paramCode.Trim(), NetworkID = networkId, ParamValue = paramValue ?? ""
+            }, "web");
+            TempData["Success"] = id > 0 ? "Đã cập nhật tham số riêng." : "Đã thêm tham số riêng.";
+        }
+        catch (Exception ex) { TempData["Error"] = ex.Message; }
+        return RedirectToAction(nameof(PrivateParams));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeletePrivateParam(int id)
+    {
+        var (ok, msg) = await svc.DeletePrivateParamAsync(id, "web");
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(PrivateParams));
+    }
 }

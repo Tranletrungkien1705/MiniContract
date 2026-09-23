@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
     public DbSet<TempType> TempTypes => Set<TempType>();
     public DbSet<CurrencyExchange> Currencies => Set<CurrencyExchange>();
     public DbSet<SystemParam> SystemParams => Set<SystemParam>();
+    public DbSet<PrivateParam> PrivateParams => Set<PrivateParam>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -325,6 +326,12 @@ public class AppDbContext : DbContext
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<SystemParam>(e =>
+        {
+            e.Ignore(x => x.HasValue);
+            e.HasIndex(x => new { x.OrgId, x.ParamCode }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<PrivateParam>(e =>
         {
             e.Ignore(x => x.HasValue);
             e.HasIndex(x => new { x.OrgId, x.ParamCode }).IsUnique();

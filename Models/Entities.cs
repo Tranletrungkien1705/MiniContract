@@ -1391,3 +1391,28 @@ public class SystemParam : IOrgOwned
     // ── tính toán ────────────────────
     public bool HasValue => !string.IsNullOrWhiteSpace(ParamValue);   // đã có giá trị
 }
+
+// ── Tham số riêng (Mst_ParamPrivate) ─────────────────
+/// <summary>
+/// Tham số riêng (cấu hình dạng key-value theo mạng) — port từ Mst_ParamPrivate (QContract).
+/// Khác với Mst_Param (tham số hệ thống dùng chung), Mst_ParamPrivate là tham số RIÊNG của từng
+/// mạng (NetworkID) — mỗi bản ghi là 1 tham số (ParamCode) gắn với 1 mạng và giá trị (ParamValue).
+/// Khóa nghiệp vụ là ParamCode.
+/// Luật cốt lõi (Mst_ParamPrivate_CheckDB / _Create / _Update / _Delete — MasterData.cs):
+///  - ParamCode bắt buộc khi tạo (nếu rỗng → lỗi Mst_ParamPrivate_Create_InvalidParamCode);
+///  - khi tạo, ParamCode KHÔNG được trùng (FlagExistToCheck = No → Mst_ParamPrivate_CheckDB_ParamPrivateExist);
+///  - khi sửa/xóa, ParamCode phải tồn tại (FlagExistToCheck = Yes → Mst_ParamPrivate_CheckDB_ParamPrivateNotFound);
+///  - sửa là cập nhật từng phần (chỉ ParamValue khi có trong danh sách cột cập nhật).
+/// </summary>
+public class PrivateParam : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string ParamCode { get; set; } = "";       // ParamCode — mã tham số riêng
+    public string? NetworkID { get; set; }             // NetworkID — mạng áp dụng
+    public string ParamValue { get; set; } = "";      // ParamValue — giá trị tham số
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";        // LogLUBy
+    // ── tính toán ────────────────────
+    public bool HasValue => !string.IsNullOrWhiteSpace(ParamValue);   // đã có giá trị
+}

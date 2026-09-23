@@ -231,6 +231,11 @@ public interface IContractService
     Task<SystemParam> SaveSystemParamAsync(SystemParam param, string actor);
     Task<(bool ok, string msg)> DeleteSystemParamAsync(int id, string actor);
 
+    // ── Tham số riêng (Mst_ParamPrivate) ─────────────
+    Task<List<PrivateParam>> PrivateParamsAsync();
+    Task<PrivateParam> SavePrivateParamAsync(PrivateParam param, string actor);
+    Task<(bool ok, string msg)> DeletePrivateParamAsync(int id, string actor);
+
     // ── File đính kèm hợp đồng (Contract_ContractFiles) ──────────────
     Task<List<ContractAttachment>> AttachmentsAsync(int contractId);
     Task<(bool ok, string msg)> AddAttachmentAsync(int contractId, ContractAttachment attachment, string actor);
@@ -2639,6 +2644,51 @@ public class ContractService(AppDbContext db, ISignatureService signer, OtpServi
         var p = await db.SystemParams.FirstOrDefaultAsync(x => x.Id == id);
         if (p == null) return (false, "Không tìm thấy tham số hệ thống.");
         db.SystemParams.Remove(p);
+        await db.SaveChangesAsync();
+        return (true, $"Đã xóa tham số '{p.ParamCode}'.");
+    }
+
+    // ── Tham số riêng (Mst_ParamPrivate) ─────────────
+    // Nguồn QContract: Mst_ParamPrivate_CheckDB / _Create / _Update / _Delete (MasterData.cs).
+    public Task<List<PrivateParam>> PrivateParamsAsync() =>
+        db.PrivateParams.OrderBy(x => x.ParamCode).ToListAsync();
+
+    // Lưu tham số riêng — tạo mới (ParamCode không trùng) hoặc cập nhật từng phần khi đã tồn tại.
+    // Luật cốt lõi: ParamCode bắt buộc & KHÔNG trùng khi tạo (FlagExistToCheck=No); khi sửa phải
+    // tồn tại (FlagExistToCheck=Yes); sửa là cập nhật từng phần (ParamValue/NetworkID).
+    public async Task<PrivateParam> SavePrivateParamAsync(PrivateParam param, string actor)
+    {
+        var who = string.IsNullOrWhiteSpace(actor) ? "web" : actor;
+        var code = (param.ParamCode ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Cần mã tham số riêng (ParamCode).");
+
+        var existing = await db.PrivateParams.FirstOrDefaultAsync(x => x.ParamCode == code);
+        if (existing == null)
+        {
+            // Tạo mới — ParamCode không được trùng (FlagExistToCheck=No).
+            param.ParamCode = code;
+            param.ParamValue = (param.ParamValue ?? "").Trim();
+            param.NetworkID = string.IsNullOrWhiteSpace(param.NetworkID) ? null : param.NetworkID.Trim();
+            param.CreatedBy = who;
+            db.PrivateParams.Add(param);
+            await db.SaveChangesAsync();
+            return param;
+        }
+
+        // Cập nhật từng phần (FlagExistToCheck=Yes).
+        existing.ParamValue = (param.ParamValue ?? "").Trim();
+        existing.NetworkID = string.IsNullOrWhiteSpace(param.NetworkID) ? null : param.NetworkID.Trim();
+        await db.SaveChangesAsync();
+        return existing;
+    }
+
+    // Xóa tham số riêng — phải tồn tại (FlagExistToCheck=Yes).
+    public async Task<(bool ok, string msg)> DeletePrivateParamAsync(int id, string actor)
+    {
+        var p = await db.PrivateParams.FirstOrDefaultAsync(x => x.Id == id);
+        if (p == null) return (false, "Không tìm thấy tham số riêng.");
+        db.PrivateParams.Remove(p);
         await db.SaveChangesAsync();
         return (true, $"Đã xóa tham số '{p.ParamCode}'.");
     }
