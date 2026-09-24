@@ -49,6 +49,10 @@ public class AppDbContext : DbContext
     public DbSet<CurrencyExchange> Currencies => Set<CurrencyExchange>();
     public DbSet<SystemParam> SystemParams => Set<SystemParam>();
     public DbSet<PrivateParam> PrivateParams => Set<PrivateParam>();
+    public DbSet<Country> Countries => Set<Country>();
+    public DbSet<Province> Provinces => Set<Province>();
+    public DbSet<District> Districts => Set<District>();
+    public DbSet<Ward> Wards => Set<Ward>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -335,6 +339,34 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.HasValue);
             e.HasIndex(x => new { x.OrgId, x.ParamCode }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        // Danh mục địa chỉ (Mst_Country / Mst_Province / Mst_District / Mst_Ward).
+        b.Entity<Country>(e =>
+        {
+            e.Ignore(x => x.ProvinceCount);
+            e.Ignore(x => x.ActiveLabel);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<Province>(e =>
+        {
+            e.Ignore(x => x.DistrictCount);
+            e.Ignore(x => x.ActiveLabel);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<District>(e =>
+        {
+            e.Ignore(x => x.WardCount);
+            e.Ignore(x => x.ActiveLabel);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
+            e.HasQueryFilter(x => x.OrgId == _orgId);
+        });
+        b.Entity<Ward>(e =>
+        {
+            e.Ignore(x => x.ActiveLabel);
+            e.HasIndex(x => new { x.OrgId, x.Code }).IsUnique();
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
     }

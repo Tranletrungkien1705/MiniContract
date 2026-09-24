@@ -1416,3 +1416,109 @@ public class PrivateParam : IOrgOwned
     // ── tính toán ────────────────────
     public bool HasValue => !string.IsNullOrWhiteSpace(ParamValue);   // đã có giá trị
 }
+
+// ── Danh mục quốc gia (Mst_Country) ──────────────────
+/// <summary>
+/// Danh mục quốc gia — port từ Mst_Country (QContract).
+/// Mỗi quốc gia có mã (CountryCode), tên (CountryName) và cờ hiệu lực (FlagActive).
+/// Luật cốt lõi (Mst_Country_CheckDB / _Create / _Update / _Delete — Master.cs):
+///  - CountryCode bắt buộc khi tạo (rỗng → lỗi Mst_Country_Create_InvalidCountryCode);
+///  - khi tạo, CountryCode KHÔNG được trùng (FlagExistToCheck = No → Mst_Country_CheckDB_CountryExist);
+///  - khi sửa/xóa, CountryCode phải tồn tại (FlagExistToCheck = Yes → Mst_Country_CheckDB_CountryNotFound);
+///  - CountryName bắt buộc (rỗng → Mst_Country_Create_InvalidCountryName / _Update_InvalidCountryName);
+///  - sửa là cập nhật từng phần (CountryName/FlagActive khi có trong danh sách cột cập nhật).
+/// </summary>
+public class Country : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // CountryCode — mã quốc gia
+    public string Name { get; set; } = "";          // CountryName — tên quốc gia
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";      // LogLUBy
+
+    // ── tính toán ────────────────────
+    public int ProvinceCount { get; set; }           // số tỉnh/thành thuộc quốc gia
+    public string ActiveLabel => Active ? "Hiệu lực" : "Ngừng";
+}
+
+// ── Danh mục tỉnh/thành (Mst_Province) ───────────────────────────────
+/// <summary>
+/// Danh mục tỉnh/thành phố — port từ Mst_Province (QContract).
+/// Mỗi tỉnh có mã (ProvinceCode), tên (ProvinceName) và cờ hiệu lực (FlagActive).
+/// Luật cốt lõi (Mst_Province_CheckDB / _Create / _Update / _Delete — Master.cs):
+///  - ProvinceCode bắt buộc khi tạo (rỗng → Mst_Province_Create_InvalidProvinceCode);
+///  - khi tạo, ProvinceCode KHÔNG được trùng (FlagExistToCheck = No → Mst_Province_CheckDB_ProvinceExist);
+///  - khi sửa/xóa, ProvinceCode phải tồn tại (FlagExistToCheck = Yes → Mst_Province_CheckDB_ProvinceNotFound);
+///  - ProvinceName bắt buộc (rỗng → Mst_Province_Create_InvalidProvinceName / _Update_InvalidProvinceName);
+///  - sửa là cập nhật từng phần (ProvinceName/FlagActive khi có trong danh sách cột cập nhật).
+/// </summary>
+public class Province : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // ProvinceCode — mã tỉnh/thành
+    public string Name { get; set; } = "";          // ProvinceName — tên tỉnh/thành
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";      // LogLUBy
+
+    // ── tính toán ────────────────────
+    public int DistrictCount { get; set; }           // số quận/huyện thuộc tỉnh
+    public string ActiveLabel => Active ? "Hiệu lực" : "Ngừng";
+}
+
+// ── Danh mục quận/huyện (Mst_District) ───────────────────────────────
+/// <summary>
+/// Danh mục quận/huyện — port từ Mst_District (QContract).
+/// Mỗi quận/huyện có mã (DistrictCode), thuộc 1 tỉnh (ProvinceCode), tên (DistrictName) và cờ hiệu lực.
+/// Luật cốt lõi (Mst_District_CheckDB / _Create / _Update / _Delete — Master.cs):
+///  - DistrictCode bắt buộc khi tạo (rỗng → Mst_District_Create_InvalidDistrictCode);
+///  - khi tạo, DistrictCode KHÔNG được trùng (FlagExistToCheck = No → Mst_District_CheckDB_DistrictExist);
+///  - khi sửa/xóa, DistrictCode phải tồn tại (FlagExistToCheck = Yes → Mst_District_CheckDB_DistrictNotFound);
+///  - DistrictName bắt buộc (rỗng → Mst_District_Create_InvalidDistrictName / _Update_InvalidDistrictName);
+///  - ProvinceCode phải tồn tại & đang hiệu lực (Mst_Province_CheckDB).
+/// </summary>
+public class District : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // DistrictCode — mã quận/huyện
+    public string ProvinceCode { get; set; } = "";  // ProvinceCode — tỉnh/thành chứa quận/huyện
+    public string Name { get; set; } = "";          // DistrictName — tên quận/huyện
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";      // LogLUBy
+
+    // ── tính toán ────────────────────
+    public int WardCount { get; set; }               // số phường/xã thuộc quận/huyện
+    public string ActiveLabel => Active ? "Hiệu lực" : "Ngừng";
+}
+
+// ── Danh mục phường/xã (Mst_Ward) ────────────────────
+/// <summary>
+/// Danh mục phường/xã — port từ Mst_Ward (QContract).
+/// Mỗi phường/xã có mã (WardCode), thuộc 1 quận/huyện (DistrictCode) + 1 tỉnh (ProvinceCode),
+/// tên (WardName) và cờ hiệu lực (FlagActive).
+/// Luật cốt lõi (Mst_Ward_CheckDB / _Create / _Update / _Delete — Master.cs):
+///  - WardCode bắt buộc khi tạo (rỗng → lỗi);
+///  - khi tạo, WardCode KHÔNG được trùng (FlagExistToCheck = No → Mst_Ward_CheckDB_WardExist);
+///  - khi sửa/xóa, WardCode phải tồn tại (FlagExistToCheck = Yes → Mst_Ward_CheckDB_WardNotFound);
+///  - WardName bắt buộc; DistrictCode/ProvinceCode phải tồn tại & đang hiệu lực.
+/// </summary>
+public class Ward : IOrgOwned
+{
+    public int Id { get; set; }
+    public Guid OrgId { get; set; }
+    public string Code { get; set; } = "";          // WardCode — mã phường/xã
+    public string ProvinceCode { get; set; } = "";  // ProvinceCode — tỉnh/thành
+    public string DistrictCode { get; set; } = "";  // DistrictCode — quận/huyện
+    public string Name { get; set; } = "";          // WardName — tên phường/xã
+    public bool Active { get; set; } = true;         // FlagActive
+    public DateTime CreatedAt { get; set; } = DateTime.Now;  // LogLUDTimeUTC
+    public string CreatedBy { get; set; } = "";      // LogLUBy
+
+    // ── tính toán ────────────────────
+    public string ActiveLabel => Active ? "Hiệu lực" : "Ngừng";
+}

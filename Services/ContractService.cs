@@ -241,6 +241,20 @@ public interface IContractService
     Task<(bool ok, string msg)> AddAttachmentAsync(int contractId, ContractAttachment attachment, string actor);
     Task<(bool ok, string msg)> DeleteAttachmentAsync(int id, string actor);
     Task<AttachmentStats> AttachmentStatsAsync(int contractId);
+
+    // ── Danh mục địa chỉ (Mst_Country / Mst_Province / Mst_District / Mst_Ward) ──
+    Task<List<Country>> CountriesAsync(bool activeOnly = false);
+    Task<Country> SaveCountryAsync(Country country, string actor);
+    Task<(bool ok, string msg)> DeleteCountryAsync(int id, string actor);
+    Task<List<Province>> ProvincesAsync(bool activeOnly = false);
+    Task<Province> SaveProvinceAsync(Province province, string actor);
+    Task<(bool ok, string msg)> DeleteProvinceAsync(int id, string actor);
+    Task<List<District>> DistrictsAsync(string? provinceCode = null, bool activeOnly = false);
+    Task<District> SaveDistrictAsync(District district, string actor);
+    Task<(bool ok, string msg)> DeleteDistrictAsync(int id, string actor);
+    Task<List<Ward>> WardsAsync(string? districtCode = null, bool activeOnly = false);
+    Task<Ward> SaveWardAsync(Ward ward, string actor);
+    Task<(bool ok, string msg)> DeleteWardAsync(int id, string actor);
 }
 
 public class ContractService(AppDbContext db, ISignatureService signer, OtpService otp) : IContractService
