@@ -29,4 +29,29 @@ public static class Ui
         SignMethod.Otp => "OTP",
         _ => m.ToString()
     };
+
+    /// <summary>Nhãn trạng thái thực hiện — port 1:1 nhãn nguồn Contract_Contract_Info.cshtml:672-679.</summary>
+    public static string Eff(EffStatus s) => s switch
+    {
+        EffStatus.Processing => "Đang thực hiện",
+        EffStatus.Finished => "Đã kết thúc",
+        _ => s.ToString()
+    };
+
+    /// <summary>Nhãn kênh gửi — port 1:1 tên nguồn EMAIL/SMS/ZALO (BindData_Contract_SendHist.cshtml:11-28).</summary>
+    public static string Channel(ChannelKind k) => k switch
+    {
+        ChannelKind.Email => "EMAIL",
+        ChannelKind.Sms => "SMS",
+        ChannelKind.Zalo => "ZALO",
+        _ => k.ToString()
+    };
+
+    /// <summary>Nhãn loại bản tin — port 1:1 nhãn nguồn "Gửi HĐ/TL" và "OTP" (BindData_Contract_SendHist.cshtml:29-41).</summary>
+    public static string Bulletin(BulletinKind k) => k switch
+    {
+        BulletinKind.Contract => "Gửi HĐ/TL",
+        BulletinKind.Otp => "OTP",
+        _ => k.ToString()
+    };
 }

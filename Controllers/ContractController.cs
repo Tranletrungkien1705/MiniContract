@@ -89,6 +89,96 @@ public class ContractController(IContractService svc) : Controller
         return RedirectToAction(nameof(Detail), new { id });
     }
 
+    // ══ Màn "Thông tin chung" — port 1:1 Views/Contract_Contract/Contract_Contract_Info.cshtml ══
+    // Nguồn là partial được Update.cshtml:238 nhúng; ở đích gộp thành 1 trang Info có form lưu.
+    public async Task<IActionResult> Info(int id)
+    {
+        var c = await svc.GetAsync(id);
+        if (c == null) return NotFound();
+        ViewBag.Types = await svc.TypesAsync();
+        return View(c);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Info(int id, string? contractNo, string? contractName, string? tContractCode,
+        int? typeId, DateTime? contractDate, DateTime? effDateStart, DateTime? effDateEnd,
+        string? contractRefNo, bool flagContractAnnex, string[]? channelTypeContract, string[]? channelTypeOTP,
+        bool flagCheckOTP, decimal valContract, string? currencyCode, decimal currencyRate, decimal valPaymented,
+        bool flagCheckOrderSign, bool flagSysGenAccessKey, string? remark)
+    {
+        var input = new ContractInfoInput(contractNo, contractName, tContractCode, typeId,
+            contractDate, effDateStart, effDateEnd, contractRefNo, flagContractAnnex,
+            string.Join(',', channelTypeContract ?? []), string.Join(',', channelTypeOTP ?? []), flagCheckOTP,
+            valContract, currencyCode, currencyRate, valPaymented,
+            flagCheckOrderSign, flagSysGenAccessKey, remark);
+        var (ok, msg) = await svc.SaveInfoAsync(id, input);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(Info), new { id });
+    }
+
+    /// <summary>Kiểm trùng số HĐ ngay khi rời ô nhập — port 1:1 AJAX nguồn CheckContractNoExists (Modal.cshtml:1225).</summary>
+    [HttpPost]
+    public async Task<IActionResult> CheckContractNo(int id, string? contractNo)
+    {
+        var (ok, msg) = await svc.CheckContractNoAsync(id, contractNo);
+        return Json(new { ok, msg });
+    }
+
+    // ══ Màn "Thông tin các bên" — port 1:1 Views/Contract_Contract/BindData_Contract_Party_Info.cshtml ══
+    public async Task<IActionResult> PartyInfo(int id)
+    {
+        var c = await svc.GetAsync(id);
+        if (c == null) return NotFound();
+        ViewBag.Rows = await svc.PartyGridAsync(id);
+        return View(c);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> PartyInfo(int id, int partyId, string? customerCode, string? customerCodeSys,
+        string? customerName, string? taxCode, string? customerEmail, string? customerPhoneNo,
+        string? customerMobilePhone, string? facebook, string? zaloUserID, string? customerAddress,
+        string? customerWebsite, string? bankAccountNo, string? bankName, string? bankCode,
+        string? representName, string? representPosition, decimal valContract)
+    {
+        var input = new PartyInfoInput(customerCode, customerCodeSys, customerName, taxCode,
+            customerEmail, customerPhoneNo, customerMobilePhone, facebook, zaloUserID,
+            customerAddress, customerWebsite, bankAccountNo, bankName, bankCode,
+            representName, representPosition, valContract);
+        var (ok, msg) = await svc.SavePartyAsync(id, partyId, input);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(PartyInfo), new { id });
+    }
+
+    // ══ Màn "Lịch sử gửi / Gửi HĐ-TL" — port 1:1 BindData_Contract_SendHist + ShowPopup_Contract_SendHist ══
+    /// <summary>
+    /// Tiêu đề và quyền gửi lấy đúng nhánh nguồn (Contract_ContractController.cs:11198-11205):
+    /// bulletinType = OTP ⇒ canSend = false, tiêu đề "Lịch sử gửi OTP";
+    /// ngược lại tiêu đề là "Gửi HĐ/TL" khi được gửi, "Lịch sử gửi HĐ/TL" khi chỉ xem.
+    /// </summary>
+    public async Task<IActionResult> SendHist(int id, BulletinKind bulletinType = BulletinKind.Contract)
+    {
+        var c = await svc.GetAsync(id);
+        if (c == null) return NotFound();
+        bool canSend = bulletinType != BulletinKind.Otp
+            && c.Status is ContractStatus.Sent or ContractStatus.PartiallySigned;
+        ViewBag.CanSend = canSend;
+        ViewBag.BulletinType = bulletinType;
+        ViewBag.PopupTitle = bulletinType == BulletinKind.Otp
+            ? "Lịch sử gửi OTP"
+            : canSend ? "Gửi HĐ/TL" : "Lịch sử gửi HĐ/TL";
+        ViewBag.Rows = await svc.SendHistAsync(id, bulletinType);
+        return View(c);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> ReSendHist(int id, BulletinKind bulletinType,
+        int[]? histIds, string[]? infoReceives, ChannelKind[]? channelTypes)
+    {
+        var (ok, msg) = await svc.ResendAsync(id, bulletinType, histIds ?? [], infoReceives ?? [], channelTypes ?? []);
+        TempData[ok ? "Success" : "Error"] = msg;
+        return RedirectToAction(nameof(SendHist), new { id, bulletinType });
+    }
+
     // Bản thể hiện PDF của hợp đồng (kèm trạng thái ký các bên)
     public async Task<IActionResult> Pdf(int id)
     {

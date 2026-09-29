@@ -1,0 +1,265 @@
+@*
+    Port 1:1 màn NGUỒN: 2020.6.QContract/Dev/V10/idn.Skycic.QContract.Website/Views/Contract_Contract/Contract_Contract_Info.cshtml
+    (partial được Update.cshtml:238 nhúng) — bảng Contract_Contract.
+    Mỗi ô dưới đây ghi rõ dòng nguồn tương ứng. Tab 1 "Thông tin chung" + tab 2 "Các bên ký kết" (nguồn :365-367).
+*@
+@model Contract
+@{
+    ViewData["Title"] = $"Thông tin chung — {Model.Code}";
+    var types = (List<ContractType>)ViewBag.Types;
+    // Nguồn khóa toàn bộ ô nhập (disabled-fix) khi ContractStatus khác PENDING — Update.cshtml:154-173
+    var khoa = Model.Status != ContractStatus.Draft;
+    var dis = khoa ? "disabled" : "";
+    string[] kenhHD = (Model.ChannelTypeContract ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+    string[] kenhOTP = (Model.ChannelTypeOTP ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+    var (stText, stCss) = Ui.Status(Model.Status);
+}
+
+<h1 class="h5 fw-bold mb-1">Thông tin chung @Model.DocCaption</h1>
+<div class="text-muted small mb-3">(port 1:1 Contract_Contract_Info.cshtml — Contract_Contract)</div>
+
+@if (khoa)
+{
+    <div class="alert alert-warning small"><i class="bi bi-lock me-1"></i>
+        Hợp đồng đang ở trạng thái <b>@stText</b> — nguồn khóa mọi ô nhập khi trạng thái khác Nháp (PENDING).
+    </div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <ul class="nav nav-tabs mb-3">
+            <li class="nav-item"><a class="nav-link active" href="#tab_info" data-bs-toggle="tab"><span class="badge bg-secondary me-1">1</span>Thông tin chung</a></li>
+            <li class="nav-item"><a class="nav-link" href="/Contract/PartyInfo/@Model.Id"><span class="badge bg-secondary me-1">2</span>Các bên ký kết</a></li>
+            <li class="nav-item"><a class="nav-link" href="/Contract/Detail/@Model.Id"><span class="badge bg-secondary me-1">3</span>Vị trí ký</a></li>
+        </ul>
+
+        <form asp-action="Info" method="post" id="frmInfo">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@Model.Id" />
+            <div class="row g-3">
+                @* Cột 1 — nguồn divInfor_Col1 (:373-427) *@
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Mẫu hợp đồng</label>@* nguồn :381 *@
+                    <select name="tContractCode" class="form-select mb-3" @dis>
+                        <option value="">Chọn mẫu hợp đồng</option>
+                        @foreach (var t in types)
+                        {
+                            <option value="@t.Code" selected="@(t.Code == Model.TContractCode)">@t.Name</option>
+                        }
+                    </select>
+
+                    <label class="form-label small text-muted">Số hợp đồng <span class="text-danger">*</span></label>@* nguồn :407 *@
+                    <input name="contractNo" id="contractNo" class="form-control mb-3" value="@Model.ContractNo"
+                           required @dis onchange="kiemTrungSoHD(this)" />
+
+                    <label class="form-label small text-muted">Tên hợp đồng <span class="text-danger">*</span></label>@* nguồn :414 *@
+                    <input name="contractName" class="form-control mb-3" value="@Model.Title" required @dis />
+
+                    <label class="form-label small text-muted">Mã tra cứu HĐ</label>@* nguồn :425 — readonly *@
+                    <input class="form-control mb-3" value="@Model.Code" readonly />
+                </div>
+
+                @* Cột 2 — nguồn divInfor_Col2 (:429-510) *@
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Loại hợp đồng</label>@* nguồn :437 — name="ContractType" *@
+                    <input type="hidden" name="ContractType" value="@Model.Type?.Code" />
+                    <input type="hidden" name="ContractTypeName" value="@Model.Type?.Name" />
+                    <select name="typeId" class="form-select mb-3" @dis>
+                        <option value="">--</option>
+                        @foreach (var t in types)
+                        {
+                            <option value="@t.Id" selected="@(t.Id == Model.TypeId)">@t.Name</option>
+                        }
+                    </select>
+
+                    <label class="form-label small text-muted">Ngày hợp đồng</label>@* nguồn :468 *@
+                    <input name="contractDate" type="date" class="form-control mb-3"
+                           value="@Model.ContractDate?.ToString("yyyy-MM-dd")" @dis />
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small text-muted">Ngày hiệu lực</label>@* nguồn :483 *@
+                            <input name="effDateStart" type="date" class="form-control"
+                                   value="@Model.EffDateStart?.ToString("yyyy-MM-dd")" @dis />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-muted">đến</label>@* nguồn :492 *@
+                            <input name="effDateEnd" type="date" class="form-control"
+                                   value="@Model.EffDateEnd?.ToString("yyyy-MM-dd")" @dis />
+                        </div>
+                    </div>
+
+                    @* nguồn :505 — textarea Remark, nguồn chặn ở 400 ký tự bằng oninput *@
+                    <label class="form-label small text-muted">Ghi chú</label>
+                    <textarea name="remark" class="form-control" rows="3" maxlength="400" @dis>@Model.Note</textarea>
+                </div>
+
+                @* Cột 3 — nguồn divInfor_Col3 (:512-690) *@
+                <div class="col-md-4">
+                    <div class="form-check mb-2">
+                        @* nguồn Update.cshtml:59-67 — cờ phụ lục đổi nhãn và bật dấu * cho HĐ tham chiếu *@
+                        <input class="form-check-input" type="checkbox" name="flagContractAnnex" value="true"
+                               id="ckAnnex" @(Model.FlagContractAnnex ? "checked" : "") @dis />
+                        <label class="form-check-label small" for="ckAnnex">Là phụ lục hợp đồng</label>
+                    </div>
+
+                    <label class="form-label small text-muted">
+                        HĐ/TL tham chiếu <span class="text-danger @(Model.FlagContractAnnex ? "" : "d-none")" id="sao-refno">*</span>
+                    </label>@* nguồn :516-525 *@
+                    <input name="contractRefNo" class="form-control mb-3" value="@Model.ContractRefNo" @dis />
+
+                    <label class="form-label small text-muted">Kênh gửi HĐ/TL <span class="text-danger">*</span></label>@* nguồn :540 *@
+                    <select name="channelTypeContract" class="form-select mb-1" multiple size="3" required @dis>
+                        @foreach (var k in Enum.GetValues<ChannelKind>())
+                        {
+                            <option value="@k" selected="@(kenhHD.Contains(k.ToString()))">@Ui.Channel(k)</option>
+                        }
+                    </select>
+                    <div class="mb-3"><a href="/Contract/SendHist/@Model.Id?bulletinType=Contract" class="small">Lịch sử</a></div>@* nguồn :552 *@
+
+                    <label class="form-label small text-muted">Kênh gửi OTP <span class="text-danger">*</span></label>@* nguồn :558 *@
+                    <select name="channelTypeOTP" class="form-select mb-1" multiple size="3" required @dis>
+                        @foreach (var k in Enum.GetValues<ChannelKind>())
+                        {
+                            <option value="@k" selected="@(kenhOTP.Contains(k.ToString()))">@Ui.Channel(k)</option>
+                        }
+                    </select>
+                    <div class="mb-3"><a href="/Contract/SendHist/@Model.Id?bulletinType=Otp" class="small">Lịch sử</a></div>@* nguồn :570 *@
+                </div>
+            </div>
+
+            <hr class="my-3" />
+            @* Khối giá trị — nguồn :574-634. ValExchange và ValRemain ở nguồn readonly (biz tính) *@
+            <div class="row g-3">
+                @{
+                    var benTao = Model.Parties.OrderBy(p => p.SignOrder).FirstOrDefault(p => p.Role == PartyRole.PartyA);
+                }
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Giá trị hợp đồng <span class="text-danger">*</span></label>@* nguồn :578 *@
+                    <input name="valContract" type="number" step="0.01" class="form-control text-end"
+                           value="@Model.Value" @dis />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted">Loại tiền</label>@* nguồn :581 *@
+                    <select name="currencyCode" class="form-select" @dis>
+                        @foreach (var cur in new[] { "VND", "USD", "EUR", "JPY" })
+                        {
+                            <option value="@cur" selected="@(cur == (Model.CurrencyCode ?? "VND"))">@cur</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted">Tỉ giá <span class="text-danger">*</span></label>@* nguồn :603, mặc định 1 *@
+                    <input name="currencyRate" type="number" step="0.000001" class="form-control text-end"
+                           value="@Model.CurrencyRate" @dis />
+                </div>
+                <div class="col-md-2">
+                    @* Công thức nguồn: ValExchange = ValContract × CurrencyRate
+                       (Contract_ContractController.cs:16518 · Biz/zTemp.cs:4853) *@
+                    <label class="form-label small text-muted">Giá trị quy đổi</label>@* nguồn :611 — name="ValExchange", readonly *@
+                    <input name="ValExchange" class="form-control text-end bg-light" value="@Model.ValExchange.ToString("N2")" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Đã thanh toán <span class="text-danger">*</span></label>@* nguồn :621 *@
+                    <input name="valPaymented" type="number" step="0.01" class="form-control text-end"
+                           value="@(benTao?.ValPaymented ?? 0)" @dis />
+                    @* Công thức nguồn: ValRemain = ValContract − ValPaymented
+                       (Contract_ContractController.cs:16516 · Biz/zTemp.cs:4886) *@
+                    <label class="form-label small text-muted mt-2">Còn lại (tự tính)</label>@* nguồn :630 — name="ValRemain", readonly *@
+                    <input name="ValRemain" class="form-control text-end bg-light" value="@((benTao?.ValRemain ?? 0).ToString("N2"))" readonly />
+                </div>
+            </div>
+
+            <hr class="my-3" />
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Trạng thái</label>@* nguồn :661-662 — hidden ContractStatus + readonly ContractStatusName *@
+                    <input type="hidden" name="ContractStatus" value="@Model.Status" />
+                    <input name="ContractStatusName" class="form-control bg-light" value="@stText" readonly />
+                    <div class="mt-1"><span class="badge bg-@stCss">@stText</span></div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">TT thực hiện</label>@* nguồn :680 — name="EffStatus", readonly *@
+                    <input name="EffStatus" class="form-control bg-light" value="@Ui.Eff(Model.EffStatus)" readonly />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">File HĐ/TL</label>@* nguồn :706 + các ô hidden tên file/đường dẫn/version *@
+                    <input name="ContractFileName" class="form-control bg-light"
+                           value="@(string.IsNullOrEmpty(Model.ContractFileName) ? "— chưa có file —" : Model.ContractFileName)" readonly />
+                    <input type="hidden" name="ContractFilePath" value="@Model.ContractFilePath" />
+                    <input type="hidden" name="ContractFileVersion" value="@Model.ContractFileVersion" />
+                    <div class="small text-muted">Đường dẫn (ContractFilePath): @(Model.ContractFilePath ?? "—")
+                        · version (ContractFileVersion): @(Model.ContractFileVersion ?? "—")</div>
+                </div>
+            </div>
+
+            @* Các cột chỉ đọc còn lại của bảng Contract_Contract — giữ để đủ cột 1:1, nguồn để ở ô hidden/khối kết thúc HĐ *@
+            <div class="row g-3 mt-1 small text-muted">
+                <div class="col-md-3">Tên mẫu (TContracName): <b>@(Model.TContracName ?? "—")</b></div>
+                <div class="col-md-2">Tên loại tiền (CurrencyName): <b>@(Model.CurrencyName ?? "—")</b></div>
+                <div class="col-md-2">Có ô ký (FlagElement): <b>@(Model.FlagElement ? "Có" : "Không")</b></div>
+                <div class="col-md-2">Còn hiệu lực (FlagActive): <b>@(Model.FlagActive ? "1" : "0")</b></div>
+                <div class="col-md-3">Đơn vị tạo (NNTFullName): <b>@(Model.NNTFullName ?? "—")</b></div>
+                <div class="col-md-3">Người tạo: <b>@(Model.UserNameCreate ?? Model.CreatedBy)</b> @(Model.PositionCreate) @(Model.PhoneNoCreate) @(Model.EMailCreate)</div>
+                <div class="col-md-3">Liên hệ (ContactName): <b>@(Model.ContactName ?? "—")</b></div>
+                @* Khối kết thúc HĐ — nguồn Update.cshtml:46-55 *@
+                <div class="col-md-6">
+                    Kết thúc (ContractFinishReasonName): <b>@(Model.ContractFinishReasonName ?? "—")</b>
+                    @if (Model.FinishedAt != null) { <span>lúc @Model.FinishedAt?.ToString("dd/MM/yyyy HH:mm")</span> }
+                    <span>· mã (ContractFinishReasonCode): @(Model.ContractFinishReasonCode ?? "—")</span>
+                    <span>· diễn giải (FinishDescription): @(Model.FinishDescription ?? "—")</span>
+                    <span>· file (ContractFinishReasonFilePath): @(Model.ContractFinishReasonFilePath ?? "—")</span>
+                    <span>· version (ContractFinishReasonFilePathVersion): @(Model.ContractFinishReasonFilePathVersion ?? "—")</span>
+                </div>
+            </div>
+
+            <hr class="my-3" />
+            @* Hai cờ của tab "Các bên ký kết" — nguồn :787 và :793 *@
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="flagCheckOrderSign" value="true"
+                       id="ckOrder" @(Model.FlagCheckOrderSign ? "checked" : "") @dis />
+                <label class="form-check-label small" for="ckOrder">Quy định thứ tự ký</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="flagSysGenAccessKey" value="true"
+                       id="ckKey" @(Model.FlagSysGenAccessKey ? "checked" : "") @dis />
+                <label class="form-check-label small" for="ckKey">Hệ thống sinh Mã truy cập (AccessKey) khi gửi HĐ/TL</label>
+            </div>
+            <div class="form-check mb-3">
+                @* nguồn FlagCheckOTP: Update.cshtml:198-199 hard-code "0" và ghi chú "nâng cấp sau" *@
+                <input class="form-check-input" type="checkbox" name="flagCheckOTP" value="true"
+                       id="ckOtp" @(Model.FlagCheckOTP ? "checked" : "") @dis />
+                <label class="form-check-label small" for="ckOtp">Bắt buộc ký kèm OTP</label>
+            </div>
+
+            @* Nguồn có 3 nút: Lưu · Lưu & gửi · Ký & gửi (Update.cshtml:230-232).
+               Ở đích chỉ port nút "Lưu"; hai nút gộp hành động dùng lại luồng Gửi/Ký sẵn có ở màn Chi tiết. *@
+            <button type="submit" class="btn btn-primary" @(khoa ? "disabled" : "")><i class="bi bi-check-lg me-1"></i>Lưu</button>
+            <a href="/Contract/Detail/@Model.Id" class="btn btn-outline-secondary">Quay lại</a>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // Port 1:1 guard nguồn CheckContractNoExists (Modal.cshtml:1225-1270):
+    // chỉ gọi khi độ dài >= 2, và loại chính bản ghi đang sửa khỏi phép so.
+    function kiemTrungSoHD(o) {
+        o.classList.remove('is-invalid');
+        var so = (o.value || '').trim();
+        if (so.length < 2) return;
+        var token = document.querySelector('#frmInfo input[name=__RequestVerificationToken]').value;
+        var fd = new FormData();
+        fd.append('__RequestVerificationToken', token);
+        fd.append('id', '@Model.Id');
+        fd.append('contractNo', so);
+        fetch('/Contract/CheckContractNo', { method: 'POST', body: fd })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (!d.ok) { o.classList.add('is-invalid'); alert(d.msg); } });
+    }
+    // Nguồn bật dấu * cho "HĐ/TL tham chiếu" khi là phụ lục (displayNoneHDG = "" tại Update.cshtml:66)
+    document.getElementById('ckAnnex').addEventListener('change', function () {
+        document.getElementById('sao-refno').classList.toggle('d-none', !this.checked);
+    });
+</script>
+}

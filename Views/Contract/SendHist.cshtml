@@ -1,0 +1,173 @@
+@*
+    Port 1:1 hai màn NGUỒN (cùng một nghiệp vụ, nguồn tách popup + lưới):
+      - Views/Contract_Contract/ShowPopup_Contract_SendHist.cshtml  (khung popup, tiêu đề, nút Gửi/Đóng)
+      - Views/Contract_Contract/BindData_Contract_SendHist.cshtml   (lưới 7-8 cột)
+    Bảng: Contract_SendHist. Ý nghĩa từng cột ghi ở Models/Entities.cs (dẫn Contract_SendHist.cs:<dòng>).
+*@
+@model Contract
+@{
+    var rows = (List<ContractSendHist>)ViewBag.Rows;
+    bool canSend = (bool)ViewBag.CanSend;
+    var bulletinType = (BulletinKind)ViewBag.BulletinType;
+    ViewData["Title"] = (string)ViewBag.PopupTitle;
+}
+
+<h1 class="h5 fw-bold mb-1">@ViewBag.PopupTitle</h1>
+<div class="text-muted small mb-3">(port 1:1 BindData_Contract_SendHist.cshtml — Contract_SendHist)</div>
+
+<div class="card">
+    <div class="card-body">
+        @* Nguồn hiển thị tên + số HĐ trên đầu popup (ShowPopup_Contract_SendHist.cshtml:35-40) *@
+        <p class="mb-1"><span class="text-muted">Tên HĐ/TL:</span> <strong>@Model.Title</strong></p>
+        <p class="mb-3"><span class="text-muted">Số HĐ/TL:</span> <strong>@(Model.ContractNo ?? Model.Code)</strong></p>
+
+        <div class="btn-group btn-group-sm mb-3">
+            <a href="/Contract/SendHist/@Model.Id?bulletinType=Contract"
+               class="btn @(bulletinType == BulletinKind.Contract ? "btn-primary" : "btn-outline-primary")">Gửi HĐ/TL</a>
+            <a href="/Contract/SendHist/@Model.Id?bulletinType=Otp"
+               class="btn @(bulletinType == BulletinKind.Otp ? "btn-primary" : "btn-outline-primary")">OTP</a>
+        </div>
+
+        @if (bulletinType == BulletinKind.Otp)
+        {
+            @* Nguồn: bulletintype = OTP ⇒ canSend = false, chỉ xem (Contract_ContractController.cs:11198-11200) *@
+            <div class="alert alert-secondary small py-2"><i class="bi bi-info-circle me-1"></i>Lịch sử gửi OTP chỉ để xem, không gửi lại được.</div>
+        }
+        else if (!canSend)
+        {
+            <div class="alert alert-secondary small py-2"><i class="bi bi-info-circle me-1"></i>
+                Chỉ gửi lại được khi hợp đồng đã ở trạng thái gửi ký (nguồn chỉ hiện nút "Gửi" khi canSend).
+            </div>
+        }
+
+        <form asp-action="ReSendHist" method="post" id="frmSendHist">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@Model.Id" />
+            <input type="hidden" name="bulletinType" value="@bulletinType" />
+
+            @* Nguồn bọc lưới trong div cao 350px cuộn dọc (BindData_Contract_SendHist.cshtml:45) *@
+            <div class="table-responsive" style="max-height:350px;overflow-y:auto">
+                <table class="table table-sm table-hover table-striped table-bordered align-middle" id="dynamic-table-ct-sn-hist">
+                    <thead class="text-center">
+                        <tr>
+                            @if (canSend)
+                            {
+                                @* Ô tick chọn tất cả — nguồn :52-56 *@
+                                <th style="min-width:30px"><input type="checkbox" onchange="checkAll(this)" /></th>
+                            }
+                            <th style="min-width:150px">Họ tên</th>@* nguồn :58 *@
+                            <th style="min-width:100px">Loại</th>@* nguồn :59 *@
+                            <th style="min-width:50px">Kênh</th>@* nguồn :60 *@
+                            <th style="min-width:120px">Thông tin nhận</th>@* nguồn :61 *@
+                            <th style="min-width:70px">Trạng thái</th>@* nguồn :62 *@
+                            <th style="min-width:120px">Thời gian gửi</th>@* nguồn :63 *@
+                            <th style="min-width:70px">Ghi chú</th>@* nguồn :64 *@
+                        </tr>
+                    </thead>
+                    <tbody id="tbodyContract_SendHist_Popup">
+                    @foreach (var h in rows)
+                    {
+                        @* Dòng chưa có bản ghi (lưới dựng thêm) mang khóa ÂM = -PartyRowId, xem ResendAsync.
+                           rowKey dùng để ghép ô tick ↔ ô "Thông tin nhận" (một bên có thể có nhiều kênh nên phải kèm kênh). *@
+                        var histKey = h.Id > 0 ? h.Id : -h.PartyRowId;
+                        var rowKey = $"{histKey}_{h.ChannelType}";
+                        <tr class="data-item trdata">
+                            @if (canSend)
+                            {
+                                <td class="text-center">
+                                    @* Nguồn ẩn ô tick của dòng bản tin OTP (:108) *@
+                                    <input type="checkbox" class="chk" onchange="chkOnChange(this)"
+                                           data-key="@rowKey" data-hist="@histKey" data-kenh="@h.ChannelType"
+                                           @(h.BulletinType == BulletinKind.Otp ? "hidden" : "") />
+                                    @* Bốn ô ẩn port 1:1 nguồn BindData_Contract_SendHist.cshtml:110-113 *@
+                                    <input type="hidden" name="ContractCode" value="@Model.Code" />
+                                    <input type="hidden" name="PartyCode" value="@h.PartyCode" />
+                                    <input type="hidden" name="PartyName" value="@(h.PartyName ?? h.UserName)" />
+                                    <input type="hidden" name="UserToken" value="@h.UserToken" />
+                                </td>
+                            }
+                            <td data-col="UserName">@h.UserName</td>
+                            @* Hai ô select của nguồn ở trạng thái disabled-fix (:123,:137) ⇒ đích chỉ hiển thị chữ.
+                               data-col ghi tên cột nguồn để truy vết được cột nào đang hiển thị ở ô nào. *@
+                            <td class="text-center small" data-col="BulletinType">@Ui.Bulletin(h.BulletinType)</td>
+                            <td class="text-center small" data-col="ChannelType">@Ui.Channel(h.ChannelType)</td>
+                            <td>
+                                @* Nguồn readonly khi không được gửi (:157) *@
+                                <input class="form-control form-control-sm info-receive" data-key="@rowKey"
+                                       value="@h.InfoReceive" @(canSend ? "" : "readonly")
+                                       onchange="kiemThongTinNhan(this)" />
+                            </td>
+                            <td class="text-center small" data-col="FlagActive">@h.StatusName</td>@* nguồn :86-99 + :160 *@
+                            <td class="text-center small" data-col="DTimeSend">@h.DTimeSend?.ToString("dd/MM/yyyy HH:mm:ss")</td>@* nguồn :79-82 *@
+                            <td class="small" data-col="Remark">@h.Remark</td>
+                        </tr>
+                    }
+                    @if (rows.Count == 0)
+                    {
+                        <tr><td colspan="@(canSend ? 8 : 7)" class="text-center text-muted py-4">Chưa có lượt gửi nào.</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                @if (canSend)
+                {
+                    @* Nguồn nút "Gửi" gọi contract_ReSendHist() (ShowPopup_Contract_SendHist.cshtml:54) *@
+                    <button type="submit" class="btn btn-primary btn-sm" onclick="return dongGoiDongDaChon()">Gửi</button>
+                }
+                <a href="/Contract/Detail/@Model.Id" class="btn btn-outline-secondary btn-sm">Đóng</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // Port 1:1 checkAll của nguồn (BindData_Contract_SendHist.cshtml:178-213)
+    function checkAll(o) {
+        var tick = o.checked;
+        document.querySelectorAll('#tbodyContract_SendHist_Popup input.chk').forEach(function (c) {
+            if (c.hidden) return;           // dòng OTP: nguồn ẩn ô tick nên không chọn
+            c.checked = tick;
+        });
+    }
+
+    // Port 1:1 chkOnChange: bỏ tick ở 1 dòng thì nhả luôn ô "chọn tất cả" (nguồn :217-247)
+    function chkOnChange(o) {
+        if (!o.checked) {
+            var all = document.querySelector('#dynamic-table-ct-sn-hist thead input[type=checkbox]');
+            if (all) all.checked = false;
+        }
+        // Nguồn: bỏ tick mà "Thông tin nhận" trống thì tick lại và cảnh báo (:259-274)
+        if (!o.checked) {
+            var inp = document.querySelector('input.info-receive[data-key="' + o.dataset.key + '"]');
+            if (inp && !inp.value.trim()) { o.checked = true; inp.focus(); alert('Thông tin nhận không được trống'); }
+        }
+    }
+
+    // Port 1:1 checkData/infoReceiveOnChange của nguồn (:283-299)
+    function kiemThongTinNhan(o) {
+        if (!o.value.trim()) { o.focus(); alert('Thông tin nhận không được trống'); }
+    }
+
+    // Đóng gói các dòng đã tick thành cặp histIds[] + infoReceives[] để POST 1 lần.
+    function dongGoiDongDaChon() {
+        var frm = document.getElementById('frmSendHist');
+        frm.querySelectorAll('input.goi-tam').forEach(function (e) { e.remove(); });
+        var daChon = Array.prototype.filter.call(
+            document.querySelectorAll('#tbodyContract_SendHist_Popup input.chk'),
+            function (c) { return c.checked && !c.hidden; });
+        if (daChon.length === 0) { alert('Chưa chọn dòng nào để gửi.'); return false; }
+        for (var i = 0; i < daChon.length; i++) {
+            var inp = document.querySelector('input.info-receive[data-key="' + daChon[i].dataset.key + '"]');
+            if (!inp || !inp.value.trim()) { alert('Thông tin nhận không được trống'); return false; }
+            frm.insertAdjacentHTML('beforeend',
+                '<input type="hidden" class="goi-tam" name="histIds" value="' + daChon[i].dataset.hist + '" />' +
+                '<input type="hidden" class="goi-tam" name="channelTypes" value="' + daChon[i].dataset.kenh + '" />' +
+                '<input type="hidden" class="goi-tam" name="infoReceives" value="' + inp.value.trim().replace(/"/g, '&quot;') + '" />');
+        }
+        return true;
+    }
+</script>
+}

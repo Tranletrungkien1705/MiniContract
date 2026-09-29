@@ -86,6 +86,10 @@
                     </form>
                 }
                 <a href="/Contract/Pdf/@Model.Id" class="btn btn-outline-primary w-100 mb-2" target="_blank"><i class="bi bi-file-pdf me-1"></i>Tải bản thể hiện (PDF)</a>
+                @* Ba màn port 1:1 từ nguồn 2020.6.QContract *@
+                <a href="/Contract/Info/@Model.Id" class="btn btn-outline-primary w-100 mb-2"><i class="bi bi-pencil-square me-1"></i>Thông tin chung</a>
+                <a href="/Contract/PartyInfo/@Model.Id" class="btn btn-outline-primary w-100 mb-2"><i class="bi bi-people me-1"></i>Các bên ký kết</a>
+                <a href="/Contract/SendHist/@Model.Id" class="btn btn-outline-primary w-100 mb-2"><i class="bi bi-clock-history me-1"></i>Lịch sử gửi HĐ/TL</a>
                 @if (Model.Status != ContractStatus.Completed && Model.Status != ContractStatus.Cancelled)
                 {
                     <form asp-action="Cancel" method="post" onsubmit="return confirm('Hủy hợp đồng này?')">
