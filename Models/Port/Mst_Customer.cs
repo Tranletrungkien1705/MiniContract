@@ -194,6 +194,7 @@ public class Mst_CustomerSeeder : IPortSeeder
                 AreaCode = "MB",
                 CustomerMobilePhone = "0901234567",
                 CustomerEmail = "alpha@domain.vn",
+                MST = "0101234567",
                 ContactName = "Nguyễn Văn Alpha",
                 ContactEmail = "alpha@domain.vn",
                 FlagDealer = "1",

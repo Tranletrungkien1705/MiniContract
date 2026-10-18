@@ -18,6 +18,7 @@ public class Mst_CustomerControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment? _env;
+    private readonly IConfiguration? _config;
 
     // Từ điển cột xuất excel theo GetImportDicColumsTemplate() (Mst_CustomerController.cs:1322-1366)
     private static readonly Dictionary<string, string> DicColNames = new()
@@ -63,10 +64,11 @@ public class Mst_CustomerControllerPort : ControllerBase
         { "ListOfCustDynamicFieldValue", "Thuộc tính thêm" }
     };
 
-    public Mst_CustomerControllerPort(AppDbContext db, IWebHostEnvironment? env = null)
+    public Mst_CustomerControllerPort(AppDbContext db, IWebHostEnvironment? env = null, IConfiguration? config = null)
     {
         _db = db;
         _env = env;
+        _config = config;
     }
 
     /// <summary>
@@ -594,6 +596,481 @@ public class Mst_CustomerControllerPort : ControllerBase
         {
             return PortResult.Fail("Mst_Customer_ExportTemplate", "Exception", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Nhập dữ liệu khách hàng từ file Excel.
+    /// Gate: Mst_CustomerController.cs:587-1318 Import(HttpPostedFileWrapper file)
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        try
+        {
+            if (file == null && Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+            {
+                file = Request.Form.Files[0];
+            }
+
+            if (file == null || file.Length == 0)
+            {
+                return PortResult.Fail("Mst_Customer_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".xlsx" && ext != ".xls")
+            {
+                return PortResult.Fail("Mst_Customer_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var keysInOrder = DicColNames.Keys.ToList();
+            List<Dictionary<string, string?>> rows;
+            int columnCount;
+
+            using (var stream = file.OpenReadStream())
+            {
+                var (cols, readRows) = PortExcel.ReadSheet(stream, keysInOrder, firstDataRow: 2);
+                columnCount = cols;
+                rows = readRows;
+            }
+
+            if (rows.Count == 0)
+            {
+                return PortResult.Fail("Mst_Customer_Import", "Message", "File excel import không có dữ liệu!");
+            }
+
+            if (columnCount != 39)
+            {
+                return PortResult.Fail("Mst_Customer_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var networkId = Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001";
+            var orgId = Request?.Headers["OrgID"].FirstOrDefault() ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            // 1. Tải dữ liệu hiện tại để kiểm tra
+            // Khách hàng hiện tại (Mst_CustomerController.cs:614-645)
+            var listCustomer_Cur = await _db.Set<Mst_Customer>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc))
+                .ToListAsync();
+
+            // Danh sách loại giấy tờ (Mst_CustomerController.cs:684-716)
+            var listMst_GovIDType = await _db.Set<Mst_GovIDType>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc))
+                .ToListAsync();
+
+            // Nguồn và nhóm khách hàng (Mst_CustomerController.cs:731-773)
+            var list_Mst_CustomerSource = await _db.Set<Mst_CustomerSource>()
+                .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc))
+                .ToListAsync();
+
+            var list_Mst_CustomerGroup = await _db.Set<Mst_CustomerGroup>()
+                .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc))
+                .ToListAsync();
+
+            // 2. Vòng lặp duyệt dữ liệu và validate từng dòng (Mst_CustomerController.cs:807-1173)
+            var idx = 0;
+            var newCustomerGroups = new List<Mst_CustomerGroup>();
+            var newCustomerSources = new List<Mst_CustomerSource>();
+
+            foreach (var dr in rows)
+            {
+                dr["FlagCustomerAvatarPath"] = "1";
+
+                #region ["Check null"]
+                var customerCode = dr.GetValueOrDefault("CustomerCode");
+                if (string.IsNullOrWhiteSpace(customerCode))
+                {
+                    return PortResult.Fail("Mst_Customer_Import", "Message", "Mã khách hàng không được trống!");
+                }
+                var customerName = dr.GetValueOrDefault("CustomerName");
+                if (string.IsNullOrWhiteSpace(customerName))
+                {
+                    return PortResult.Fail("Mst_Customer_Import", "Message", "Tên khách hàng không được trống!");
+                }
+                #endregion
+
+                #region ["Check duplicate"]
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    var customerCur = (rows[i].GetValueOrDefault("CustomerCode") ?? "").Trim();
+                    for (var j = 0; j < rows.Count; j++)
+                    {
+                        if (i != j)
+                        {
+                            var _customerCur = (rows[j].GetValueOrDefault("CustomerCode") ?? "").Trim();
+                            if (customerCur.Equals(_customerCur, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var exitsData = "Mã khách hàng '" + customerCur + "' bị lặp trong file excel!";
+                                return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                var iRows = 2;
+                iRows = (iRows + idx + 1);
+                var strRows = " - Dòng " + iRows;
+                idx++;
+
+                var customerCodeCur = (dr.GetValueOrDefault("CustomerCode") ?? "").Trim();
+
+                #region ["Check loại KH"]
+                var cusTypeName = dr.GetValueOrDefault("mct_CustomerTypeName");
+                if (!string.IsNullOrWhiteSpace(cusTypeName))
+                {
+                    var cusTypeLower = cusTypeName.Trim().ToLowerInvariant();
+                    if (cusTypeLower != "cá nhân" && cusTypeLower != "tổ chức")
+                    {
+                        var exitsData = "Loại khách hàng của mã khách " + customerCodeCur + " chỉ có thể nhập 'Cá nhân' hoặc 'Tổ chức'" + strRows + "!";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                    else
+                    {
+                        dr["CustomerType"] = cusTypeLower == "cá nhân" ? "CANHAN" : "TOCHUC";
+                    }
+                }
+                #endregion
+
+                #region ["Check Giới tính"]
+                var cusGender = dr.GetValueOrDefault("CustomerGender");
+                if (!string.IsNullOrWhiteSpace(cusGender))
+                {
+                    var cusGenderLower = cusGender.Trim().ToLowerInvariant();
+                    if (cusGenderLower != "nữ" && cusGenderLower != "nam" && cusGenderLower != "khác")
+                    {
+                        var exitsData = "Giới tính của mã khách " + customerCodeCur + " chỉ có thể nhập 'Nữ', 'Nam' hoặc 'Khác'" + strRows + "!";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                    else
+                    {
+                        if (cusGenderLower == "nữ")
+                        {
+                            dr["CustomerGender"] = "FEMALE";
+                        }
+                        else if (cusGenderLower == "nam")
+                        {
+                            dr["CustomerGender"] = "MALE";
+                        }
+                        else
+                        {
+                            dr["CustomerGender"] = "OTHER";
+                        }
+                    }
+                }
+                #endregion
+
+                #region ["Check Loại giấy tờ"]
+                var govIDType = dr.GetValueOrDefault("GovIDType");
+                if (!string.IsNullOrWhiteSpace(govIDType))
+                {
+                    var existGovIDType = listMst_GovIDType.FirstOrDefault(x =>
+                        !string.IsNullOrWhiteSpace(x.GovIDTypeName) &&
+                        x.GovIDTypeName.Trim().Equals(govIDType.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (existGovIDType == null)
+                    {
+                        var exitsData = "Loại giấy tờ của mã khách " + customerCodeCur + " không có trong hệ thống " + strRows + "!";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                    else
+                    {
+                        dr["GovIDType"] = existGovIDType.GovIDType;
+                    }
+                }
+                #endregion
+
+                #region ["Dynamic Field"]
+                var listOfCustDynamicFieldValue = dr.GetValueOrDefault("ListOfCustDynamicFieldValue");
+                if (!string.IsNullOrWhiteSpace(listOfCustDynamicFieldValue))
+                {
+                    var listCustomer_DynamicParamTypesExcel = new List<CustomerDynamicFieldParamType>();
+                    var arrDynamicField = listOfCustDynamicFieldValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                    if (arrDynamicField != null && arrDynamicField.Length > 0)
+                    {
+                        foreach (var subArr in arrDynamicField)
+                        {
+                            var itemArr = subArr.Split(':');
+                            if (itemArr != null && itemArr.Length == 2 && !string.IsNullOrWhiteSpace(itemArr[0]))
+                            {
+                                listCustomer_DynamicParamTypesExcel.Add(new CustomerDynamicFieldParamType
+                                {
+                                    Title = itemArr[0].Trim(),
+                                    DefaultValue = itemArr[1].Trim(),
+                                });
+                            }
+                            else
+                            {
+                                var exitsData = "Trường động mã khách hàng'" + customerCodeCur + "' không hợp lệ" + strRows;
+                                return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                            }
+                        }
+                    }
+
+                    if (listCustomer_DynamicParamTypesExcel.Count > 0)
+                    {
+                        var listArr = new List<string>();
+                        foreach (var item in listCustomer_DynamicParamTypesExcel)
+                        {
+                            var itemCode = DateTime.UtcNow.ToString("yyyy.MM.dd.HH.mm.ss.fff");
+                            var itemDynamicField = $"\"{itemCode}\":\"{item.DefaultValue}\"";
+                            listArr.Add(itemDynamicField);
+                        }
+                        dr["ListOfCustDynamicFieldValue"] = "{" + string.Join(",", listArr) + "}";
+                    }
+                }
+                #endregion
+
+                #region ["Thêm nhóm và nguồn KH nếu chưa tồn tại"]
+                var cusGrpName = dr.GetValueOrDefault("mcg_CustomerGrpName");
+                if (!string.IsNullOrWhiteSpace(cusGrpName))
+                {
+                    var lstCusGrpName = cusGrpName.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    var lstCusGrpCode = new List<string>();
+                    foreach (var grpNameRaw in lstCusGrpName)
+                    {
+                        var grpName = grpNameRaw.Trim();
+                        var existGrpName = list_Mst_CustomerGroup.FirstOrDefault(grp =>
+                            grp.CustomerGrpName != null && grp.CustomerGrpName.Equals(grpName, StringComparison.OrdinalIgnoreCase));
+
+                        if (existGrpName == null)
+                        {
+                            var newGrpCode = $"GRP_{Guid.NewGuid():N}"[..10].ToUpperInvariant();
+                            var objMst_CustomerGroup = new Mst_CustomerGroup
+                            {
+                                OrgID = orgId,
+                                CustomerGrpCode = newGrpCode,
+                                CustomerGrpName = cusGrpName, // Lỗi nguồn giữ nguyên (Mst_CustomerController.cs:1053)
+                                CustomerGrpDesc = "Create by excel",
+                                FlagActive = "1",
+                                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                                LogLUBy = userCode
+                            };
+                            lstCusGrpCode.Add(objMst_CustomerGroup.CustomerGrpCode);
+                            list_Mst_CustomerGroup.Add(objMst_CustomerGroup);
+                            newCustomerGroups.Add(objMst_CustomerGroup);
+                        }
+                        else
+                        {
+                            lstCusGrpCode.Add(existGrpName.CustomerGrpCode);
+                        }
+                    }
+                    dr["CustomerGrpCode"] = string.Join(",", lstCusGrpCode);
+                }
+
+                var cusSrcName = dr.GetValueOrDefault("mcs_CustomerSourceName");
+                if (!string.IsNullOrWhiteSpace(cusSrcName))
+                {
+                    var existSrcName = list_Mst_CustomerSource.FirstOrDefault(src =>
+                        src.CustomerSourceName != null && src.CustomerSourceName.Equals(cusSrcName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (existSrcName == null)
+                    {
+                        var newSrcCode = $"SRC_{Guid.NewGuid():N}"[..10].ToUpperInvariant();
+                        var objMst_CustomerSource = new Mst_CustomerSource
+                        {
+                            OrgID = orgId,
+                            CustomerSourceCode = newSrcCode,
+                            CustomerSourceName = cusSrcName.Trim(),
+                            CustomerSourceDesc = "Create by excel",
+                            FlagActive = "1",
+                            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                            LogLUBy = userCode
+                        };
+                        list_Mst_CustomerSource.Add(objMst_CustomerSource);
+                        newCustomerSources.Add(objMst_CustomerSource);
+                        dr["CustomerSourceCode"] = objMst_CustomerSource.CustomerSourceCode;
+                    }
+                    else
+                    {
+                        dr["CustomerSourceCode"] = existSrcName.CustomerSourceCode;
+                    }
+                }
+                #endregion
+
+                #region ["Check trùng số ĐT & email & MST"]
+                var cusMobilePhone = dr.GetValueOrDefault("CustomerMobilePhone");
+                if (!string.IsNullOrWhiteSpace(cusMobilePhone))
+                {
+                    var existCusPhoneNo = listCustomer_Cur.FirstOrDefault(cus =>
+                        !string.IsNullOrWhiteSpace(cus.CustomerMobilePhone) &&
+                        cus.CustomerMobilePhone.Trim().Equals(cusMobilePhone.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (existCusPhoneNo != null)
+                    {
+                        var exitsData = "Số điện thoại " + cusMobilePhone + strRows + " đã tồn tại trong hệ thống'";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                }
+
+                var cusEmail = dr.GetValueOrDefault("CustomerEmail");
+                if (!string.IsNullOrWhiteSpace(cusEmail))
+                {
+                    var existCusEmail = listCustomer_Cur.FirstOrDefault(cus =>
+                        !string.IsNullOrWhiteSpace(cus.CustomerEmail) &&
+                        cus.CustomerEmail.Trim().Equals(cusEmail.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (existCusEmail != null)
+                    {
+                        var exitsData = "Email " + cusEmail + strRows + " đã tồn tại trong hệ thống'";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                }
+
+                var cusMST = dr.GetValueOrDefault("MST");
+                if (!string.IsNullOrWhiteSpace(cusMST))
+                {
+                    var existCusMST = listCustomer_Cur.FirstOrDefault(cus =>
+                        !string.IsNullOrWhiteSpace(cus.MST) &&
+                        cus.MST.Trim().Equals(cusMST.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (existCusMST != null)
+                    {
+                        var exitsData = "Mã số thuế " + cusMST + strRows + " đã tồn tại trong hệ thống'";
+                        return PortResult.Fail("Mst_Customer_Import", "Message", exitsData);
+                    }
+                }
+                #endregion
+            }
+
+            // 3. Chuẩn bị entities lưu xuống DB (Mst_CustomerController.cs:1175-1229)
+            var customersToSave = new List<Mst_Customer>();
+            var customerGroupsToSave = new List<Mst_CustomerInCustomerGroup>();
+            var dtimeNowStr = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+            foreach (var dr in rows)
+            {
+                var customerCode = (dr.GetValueOrDefault("CustomerCode") ?? "").Trim();
+                var customerCodeSys = $"CUS{Guid.NewGuid():N}"[..12].ToUpperInvariant();
+                var grpCodeStr = dr.GetValueOrDefault("CustomerGrpCode") ?? "";
+
+                var cus = new Mst_Customer
+                {
+                    OrgID = orgId,
+                    CustomerCodeSys = customerCodeSys,
+                    NetworkID = networkId,
+                    CustomerCode = customerCode,
+                    CustomerName = dr.GetValueOrDefault("CustomerName")?.Trim(),
+                    CustomerType = dr.GetValueOrDefault("CustomerType"),
+                    CustomerSourceCode = dr.GetValueOrDefault("CustomerSourceCode"),
+                    CustomerPhoneNo = dr.GetValueOrDefault("CustomerPhoneNo"),
+                    CustomerMobilePhone = dr.GetValueOrDefault("CustomerMobilePhone"),
+                    CustomerAvatarPath = dr.GetValueOrDefault("CustomerAvatarPath"),
+                    FlagCustomerAvatarPath = "1",
+                    CustomerGender = dr.GetValueOrDefault("CustomerGender"),
+                    CustomerEmail = dr.GetValueOrDefault("CustomerEmail"),
+                    CustomerAddress = dr.GetValueOrDefault("CustomerAddress"),
+                    ProvinceCode = dr.GetValueOrDefault("ProvinceCode"),
+                    DistrictCode = dr.GetValueOrDefault("DistrictCode"),
+                    WardCode = dr.GetValueOrDefault("WardCode"),
+                    AreaCode = dr.GetValueOrDefault("AreaCode"),
+                    FlagDealer = dr.GetValueOrDefault("FlagDealer"),
+                    FlagSupplier = dr.GetValueOrDefault("FlagSupplier"),
+                    FlagShipper = dr.GetValueOrDefault("FlagShipper"),
+                    FlagEndUser = dr.GetValueOrDefault("FlagEndUser"),
+                    FlagBank = dr.GetValueOrDefault("FlagBank"),
+                    FlagInsurrance = dr.GetValueOrDefault("FlagInsurrance"),
+                    RepresentName = dr.GetValueOrDefault("RepresentName"),
+                    RepresentPosition = dr.GetValueOrDefault("RepresentPosition"),
+                    GovIDCardNo = dr.GetValueOrDefault("GovIDCardNo"),
+                    GovIDType = dr.GetValueOrDefault("GovIDType"),
+                    BankAccountNo = dr.GetValueOrDefault("BankAccountNo"),
+                    BankName = dr.GetValueOrDefault("BankName"),
+                    ContactName = dr.GetValueOrDefault("ContactName"),
+                    ContactPhone = dr.GetValueOrDefault("ContactPhone"),
+                    ContactEmail = dr.GetValueOrDefault("ContactEmail"),
+                    Fax = dr.GetValueOrDefault("Fax"),
+                    CustomerDateOfBirth = dr.GetValueOrDefault("CustomerDateOfBirth"),
+                    Facebook = dr.GetValueOrDefault("Facebook"),
+                    InvoiceCustomerName = dr.GetValueOrDefault("InvoiceCustomerName"),
+                    InvoiceOrgName = dr.GetValueOrDefault("InvoiceOrgName"),
+                    MST = dr.GetValueOrDefault("MST"),
+                    InvoiceCustomerAddress = dr.GetValueOrDefault("InvoiceCustomerAddress"),
+                    InvoiceEmailSend = dr.GetValueOrDefault("InvoiceEmailSend"),
+                    ListOfCustDynamicFieldValue = dr.GetValueOrDefault("ListOfCustDynamicFieldValue"),
+                    CustomerGrpCode = "", // Gate line 1225: customer.CustomerGrpCode = "" (SQL truncate avoid)
+                    FlagActive = "1",
+                    CreateDTimeUTC = dtimeNowStr,
+                    CreateBy = userCode,
+                    LUDTimeUTC = dtimeNowStr,
+                    LUBy = userCode,
+                    LogLUDTimeUTC = dtimeNowStr,
+                    LogLUBy = userCode
+                };
+
+                if (!string.IsNullOrEmpty(grpCodeStr))
+                {
+                    var grpCodes = grpCodeStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var gc in grpCodes)
+                    {
+                        customerGroupsToSave.Add(new Mst_CustomerInCustomerGroup
+                        {
+                            OrgID = orgId,
+                            CustomerCodeSys = customerCodeSys,
+                            CustomerGrpCode = gc.Trim(),
+                            LogLUDTimeUTC = dtimeNowStr,
+                            LogLUBy = userCode
+                        });
+                    }
+                }
+
+                customersToSave.Add(cus);
+            }
+
+            // 4. Lưu dữ liệu trong Transaction (Customer.cs:1619-1732, 2359-2966)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                if (newCustomerGroups.Count > 0)
+                {
+                    _db.Set<Mst_CustomerGroup>().AddRange(newCustomerGroups);
+                }
+                if (newCustomerSources.Count > 0)
+                {
+                    _db.Set<Mst_CustomerSource>().AddRange(newCustomerSources);
+                }
+                if (newCustomerGroups.Count > 0 || newCustomerSources.Count > 0)
+                {
+                    await _db.SaveChangesAsync();
+                }
+
+                _db.Set<Mst_Customer>().AddRange(customersToSave);
+                if (customerGroupsToSave.Count > 0)
+                {
+                    _db.Set<Mst_CustomerInCustomerGroup>().AddRange(customerGroupsToSave);
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Đã nhập dữ liệu excel thành công!" },
+                Title = "Đã nhập dữ liệu excel thành công!",
+                RedirectUrl = "/Mst_Customer/Index"
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Import", "Exception", ex.Message);
+        }
+    }
+
+    private class CustomerDynamicFieldParamType
+    {
+        public string Title { get; set; } = "";
+        public string DefaultValue { get; set; } = "";
     }
 
     private async Task EnrichCustomersAsync(List<Mst_Customer> list)

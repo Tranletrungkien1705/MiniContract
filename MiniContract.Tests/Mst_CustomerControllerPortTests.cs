@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ public class Mst_CustomerControllerPortTests : IDisposable
         new Mst_CustomerSourceSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_CustomerGroupSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_CustomerInCustomerGroupSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_GovIDTypeSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_CustomerSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
         _env = new TestWebHostEnvironment();
@@ -1186,6 +1188,489 @@ public class Mst_CustomerControllerPortTests : IDisposable
 
             // Kiểm tra hai tệp xuất ra là riêng biệt
             Assert.NotEqual(url1, url2);
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
+    // ==========================================
+    // CÁC TEST CHO IMPORT (Port #161)
+    // Gate: Mst_CustomerController.cs:587-1318
+    // ==========================================
+
+    private static readonly string[] CustomerHeaders = new[]
+    {
+        "Mã khách hàng(*)", "Tên khách hàng(*)", "Tên loại khách hàng", "Tên nguồn khách hàng", "Tên nhóm khách hàng",
+        "Điện thoại cố định", "Điện thoại di động", "Đường dẫn ảnh avatar", "Giới tính", "Email khách hàng",
+        "Địa chỉ", "Tỉnh thành", "Quận huyện", "Phường xã", "Khu vực",
+        "Là đại lý", "Là nhà cung cấp", "Là đơn vị vận chuyển", "Là khách hàng cá nhân", "Là ngân hàng",
+        "Là công ty bảo hiểm", "Người đại diện", "Chức vụ", "Số CMND/Căn cước/Hộ chiếu", "Loại giấy tờ",
+        "Số tài khoản ngân hàng", "Tên ngân hàng", "Tên người liên hệ", "Điện thoại người liên hệ", "Email người liên hệ",
+        "Số Fax", "Ngày sinh", "Địa chỉ Facebook", "Tên người nhận hóa đơn", "Tên cơ quan",
+        "Mã số thuế", "Địa chỉ nhận hóa đơn", "Email nhận hợp đồng", "Thuộc tính thêm"
+    };
+
+    private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Mst_Customer");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return new FormFile(ms, 0, ms.Length, "file", fileName);
+    }
+
+    private static byte[] CreateExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Mst_Customer");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    private static string?[] CreateRow(
+        string code = "KH_NEW",
+        string name = "Khách Hàng Mới",
+        string type = "Cá nhân",
+        string source = "Nguồn Mới",
+        string group = "Nhóm Mới",
+        string phone = "",
+        string mobile = "0988000111",
+        string gender = "Nam",
+        string email = "newcus@domain.vn",
+        string govType = "Căn cước công dân",
+        string mst = "0309998881",
+        string dynamic = "Sở thích:Bóng đá")
+    {
+        var row = new string?[39];
+        row[0] = code;
+        row[1] = name;
+        row[2] = type;
+        row[3] = source;
+        row[4] = group;
+        row[5] = phone;
+        row[6] = mobile;
+        row[7] = "";
+        row[8] = gender;
+        row[9] = email;
+        row[10] = "123 Đường ABC";
+        row[11] = "HN";
+        row[12] = "CG";
+        row[13] = "TH";
+        row[14] = "KV01";
+        row[15] = "0";
+        row[16] = "0";
+        row[17] = "0";
+        row[18] = "1";
+        row[19] = "0";
+        row[20] = "0";
+        row[21] = "Đại diện";
+        row[22] = "Giám đốc";
+        row[23] = "0012000001";
+        row[24] = govType;
+        row[25] = "123456789";
+        row[26] = "Vietcombank";
+        row[27] = "Người liên hệ";
+        row[28] = "0988000111";
+        row[29] = "contact@domain.vn";
+        row[30] = "";
+        row[31] = "1990-01-01";
+        row[32] = "fb.com/khachhang";
+        row[33] = "Tên hóa đơn";
+        row[34] = "Cơ quan";
+        row[35] = mst;
+        row[36] = "Địa chỉ hóa đơn";
+        row[37] = "invoice@domain.vn";
+        row[38] = dynamic;
+        return row;
+    }
+
+    [Fact]
+    public async Task Import_NullFile_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var result = await _controller.Import(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidFileExtension_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var ms = new MemoryStream(new byte[] { 1, 2, 3 });
+        var file = new FormFile(ms, 0, ms.Length, "file", "test.txt");
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDataRows_ReturnsBadRequestWithEmptyDataMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]>());
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không có dữ liệu!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidColumnCount_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã khách hàng(*)", "Tên khách hàng(*)" }, new List<string?[]>
+        {
+            new[] { "KH_BAD", "Khách hàng sai số cột" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_RowWithEmptyCode_ReturnsBadRequestWithEmptyCodeMessage()
+    {
+        var row = CreateRow(code: "");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã khách hàng không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_RowWithEmptyName_ReturnsBadRequestWithEmptyNameMessage()
+    {
+        var row = CreateRow(name: "");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Tên khách hàng không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateCodeWithinSameFile_ReturnsBadRequestWithDuplicateCodeMessage()
+    {
+        var row1 = CreateRow(code: "KH_DUP", mobile: "0988000111", email: "dup1@domain.vn", mst: "0301111111");
+        var row2 = CreateRow(code: "KH_DUP", mobile: "0988000222", email: "dup2@domain.vn", mst: "0302222222");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row1, row2 });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã khách hàng 'KH_DUP' bị lặp trong file excel!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidCustomerType_ReturnsBadRequestWithCustomerTypeMessage()
+    {
+        var row = CreateRow(code: "KH_TEST", type: "SaiLoai");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Loại khách hàng của mã khách KH_TEST chỉ có thể nhập 'Cá nhân' hoặc 'Tổ chức' - Dòng 3!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidCustomerGender_ReturnsBadRequestWithGenderMessage()
+    {
+        var row = CreateRow(code: "KH_TEST", gender: "SaiGioiTinh");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Giới tính của mã khách KH_TEST chỉ có thể nhập 'Nữ', 'Nam' hoặc 'Khác' - Dòng 3!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidGovIDType_ReturnsBadRequestWithGovIDTypeMessage()
+    {
+        var row = CreateRow(code: "KH_TEST", govType: "Giấy tờ giả");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Loại giấy tờ của mã khách KH_TEST không có trong hệ thống  - Dòng 3!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidDynamicFieldFormat_ReturnsBadRequestWithDynamicFieldMessage()
+    {
+        var row = CreateRow(code: "KH_TEST", dynamic: "SaiDinhDangKhongCoDauHaiCham");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Trường động mã khách hàng'KH_TEST' không hợp lệ - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicatePhoneWithExistingDbRecord_ReturnsBadRequestWithPhoneMessage()
+    {
+        // 0901234567 đã có trong DB của CUS001
+        var row = CreateRow(code: "KH_NEW_01", mobile: "0901234567");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Số điện thoại 0901234567 - Dòng 3 đã tồn tại trong hệ thống'", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateEmailWithExistingDbRecord_ReturnsBadRequestWithEmailMessage()
+    {
+        // alpha@domain.vn đã có trong DB của CUS001
+        var row = CreateRow(code: "KH_NEW_01", email: "alpha@domain.vn");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Email alpha@domain.vn - Dòng 3 đã tồn tại trong hệ thống'", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateMSTWithExistingDbRecord_ReturnsBadRequestWithMSTMessage()
+    {
+        // 0101234567 đã có trong DB của CUS001
+        var row = CreateRow(code: "KH_NEW_01", mst: "0101234567");
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã số thuế 0101234567 - Dòng 3 đã tồn tại trong hệ thống'", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_ValidFile_ImportsAllRowsCreatesNewGroupAndSourceAndReturnsSuccess()
+    {
+        var row1 = CreateRow(
+            code: "KH_IMP_01",
+            name: "Khách Nhập 1",
+            type: "Cá nhân",
+            source: "Nguồn Tự Động Tạo",
+            group: "Nhóm Tự Động Tạo",
+            mobile: "0911222333",
+            gender: "Nữ",
+            email: "imp01@domain.vn",
+            govType: "Căn cước công dân",
+            mst: "0401112223",
+            dynamic: "Sở thích:Bóng bàn|Nghề nghiệp:Kỹ sư"
+        );
+        var row2 = CreateRow(
+            code: "KH_IMP_02",
+            name: "Khách Nhập 2",
+            type: "Tổ chức",
+            source: "Trực tiếp", // Đã có trong DB
+            group: "Nhóm Chiến Lược", // Đã có trong DB
+            mobile: "0911222444",
+            gender: "Nam",
+            email: "imp02@domain.vn",
+            govType: "Chứng minh nhân dân",
+            mst: "0401112224",
+            dynamic: "Phòng ban:CNTT"
+        );
+
+        var file = CreateExcelFormFile("test.xlsx", CustomerHeaders, new List<string?[]> { row1, row2 });
+        var result = await _controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", doc.RootElement.GetProperty("Title").GetString());
+        Assert.Equal("/Mst_Customer/Index", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra lưu DB
+        var saved1 = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_IMP_01");
+        Assert.NotNull(saved1);
+        Assert.Equal("Khách Nhập 1", saved1.CustomerName);
+        Assert.Equal("CANHAN", saved1.CustomerType);
+        Assert.Equal("FEMALE", saved1.CustomerGender);
+        Assert.Equal("CCCD", saved1.GovIDType);
+        Assert.Equal("1", saved1.FlagActive);
+        Assert.Contains("Bóng bàn", saved1.ListOfCustDynamicFieldValue);
+
+        var saved2 = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_IMP_02");
+        Assert.NotNull(saved2);
+        Assert.Equal("Khách Nhập 2", saved2.CustomerName);
+        Assert.Equal("TOCHUC", saved2.CustomerType);
+        Assert.Equal("MALE", saved2.CustomerGender);
+        Assert.Equal("CMND", saved2.GovIDType);
+
+        // Kiểm tra tự động tạo nhóm mới
+        var newGrp = await _db.Set<Mst_CustomerGroup>().FirstOrDefaultAsync(x => x.CustomerGrpName == "Nhóm Tự Động Tạo");
+        Assert.NotNull(newGrp);
+        Assert.Equal("Create by excel", newGrp.CustomerGrpDesc);
+
+        // Kiểm tra tự động tạo nguồn mới
+        var newSrc = await _db.Set<Mst_CustomerSource>().FirstOrDefaultAsync(x => x.CustomerSourceName == "Nguồn Tự Động Tạo");
+        Assert.NotNull(newSrc);
+        Assert.Equal("Create by excel", newSrc.CustomerSourceDesc);
+
+        // Kiểm tra lưu Mst_CustomerInCustomerGroup
+        var custGroup1 = await _db.Set<Mst_CustomerInCustomerGroup>().FirstOrDefaultAsync(x => x.CustomerCodeSys == saved1.CustomerCodeSys);
+        Assert.NotNull(custGroup1);
+        Assert.Equal(newGrp.CustomerGrpCode, custGroup1.CustomerGrpCode);
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Import()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_imp_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Guard check: File rỗng
+            using (var emptyMultipart = new MultipartFormDataContent())
+            {
+                var emptyBytes = CreateExcelBytes(CustomerHeaders, new List<string?[]>());
+                emptyMultipart.Add(new ByteArrayContent(emptyBytes), "file", "empty.xlsx");
+                var resEmpty = await http.PostAsync("/api/mst_customer/import", emptyMultipart);
+                var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+                _output?.WriteLine($"RealServer Import Empty: {bodyEmpty}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEmpty.StatusCode);
+                var docEmpty = JsonDocument.Parse(bodyEmpty);
+                Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("File excel import không có dữ liệu!", docEmpty.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // 2. Round-trip import hợp lệ
+            using (var validMultipart = new MultipartFormDataContent())
+            {
+                var row = CreateRow(
+                    code: "KH_SRV_01",
+                    name: "Khách Server Thật",
+                    type: "Cá nhân",
+                    source: "Server Source",
+                    group: "Server Group",
+                    mobile: "0933999888",
+                    email: "server_cust@domain.vn",
+                    govType: "Căn cước công dân",
+                    mst: "0509991112"
+                );
+                var validBytes = CreateExcelBytes(CustomerHeaders, new List<string?[]> { row });
+                validMultipart.Add(new ByteArrayContent(validBytes), "file", "valid.xlsx");
+                var resValid = await http.PostAsync("/api/mst_customer/import", validMultipart);
+                var bodyValid = await resValid.Content.ReadAsStringAsync();
+                _output?.WriteLine($"RealServer Import Valid: {bodyValid}");
+                Assert.Equal(System.Net.HttpStatusCode.OK, resValid.StatusCode);
+                var docValid = JsonDocument.Parse(bodyValid);
+                Assert.True(docValid.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Đã nhập dữ liệu excel thành công!", docValid.RootElement.GetProperty("Title").GetString());
+            }
         }
         finally
         {
