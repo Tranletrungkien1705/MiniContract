@@ -337,7 +337,132 @@ public class Mst_AreaControllerPortTests : IDisposable
     }
 
     [Fact]
-    public async Task RealServer_Verification_Port8525()
+    public async Task Detail_EmptyBodyOrNull_ReturnsNullData()
+    {
+        var resNull = await _controller.Detail(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        var resEmpty = await _controller.Detail(new Mst_Area_DetailReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+
+        var resBlank = await _controller.Detail(new Mst_Area_DetailReq { AreaCode = "   " });
+        var okBlank = Assert.IsType<OkObjectResult>(resBlank);
+        var docBlank = JsonDocument.Parse(JsonSerializer.Serialize(okBlank.Value));
+        Assert.True(docBlank.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docBlank.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_ValidAreaCode_Org1_ReturnsItemAndParentList()
+    {
+        var req = new Mst_Area_DetailReq { AreaCode = "MB", OrgID = "7200000001" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("Miền Bắc", data.GetProperty("AreaName").GetString());
+        Assert.Equal("Khu vực Miền Bắc", data.GetProperty("AreaDesc").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("1", data.GetProperty("AreaLevel").GetString());
+
+        // Danh sách vùng cha ListMst_AreaExt gồm 3 vùng của Org 7200000001
+        var extList = data.GetProperty("ListMst_AreaExt").EnumerateArray().ToList();
+        Assert.Equal(3, extList.Count);
+    }
+
+    [Fact]
+    public async Task Detail_ValidAreaCode_Org2_ReturnsItemAndParentList()
+    {
+        // 2 bộ lọc ra kết quả khác nhau: MB thuộc Org 7200000002
+        var req = new Mst_Area_DetailReq { AreaCode = "MB", OrgID = "7200000002" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000002", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("1002", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("Miền Bắc Org2", data.GetProperty("AreaName").GetString());
+        Assert.Equal("Khu vực Miền Bắc Org2", data.GetProperty("AreaDesc").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        var extList = data.GetProperty("ListMst_AreaExt").EnumerateArray().ToList();
+        Assert.Single(extList);
+        Assert.Equal("7200000002", extList[0].GetProperty("OrgID").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_ValidAreaCode_MT_ReturnsInactiveItem()
+    {
+        var req = new Mst_Area_DetailReq { AreaCode = "MT", OrgID = "7200000001" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MT", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Trung", data.GetProperty("AreaName").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_NonExistentAreaCode_ReturnsNullData()
+    {
+        var req = new Mst_Area_DetailReq { AreaCode = "NON_EXISTENT", OrgID = "7200000001" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_NetworkIDMismatch_ReturnsNullData()
+    {
+        var req = new Mst_Area_DetailReq { AreaCode = "MB", OrgID = "7200000001", NetworkID = "9999" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_WithModelString_ReturnsItem()
+    {
+        var req = new Mst_Area_DetailReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_Area_DetailReq { AreaCode = "MN", OrgID = "7200000001" })
+        };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("MN", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Nam", data.GetProperty("AreaName").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_area_{Guid.NewGuid():N}.db");
         var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
@@ -347,13 +472,14 @@ public class Mst_AreaControllerPortTests : IDisposable
         }
         Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
 
+        var port = FreePort.Get();
         var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8525";
+        psi.Environment["PORT"] = port.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -362,7 +488,7 @@ public class Mst_AreaControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8525"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -378,7 +504,7 @@ public class Mst_AreaControllerPortTests : IDisposable
                 }
                 catch { }
             }
-            Assert.True(started, "MiniContract server failed to start within 15 seconds on port 8525.");
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
 
             // Request 1: POST empty body -> 200 OK, returns all 4 seeded records
             var req1 = new StringContent("{}", Encoding.UTF8, "application/json");
@@ -460,6 +586,70 @@ public class Mst_AreaControllerPortTests : IDisposable
             Assert.Equal(0, data7.GetProperty("ItemCount").GetInt32());
             Assert.Equal(0, data7.GetProperty("PageCount").GetInt32());
             Assert.Equal(0, data7.GetProperty("DataList").GetArrayLength());
+
+            // ================== Kiểm thử endpoint Detail qua server thật ==================
+
+            // Request 8: Detail với body rỗng -> 200 OK, Data = null (gate trả View(new Mst_Area()))
+            var reqDet8 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDet8 = await http.PostAsync("/api/mst_area/detail", reqDet8);
+            var bodyDet8 = await resDet8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ8 Detail (Empty body): {bodyDet8}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet8.StatusCode);
+            var docDet8 = JsonDocument.Parse(bodyDet8);
+            Assert.True(docDet8.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docDet8.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 9: Detail AreaCode = MB, OrgID = 7200000001 -> 200 OK, trả về MB Org 1 kèm ListMst_AreaExt 3 bản ghi
+            var reqDet9 = new StringContent("{\"AreaCode\":\"MB\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var resDet9 = await http.PostAsync("/api/mst_area/detail", reqDet9);
+            var bodyDet9 = await resDet9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ9 Detail (MB Org1): {bodyDet9}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet9.StatusCode);
+            var docDet9 = JsonDocument.Parse(bodyDet9);
+            Assert.True(docDet9.RootElement.GetProperty("Success").GetBoolean());
+            var dataDet9 = docDet9.RootElement.GetProperty("Data");
+            Assert.Equal("MB", dataDet9.GetProperty("AreaCode").GetString());
+            Assert.Equal("7200000001", dataDet9.GetProperty("OrgID").GetString());
+            Assert.Equal("1001", dataDet9.GetProperty("NetworkID").GetString());
+            Assert.Equal("Miền Bắc", dataDet9.GetProperty("AreaName").GetString());
+            Assert.Equal(3, dataDet9.GetProperty("ListMst_AreaExt").GetArrayLength());
+
+            // Request 10: Detail AreaCode = MB, OrgID = 7200000002 -> 200 OK, trả về MB Org 2 kèm ListMst_AreaExt 1 bản ghi
+            var reqDet10 = new StringContent("{\"AreaCode\":\"MB\",\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var resDet10 = await http.PostAsync("/api/mst_area/detail", reqDet10);
+            var bodyDet10 = await resDet10.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ10 Detail (MB Org2): {bodyDet10}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet10.StatusCode);
+            var docDet10 = JsonDocument.Parse(bodyDet10);
+            Assert.True(docDet10.RootElement.GetProperty("Success").GetBoolean());
+            var dataDet10 = docDet10.RootElement.GetProperty("Data");
+            Assert.Equal("MB", dataDet10.GetProperty("AreaCode").GetString());
+            Assert.Equal("7200000002", dataDet10.GetProperty("OrgID").GetString());
+            Assert.Equal("1002", dataDet10.GetProperty("NetworkID").GetString());
+            Assert.Equal("Miền Bắc Org2", dataDet10.GetProperty("AreaName").GetString());
+            Assert.Equal(1, dataDet10.GetProperty("ListMst_AreaExt").GetArrayLength());
+
+            // Request 11: Detail AreaCode = NON_EXISTENT -> 200 OK, Data = null
+            var reqDet11 = new StringContent("{\"AreaCode\":\"NON_EXISTENT\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var resDet11 = await http.PostAsync("/api/mst_area/detail", reqDet11);
+            var bodyDet11 = await resDet11.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ11 Detail (Non-existent): {bodyDet11}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet11.StatusCode);
+            var docDet11 = JsonDocument.Parse(bodyDet11);
+            Assert.True(docDet11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docDet11.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 12: Detail với chuỗi Model serialize JSON
+            var reqDet12 = new StringContent("{\"Model\":\"{\\\"AreaCode\\\":\\\"MN\\\",\\\"OrgID\\\":\\\"7200000001\\\"}\"}", Encoding.UTF8, "application/json");
+            var resDet12 = await http.PostAsync("/api/mst_area/detail", reqDet12);
+            var bodyDet12 = await resDet12.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ12 Detail (Model string): {bodyDet12}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet12.StatusCode);
+            var docDet12 = JsonDocument.Parse(bodyDet12);
+            Assert.True(docDet12.RootElement.GetProperty("Success").GetBoolean());
+            var dataDet12 = docDet12.RootElement.GetProperty("Data");
+            Assert.Equal("MN", dataDet12.GetProperty("AreaCode").GetString());
+            Assert.Equal("Miền Nam", dataDet12.GetProperty("AreaName").GetString());
         }
         finally
         {
