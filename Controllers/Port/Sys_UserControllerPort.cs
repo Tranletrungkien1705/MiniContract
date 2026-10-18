@@ -2562,6 +2562,352 @@ public class Sys_UserControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action Import từ gate Sys_UserController.cs:1551-1836.
+    /// Nguồn:
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1551-1836 (Import)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1915-1931 (GetImportDicColumsTemplate)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:421-492 (WA_Sys_User_Create)
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:9907-9996 (WAS_Sys_User_Create)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7863-8027 (Sys_User_Create_New20200110)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:8796-9513 (Sys_User_CreateForNetworkX_New20200110)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3552-3611 (Sys_User_CheckDB)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12061 (Mst_NNT_CheckDB)
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import()
+    {
+        IFormFile? file = null;
+        try
+        {
+            if (Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+            {
+                file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+            }
+        }
+        catch { }
+        return await ProcessImportAsync(file);
+    }
+
+    [NonAction]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        return await ProcessImportAsync(file);
+    }
+
+    private async Task<IActionResult> ProcessImportAsync(IFormFile? file)
+    {
+        try
+        {
+            if (file == null && Request?.HasFormContentType == true)
+            {
+                try
+                {
+                    if (Request.Form.Files.Count > 0)
+                    {
+                        file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+                    }
+                }
+                catch { }
+            }
+
+            // 1. Kiểm tra file upload (Gate Sys_UserController.cs:1563-1579)
+            if (file == null || file.Length == 0)
+            {
+                return PortResult.Fail("Sys_User_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".xlsx" && ext != ".xls")
+            {
+                return PortResult.Fail("Sys_User_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 2. Đọc bảng tính bằng PortExcel.ReadSheet từ ô A2 (Gate:1582 ExcelImportNew.Query(filePath, "A2"))
+            var keysInOrder = ExportTemplateDicColumns.Keys.ToList();
+            int columnCount;
+            List<Dictionary<string, string?>> rows;
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var (cols, readRows) = PortExcel.ReadSheet(stream, keysInOrder, firstDataRow: 2);
+                columnCount = cols;
+                rows = readRows;
+            }
+            catch
+            {
+                return PortResult.Fail("Sys_User_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 3. Kiểm tra số cột (Gate:1585-1590: table.Columns.Count != GetImportDicColumsTemplate().Count)
+            if (columnCount != ExportTemplateDicColumns.Count)
+            {
+                return PortResult.Fail("Sys_User_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 4. Kiểm tra bảng rỗng (Gate:1583, 1826: table == null || table.Rows.Count == 0)
+            if (rows == null || rows.Count == 0)
+            {
+                return PortResult.Fail("Sys_User_Import", "Message", "File excel import không có dữ liệu!");
+            }
+
+            // 5. Kiểm tra rỗng từng trường cho toàn bộ danh sách (Gate:1593-1763 #region["Check null"])
+            foreach (var dr in rows)
+            {
+                var email = dr.GetValueOrDefault("EMail")?.Trim();
+                if (string.IsNullOrEmpty(email))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Email không được trống!");
+                }
+                if (!IsValidEmail(email))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Email không hợp lệ!");
+                }
+
+                var userName = dr.GetValueOrDefault("UserName")?.Trim();
+                if (string.IsNullOrEmpty(userName))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Tên người dùng không được trống!");
+                }
+
+                var mst = dr.GetValueOrDefault("MST")?.Trim();
+                if (string.IsNullOrEmpty(mst))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Chi nhánh không được trống!");
+                }
+
+                var password = dr.GetValueOrDefault("UserPassword")?.Trim();
+                if (string.IsNullOrEmpty(password))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Mật khẩu không được trống!");
+                }
+                if (password.Length < 6)
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Mật khẩu > 5 ký tự!");
+                }
+
+                var flagSysAdmin = dr.GetValueOrDefault("FlagSysAdmin")?.Trim();
+                if (string.IsNullOrEmpty(flagSysAdmin))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Cờ Quản trị HT không được trống!");
+                }
+                if (flagSysAdmin != "0" && flagSysAdmin != "1")
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "Cờ Quản trị HT nhập '0' hoặc '1'!");
+                }
+
+                var flagViewOrgCreate = dr.GetValueOrDefault("FlagViewOrgCreate")?.Trim();
+                if (string.IsNullOrEmpty(flagViewOrgCreate))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "QTHD đi không được trống!");
+                }
+                // LỖI NGUỒN GIỮ NGUYÊN (Sys_UserController.cs:1735-1736, LESSONS A.18):
+                // Nguồn copy-paste kiểm tra dr["FlagSysAdmin"] thay vì dr["FlagViewOrgCreate"].
+                var flagViewOrgCreateCheck = flagSysAdmin;
+                if (flagViewOrgCreateCheck != "0" && flagViewOrgCreateCheck != "1")
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "QTHD đi nhập '0' hoặc '1'!");
+                }
+
+                var flagViewOtherOrgCreate = dr.GetValueOrDefault("FlagViewOtherOrgCreate")?.Trim();
+                if (string.IsNullOrEmpty(flagViewOtherOrgCreate))
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "QTHD đến không được trống!");
+                }
+                // LỖI NGUỒN GIỮ NGUYÊN (Sys_UserController.cs:1752-1753, LESSONS A.18):
+                // Nguồn copy-paste kiểm tra dr["FlagSysAdmin"] thay vì dr["FlagViewOtherOrgCreate"].
+                var flagViewOtherOrgCreateCheck = flagSysAdmin;
+                if (flagViewOtherOrgCreateCheck != "0" && flagViewOtherOrgCreateCheck != "1")
+                {
+                    return PortResult.Fail("Sys_User_Import", "Message", "QTHD đến nhập '0' hoặc '1'!");
+                }
+            }
+
+            // 6. Kiểm tra trùng lặp email trong chính file Excel (Gate:1765-1783 #region["Check duplicate"])
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var userCodeCur = (rows[i].GetValueOrDefault("EMail") ?? "").Trim();
+                for (var j = 0; j < rows.Count; j++)
+                {
+                    if (i != j)
+                    {
+                        var otherCodeCur = (rows[j].GetValueOrDefault("EMail") ?? "").Trim();
+                        if (userCodeCur.Equals(otherCodeCur, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var exitsData = "Email '" + userCodeCur + "' bị lặp trong file excel!";
+                            return PortResult.Fail("Sys_User_Import", "Message", exitsData);
+                        }
+                    }
+                }
+            }
+
+            // 7. Lưu từng dòng tuần tự với transaction độc lập (Gate:1785-1818, hành vi import một phần)
+            var callerCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(callerCode)) callerCode = "port";
+
+            foreach (var dr in rows)
+            {
+                var email = dr.GetValueOrDefault("EMail")?.Trim() ?? "";
+                var userName = dr.GetValueOrDefault("UserName")?.Trim() ?? "";
+                var position = dr.GetValueOrDefault("Position")?.Trim() ?? "";
+                var password = dr.GetValueOrDefault("UserPassword")?.Trim() ?? "";
+                var mst = StdParam(dr.GetValueOrDefault("MST")) ?? "";
+                var flagSysAdmin = StdFlag(dr.GetValueOrDefault("FlagSysAdmin"));
+                var flagViewOrgCreate = StdFlag(dr.GetValueOrDefault("FlagViewOrgCreate"));
+                var flagViewOtherOrgCreate = StdFlag(dr.GetValueOrDefault("FlagViewOtherOrgCreate"));
+
+                var err = await ImportUserCoreAsync(email, userName, position, password, mst, flagSysAdmin, flagViewOrgCreate, flagViewOtherOrgCreate, callerCode);
+                if (err != null)
+                {
+                    // Dừng ngay ở dòng k và trả lỗi của dòng đó (các dòng trước k đã được commit thành công)
+                    return err;
+                }
+            }
+
+            // 8. Trả kết quả thành công khớp gate MVC (Gate:1820-1822)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã nhập dữ liệu excel thành công!",
+                Messages = new[] { "Đã nhập dữ liệu excel thành công!" }
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_Import", "Message", ex.Message);
+        }
+    }
+
+    private async Task<IActionResult?> ImportUserCoreAsync(
+        string email, string userName, string position, string password,
+        string mst, string flagSysAdmin, string flagViewOrgCreate, string flagViewOtherOrgCreate,
+        string callerCode)
+    {
+        var strUserCode = StdParam(email);
+        if (string.IsNullOrEmpty(strUserCode))
+        {
+            return PortResult.Fail("Sys_User_Create_InvalidUserCode", "Check.strUserCode", email);
+        }
+
+        var strUserName = StdStr(userName) ?? strUserCode;
+        if (strUserName.Length < 1)
+        {
+            return PortResult.Fail("Sys_User_Create_InvalidUserName", "Check.strUserName", userName);
+        }
+
+        var strPassword = password.Trim();
+        if (strPassword.Length < 1)
+        {
+            return PortResult.Fail("Sys_User_Create_InvalidUserPassword", "Check.strUserPassword", password);
+        }
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // BIZ Guard 1: Kiểm tra trùng mã UserCode (System.cs:8877-8883 Sys_User_CheckDB với FlagExist="0")
+            var userExists = await _db.Set<Sys_User>().AnyAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(strUserCode), PortQuery.Esc));
+            if (userExists)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_CheckDB_UserExist", "Check.UserCode", strUserCode);
+            }
+
+            // BIZ Guard 2: Kiểm tra MST tồn tại và active trong Mst_NNT (System.cs:8911-8918 Mst_NNT_CheckDB)
+            var nnt = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            if (nnt == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", mst);
+            }
+
+            if (nnt.FlagActive != "1")
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", mst);
+            }
+
+            // BIZ Guard 3: Kiểm tra quyền cấp quản trị hệ thống (System.cs:8983-8991)
+            if (flagSysAdmin == "1")
+            {
+                var caller = await _db.Set<Sys_User>().AsNoTracking()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(callerCode), PortQuery.Esc));
+                if (caller == null || caller.FlagSysAdmin != "1")
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Sys_User_Create_NNTNotAdmin", "Check.strWAUserCode", callerCode, "Check.nFlagSysAdmin", caller?.FlagSysAdmin ?? "0");
+                }
+            }
+
+            var networkId = nnt.NetworkID ?? _config?["Biz_NetworkID"] ?? "1001";
+            var orgId = nnt.OrgID ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+            var newUser = new Sys_User
+            {
+                UserCode = strUserCode,
+                UserName = strUserName,
+                UserPassword = GetEncodedHash(strPassword),
+                PhoneNo = "",
+                EMail = email.Trim(),
+                MST = mst,
+                DepartmentCode = null,
+                Position = StdStr(position) ?? "",
+                NetworkID = networkId,
+                OrgID = orgId,
+                FlagActive = "1",
+                FlagSysAdmin = flagSysAdmin,
+                FlagNNTAdmin = "0",
+                FlagDLAdmin = "0",
+                FlagViewOrgCreate = flagViewOrgCreate,
+                FlagViewOtherOrgCreate = flagViewOtherOrgCreate,
+                FlagBG = "0",
+                LogLUBy = callerCode,
+                LogLUDTimeUTC = dtimeSys
+            };
+
+            _db.Set<Sys_User>().Add(newUser);
+
+            // Mst_ManageNotify_CreateX (System.cs:9035-9045)
+            var existingNotify = await _db.Set<Mst_ManageNotify>().FirstOrDefaultAsync(n => n.UserCode == strUserCode);
+            if (existingNotify == null)
+            {
+                _db.Set<Mst_ManageNotify>().Add(new Mst_ManageNotify
+                {
+                    UserCode = strUserCode,
+                    UserName = strUserName,
+                    LogLUDTimeUTC = dtimeSys,
+                    LogLUBy = callerCode
+                });
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return null; // Không có lỗi
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Sys_User_Create", "Exception", ex.Message);
+        }
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        try
+        {
+            var trimmed = email.Trim();
+            if (!trimmed.Contains('@') || !trimmed.Contains('.')) return false;
+            var addr = new System.Net.Mail.MailAddress(trimmed);
+            return addr.Address == trimmed;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Mã hoá mật khẩu bằng thuật toán chuẩn idocNet: Base64(MD5(password + "idocNet")) bỏ 2 ký tự cuối ("==").
     /// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203.
     /// </summary>
@@ -2953,6 +3299,14 @@ public class Sys_User_ExportReq
 /// Gate: Sys_UserController.cs:1519 ExportTemplate()
 /// </summary>
 public class Sys_User_ExportTemplateReq
+{
+}
+
+/// <summary>
+/// Model nhận tham số cho action Import của Sys_UserController.
+/// Gate: Sys_UserController.cs:1551 Import(HttpPostedFileWrapper file)
+/// </summary>
+public class Sys_User_ImportReq
 {
 }
 

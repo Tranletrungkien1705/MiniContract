@@ -3,6 +3,8 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -2154,6 +2156,467 @@ public class Sys_UserControllerPortTests : IDisposable
         Assert.NotNull(root.GetProperty("strUrl").GetString());
     }
 
+    private static readonly string[] SysUserExcelHeaders = new[]
+    {
+        "Họ tên(*)",
+        "Email(*)",
+        "Chức vụ",
+        "Mật khẩu(*)",
+        "Chi nhánh(*)",
+        "QT hệ thống(*)",
+        "QLHD đi(*)",
+        "QLHD đến()*"
+    };
+
+    private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sys_User");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return new FormFile(ms, 0, ms.Length, "file", fileName);
+    }
+
+    private static byte[] CreateExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sys_User");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task Import_NullFile_ReturnsFail_InvalidFile()
+    {
+        var res = await _controller.Import(null);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyFile_ReturnsFail_InvalidFile()
+    {
+        using var ms = new MemoryStream();
+        var emptyFile = new FormFile(ms, 0, 0, "file", "users.xlsx");
+        var res = await _controller.Import(emptyFile);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidExtension_ReturnsFail_InvalidFile()
+    {
+        var bytes = Encoding.UTF8.GetBytes("plain text data");
+        using var ms = new MemoryStream(bytes);
+        var txtFile = new FormFile(ms, 0, bytes.Length, "file", "users.txt");
+        var res = await _controller.Import(txtFile);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyData_ReturnsFail_NoData()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>());
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không có dữ liệu!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidColumnCount_ReturnsFail_InvalidFile()
+    {
+        var wrongHeaders = new[] { "UserName", "EMail", "Position" };
+        var file = CreateExcelFormFile("users.xlsx", wrongHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "a@solution.hn", "Dev" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyEmail_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "", "Dev", "123456", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Email không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_InvalidEmail_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "invalid-email-format", "Dev", "123456", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Email không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyUserName_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "", "valid@solution.hn", "Dev", "123456", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Tên người dùng không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyMST_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "123456", "", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Chi nhánh không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyUserPassword_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mật khẩu không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_UserPasswordTooShort_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "12345", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mật khẩu > 5 ký tự!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyFlagSysAdmin_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "123456", "0100000001", "", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Cờ Quản trị HT không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_InvalidFlagSysAdmin_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "123456", "0100000001", "2", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Cờ Quản trị HT nhập '0' hoặc '1'!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyFlagViewOrgCreate_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "123456", "0100000001", "0", "", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("QTHD đi không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_EmptyFlagViewOtherOrgCreate_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "valid@solution.hn", "Dev", "123456", "0100000001", "0", "1", "" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("QTHD đến không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Guard_DuplicateEmailInFile_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "duplicate@solution.hn", "Dev", "123456", "0100000001", "0", "1", "1" },
+            new string?[] { "Nguyen Van B", "duplicate@solution.hn", "Tester", "654321", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Email 'duplicate@solution.hn' bị lặp trong file excel!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_BizGuard_MSTNotFound_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nguyen Van A", "mst_not_found@solution.hn", "Dev", "123456", "9999999999", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_BizGuard_UserExistInDB_ReturnsFail()
+    {
+        // Thêm người dùng với UserCode = "EXISTING_USER@SOLUTION.HN" vào DB
+        _db.Set<Sys_User>().Add(new Sys_User
+        {
+            UserCode = "EXISTING_USER@SOLUTION.HN",
+            UserName = "Existing User",
+            EMail = "existing_user@solution.hn",
+            MST = "0100000001",
+            NetworkID = "1001",
+            OrgID = "7200000001",
+            FlagActive = "1",
+            FlagSysAdmin = "0"
+        });
+        await _db.SaveChangesAsync();
+
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Duplicate User", "existing_user@solution.hn", "Dev", "123456", "0100000001", "0", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserExist", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_BizGuard_SysAdmin_CallerNotAdmin_ReturnsFail()
+    {
+        // Khi FlagSysAdmin = 1, nếu caller không phải SysAdmin -> lỗi Sys_User_Create_NNTNotAdmin
+        _controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        _controller.ControllerContext.HttpContext.Request.Headers["WAUserCode"] = "U02"; // U02 có FlagSysAdmin = 0
+
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "New SysAdmin User", "new_admin@solution.hn", "Admin", "123456", "0100000001", "1", "1", "1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Create_NNTNotAdmin", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Success_RoundTrip()
+    {
+        // Ca ghi thành công round-trip: import 2 người dùng mới và kiểm tra lưu thành công trong cơ sở dữ liệu
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "Nhân Viên Nhập 1", "importuser1@solution.hn", "Chuyên viên", "Pass@123456", "0100000001", "0", "1", "0" },
+            new string?[] { "Nhân Viên Nhập 2", "importuser2@solution.hn", "Trưởng phòng", "Pass@654321", "0100000001", "0", "0", "1" }
+        });
+
+        var res = await _controller.Import(file);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", root.GetProperty("Messages")[0].GetString());
+
+        // Kiểm tra round-trip trong DB
+        var user1 = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "IMPORTUSER1@SOLUTION.HN");
+        Assert.NotNull(user1);
+        Assert.Equal("Nhân Viên Nhập 1", user1.UserName);
+        Assert.Equal("importuser1@solution.hn", user1.EMail);
+        Assert.Equal("Chuyên viên", user1.Position);
+        Assert.Equal("0100000001", user1.MST);
+        Assert.Equal("1", user1.FlagActive);
+        Assert.Equal("0", user1.FlagSysAdmin);
+        Assert.Equal("1", user1.FlagViewOrgCreate);
+        Assert.Equal("0", user1.FlagViewOtherOrgCreate);
+        Assert.Equal(Sys_UserControllerPort.GetEncodedHash("Pass@123456"), user1.UserPassword);
+
+        var user2 = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "IMPORTUSER2@SOLUTION.HN");
+        Assert.NotNull(user2);
+        Assert.Equal("Nhân Viên Nhập 2", user2.UserName);
+        Assert.Equal("importuser2@solution.hn", user2.EMail);
+        Assert.Equal("Trưởng phòng", user2.Position);
+        Assert.Equal("0100000001", user2.MST);
+        Assert.Equal("1", user2.FlagActive);
+        Assert.Equal("0", user2.FlagSysAdmin);
+        Assert.Equal("0", user2.FlagViewOrgCreate);
+        Assert.Equal("1", user2.FlagViewOtherOrgCreate);
+        Assert.Equal(Sys_UserControllerPort.GetEncodedHash("Pass@654321"), user2.UserPassword);
+
+        // Kiểm tra Mst_ManageNotify
+        var notify1 = await _db.Set<Mst_ManageNotify>().AsNoTracking().FirstOrDefaultAsync(n => n.UserCode == "IMPORTUSER1@SOLUTION.HN");
+        Assert.NotNull(notify1);
+        Assert.Equal("Nhân Viên Nhập 1", notify1.UserName);
+    }
+
+    [Fact]
+    public async Task Import_Partial_Row1Committed_Row2Fails()
+    {
+        // Thêm người dùng với UserCode = "EXISTING_PARTIAL@SOLUTION.HN" vào DB để gây lỗi ở dòng 2
+        _db.Set<Sys_User>().Add(new Sys_User
+        {
+            UserCode = "EXISTING_PARTIAL@SOLUTION.HN",
+            UserName = "Existing Partial User",
+            EMail = "existing_partial@solution.hn",
+            MST = "0100000001",
+            NetworkID = "1001",
+            OrgID = "7200000001",
+            FlagActive = "1",
+            FlagSysAdmin = "0"
+        });
+        await _db.SaveChangesAsync();
+
+        // Hành vi import một phần: dòng 1 hợp lệ, dòng 2 lỗi (trùng DB) -> dòng 1 vẫn được commit
+        var file = CreateExcelFormFile("users.xlsx", SysUserExcelHeaders, new List<string?[]>
+        {
+            new string?[] { "User Partial 1", "partialuser1@solution.hn", "Tester", "Pass@123456", "0100000001", "0", "1", "1" },
+            new string?[] { "User Partial 2", "existing_partial@solution.hn", "Tester", "Pass@123456", "0100000001", "0", "1", "1" }
+        });
+
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserExist", root.GetProperty("ErrorCode").GetString());
+
+        // Kiểm tra dòng 1 đã được commit trong DB (import một phần)
+        var user1 = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "PARTIALUSER1@SOLUTION.HN");
+        Assert.NotNull(user1);
+        Assert.Equal("User Partial 1", user1.UserName);
+    }
+
     [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
@@ -3143,6 +3606,64 @@ public class Sys_UserControllerPortTests : IDisposable
             Assert.Equal("Đã xuất excel thành công!", doc90.RootElement.GetProperty("Title").GetString());
             Assert.Equal("1", doc90.RootElement.GetProperty("CheckSuccess").GetString());
             Assert.NotNull(doc90.RootElement.GetProperty("strUrl").GetString());
+
+            // 91. Action Import: POST /api/sys_user/import với body rỗng -> 400 BadRequest, Message = "File excel import không hợp lệ!"
+            var req91 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res91 = await http.PostAsync("/api/sys_user/import", req91);
+            Assert.False(res91.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res91.StatusCode);
+            var doc91 = JsonDocument.Parse(await res91.Content.ReadAsStringAsync());
+            Assert.False(doc91.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_Import", doc91.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("File excel import không hợp lệ!", doc91.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 92. Action Import: POST /api/sys_user/import gửi file không phải excel (.txt) -> 400 BadRequest
+            using var form92 = new MultipartFormDataContent();
+            form92.Add(new ByteArrayContent(Encoding.UTF8.GetBytes("plain text")), "file", "users.txt");
+            var res92 = await http.PostAsync("/api/sys_user/import", form92);
+            Assert.False(res92.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res92.StatusCode);
+            var doc92 = JsonDocument.Parse(await res92.Content.ReadAsStringAsync());
+            Assert.False(doc92.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File excel import không hợp lệ!", doc92.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 93. Action Import: POST /api/sys_user/import gửi file excel hợp lệ -> 200 OK, Title = "Đã nhập dữ liệu excel thành công!"
+            var excelBytes93 = CreateExcelBytes(SysUserExcelHeaders, new List<string?[]>
+            {
+                new string?[] { "Server User Import", "server_user_import@solution.hn", "Tester", "Pass@123456", "0100000001", "0", "1", "1" }
+            });
+            using var form93 = new MultipartFormDataContent();
+            form93.Add(new ByteArrayContent(excelBytes93), "file", "users.xlsx");
+            var res93 = await http.PostAsync("/api/sys_user/import", form93);
+            Assert.True(res93.IsSuccessStatusCode);
+            var doc93 = JsonDocument.Parse(await res93.Content.ReadAsStringAsync());
+            Assert.True(doc93.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã nhập dữ liệu excel thành công!", doc93.RootElement.GetProperty("Title").GetString());
+
+            // 94. Action Import: POST /api/sys_user/import gửi file excel có email bị lặp -> 400 BadRequest
+            var excelBytes94 = CreateExcelBytes(SysUserExcelHeaders, new List<string?[]>
+            {
+                new string?[] { "Duplicate 1", "dup_server@solution.hn", "Tester", "Pass@123456", "0100000001", "0", "1", "1" },
+                new string?[] { "Duplicate 2", "dup_server@solution.hn", "Dev", "Pass@123456", "0100000001", "0", "1", "1" }
+            });
+            using var form94 = new MultipartFormDataContent();
+            form94.Add(new ByteArrayContent(excelBytes94), "file", "users.xlsx");
+            var res94 = await http.PostAsync("/api/sys_user/import", form94);
+            Assert.False(res94.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res94.StatusCode);
+            var doc94 = JsonDocument.Parse(await res94.Content.ReadAsStringAsync());
+            Assert.False(doc94.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Email 'dup_server@solution.hn' bị lặp trong file excel!", doc94.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 95. Kiểm tra người dùng vừa import SERVER_USER_IMPORT@SOLUTION.HN qua Detail endpoint -> 200 OK
+            var req95 = new StringContent(JsonSerializer.Serialize(new { UserCode = "server_user_import@solution.hn" }), Encoding.UTF8, "application/json");
+            var res95 = await http.PostAsync("/api/sys_user/detail", req95);
+            Assert.True(res95.IsSuccessStatusCode);
+            var doc95 = JsonDocument.Parse(await res95.Content.ReadAsStringAsync());
+            Assert.True(doc95.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("SERVER_USER_IMPORT@SOLUTION.HN", doc95.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+            Assert.Equal("Server User Import", doc95.RootElement.GetProperty("Data").GetProperty("UserName").GetString());
+            Assert.Equal("server_user_import@solution.hn", doc95.RootElement.GetProperty("Data").GetProperty("EMail").GetString());
         }
         finally
         {
