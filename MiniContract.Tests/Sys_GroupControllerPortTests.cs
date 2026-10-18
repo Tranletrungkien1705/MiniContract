@@ -1030,6 +1030,170 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveUserInGroup_NullReq_ReturnsNoUserSelectedTitle()
+    {
+        var result = await _controller.SaveUserInGroup(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Chưa chọn người dùng gán vào nhóm!", doc.RootElement.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_EmptyReq_ReturnsNoUserSelectedTitle()
+    {
+        var result = await _controller.SaveUserInGroup(new Sys_Group_SaveUserInGroupReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Chưa chọn người dùng gán vào nhóm!", doc.RootElement.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_InvalidModel_ReturnsNoUserSelectedTitle()
+    {
+        var result = await _controller.SaveUserInGroup(new Sys_Group_SaveUserInGroupReq { Model = "invalid json {{" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Chưa chọn người dùng gán vào nhóm!", doc.RootElement.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_GroupCodeNotFound_ReturnsBadRequest()
+    {
+        var req = new Sys_Group_SaveUserInGroupReq
+        {
+            GroupCode = "GRP_NONEXISTENT",
+            Lst_Sys_UserInGroup = new List<Sys_UserInGroup> { new() { UserCode = "U01" } }
+        };
+        var result = await _controller.SaveUserInGroup(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_UserCodeNotFound_ReturnsBadRequest()
+    {
+        var req = new Sys_Group_SaveUserInGroupReq
+        {
+            GroupCode = "GRP_ADMIN",
+            WAUserCode = "USER_NONEXISTENT",
+            Lst_Sys_UserInGroup = new List<Sys_UserInGroup> { new() { UserCode = "U01" } }
+        };
+        var result = await _controller.SaveUserInGroup(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_UserCodeInactive_ReturnsBadRequest()
+    {
+        _db.Set<Sys_User>().Add(new Sys_User
+        {
+            UserCode = "U_INACTIVE_FOR_SAVE",
+            UserName = "Người dùng không hoạt động",
+            FlagActive = "0",
+            MST = "0100000001"
+        });
+        await _db.SaveChangesAsync();
+
+        var req = new Sys_Group_SaveUserInGroupReq
+        {
+            GroupCode = "GRP_ADMIN",
+            WAUserCode = "U_INACTIVE_FOR_SAVE",
+            Lst_Sys_UserInGroup = new List<Sys_UserInGroup> { new() { UserCode = "U01" } }
+        };
+        var result = await _controller.SaveUserInGroup(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_ValidReq_AssignUsers_SuccessAndRoundTrip()
+    {
+        // GRP_STAFF ban đầu không có user nào
+        var beforeUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_STAFF").ToListAsync();
+        Assert.Empty(beforeUsers);
+
+        var req = new Sys_Group_SaveUserInGroupReq
+        {
+            GroupCode = "grp_staff",
+            Lst_Sys_UserInGroup = new List<Sys_UserInGroup>
+            {
+                new() { UserCode = "u01" },
+                new() { UserCode = "u03" }
+            }
+        };
+
+        var result = await _controller.SaveUserInGroup(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Gán người dùng vào nhóm thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        var afterUsers = await _db.Set<Sys_UserInGroup>()
+            .Where(x => x.GroupCode == "GRP_STAFF")
+            .OrderBy(x => x.UserCode)
+            .ToListAsync();
+        Assert.Equal(2, afterUsers.Count);
+        Assert.Equal("U01", afterUsers[0].UserCode);
+        Assert.Equal("U03", afterUsers[1].UserCode);
+        Assert.Equal("0100000001", afterUsers[0].MST);
+        Assert.Equal("U01", afterUsers[0].LogLUBy);
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_ValidReq_ClearUsers_SuccessAndRoundTrip()
+    {
+        // GRP_ADMIN ban đầu có 2 user (U01, U02)
+        var beforeUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_ADMIN").ToListAsync();
+        Assert.Equal(2, beforeUsers.Count);
+
+        var req = new Sys_Group_SaveUserInGroupReq
+        {
+            GroupCode = "GRP_ADMIN",
+            Lst_Sys_UserInGroup = new List<Sys_UserInGroup>()
+        };
+
+        var result = await _controller.SaveUserInGroup(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa người dùng khỏi nhóm thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        var afterUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_ADMIN").ToListAsync();
+        Assert.Empty(afterUsers);
+    }
+
+    [Fact]
+    public async Task SaveUserInGroup_ViaModelJson_SuccessAndRoundTrip()
+    {
+        var modelJson = "{\"Sys_Group\":{\"GroupCode\":\"GRP_MANAGER\"},\"Lst_Sys_UserInGroup\":[{\"UserCode\":\"U01\"},{\"UserCode\":\"U02\"}]}";
+        var req = new Sys_Group_SaveUserInGroupReq { Model = modelJson };
+
+        var result = await _controller.SaveUserInGroup(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Gán người dùng vào nhóm thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        var afterUsers = await _db.Set<Sys_UserInGroup>()
+            .Where(x => x.GroupCode == "GRP_MANAGER")
+            .OrderBy(x => x.UserCode)
+            .ToListAsync();
+        Assert.Equal(2, afterUsers.Count);
+        Assert.Equal("U01", afterUsers[0].UserCode);
+        Assert.Equal("U02", afterUsers[1].UserCode);
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -1650,6 +1814,93 @@ public class Sys_GroupControllerPortTests : IDisposable
             var doc44 = JsonDocument.Parse(body44);
             Assert.True(doc44.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Xóa nhóm người dùng 'GRP_ACCOUNTANT' thành công!", doc44.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 45. Ca SaveUserInGroup body rỗng: POST /api/sys_group/saveuseringroup {} -> 200 OK, Success=true, Title="Chưa chọn người dùng gán vào nhóm!"
+            var req45 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res45 = await http.PostAsync("/api/sys_group/saveuseringroup", req45);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res45.StatusCode);
+            var body45 = await res45.Content.ReadAsStringAsync();
+            var doc45 = JsonDocument.Parse(body45);
+            Assert.True(doc45.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Chưa chọn người dùng gán vào nhóm!", doc45.RootElement.GetProperty("Title").GetString());
+
+            // 46. Ca SaveUserInGroup nhóm không tồn tại: POST /api/sys_group/saveuseringroup {"GroupCode":"GRP_NONEXISTENT", "Lst_Sys_UserInGroup":[{"UserCode":"U01"}]} -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeNotFound
+            var req46 = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\", \"Lst_Sys_UserInGroup\":[{\"UserCode\":\"U01\"}]}", Encoding.UTF8, "application/json");
+            var res46 = await http.PostAsync("/api/sys_group/saveuseringroup", req46);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res46.StatusCode);
+            var body46 = await res46.Content.ReadAsStringAsync();
+            var doc46 = JsonDocument.Parse(body46);
+            Assert.False(doc46.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeNotFound", doc46.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 47. Ca SaveUserInGroup user thực hiện không tồn tại: POST /api/sys_group/saveuseringroup {"GroupCode":"GRP_STAFF", "WAUserCode":"USER_NOT_EXIST", "Lst_Sys_UserInGroup":[{"UserCode":"U01"}]} -> 400 Bad Request, Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound
+            var req47 = new StringContent("{\"GroupCode\":\"GRP_STAFF\", \"WAUserCode\":\"USER_NOT_EXIST\", \"Lst_Sys_UserInGroup\":[{\"UserCode\":\"U01\"}]}", Encoding.UTF8, "application/json");
+            var res47 = await http.PostAsync("/api/sys_group/saveuseringroup", req47);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res47.StatusCode);
+            var body47 = await res47.Content.ReadAsStringAsync();
+            var doc47 = JsonDocument.Parse(body47);
+            Assert.False(doc47.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound", doc47.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 48. Ca SaveUserInGroup gán người dùng thành công round-trip: Gán U01, U03 vào GRP_STAFF
+            var req48 = new StringContent("{\"GroupCode\":\"GRP_STAFF\", \"Lst_Sys_UserInGroup\":[{\"UserCode\":\"U01\"},{\"UserCode\":\"U03\"}]}", Encoding.UTF8, "application/json");
+            var res48 = await http.PostAsync("/api/sys_group/saveuseringroup", req48);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res48.StatusCode);
+            var body48 = await res48.Content.ReadAsStringAsync();
+            var doc48 = JsonDocument.Parse(body48);
+            Assert.True(doc48.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Gán người dùng vào nhóm thành công!", doc48.RootElement.GetProperty("Title").GetString());
+
+            // Đọc lại qua /api/sys_group/getsysuser xác minh round-trip gán thành công 2 user
+            var req48Read = new StringContent("{\"GroupCode\":\"GRP_STAFF\"}", Encoding.UTF8, "application/json");
+            var res48Read = await http.PostAsync("/api/sys_group/getsysuser", req48Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res48Read.StatusCode);
+            var body48Read = await res48Read.Content.ReadAsStringAsync();
+            var doc48Read = JsonDocument.Parse(body48Read);
+            Assert.True(doc48Read.RootElement.GetProperty("Success").GetBoolean());
+            var listUser48 = doc48Read.RootElement.GetProperty("Data").GetProperty("ListUserInGroup");
+            Assert.Equal(2, listUser48.GetArrayLength());
+            Assert.Equal("U01", listUser48[0].GetProperty("UserCode").GetString());
+            Assert.Equal("U03", listUser48[1].GetProperty("UserCode").GetString());
+
+            // 49. Ca SaveUserInGroup xoá người dùng khỏi nhóm thành công round-trip: Xoá hết user khỏi GRP_STAFF
+            var req49 = new StringContent("{\"GroupCode\":\"GRP_STAFF\", \"Lst_Sys_UserInGroup\":[]}", Encoding.UTF8, "application/json");
+            var res49 = await http.PostAsync("/api/sys_group/saveuseringroup", req49);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res49.StatusCode);
+            var body49 = await res49.Content.ReadAsStringAsync();
+            var doc49 = JsonDocument.Parse(body49);
+            Assert.True(doc49.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa người dùng khỏi nhóm thành công!", doc49.RootElement.GetProperty("Title").GetString());
+
+            // Đọc lại qua /api/sys_group/getsysuser xác minh round-trip xoá thành công (0 user)
+            var req49Read = new StringContent("{\"GroupCode\":\"GRP_STAFF\"}", Encoding.UTF8, "application/json");
+            var res49Read = await http.PostAsync("/api/sys_group/getsysuser", req49Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res49Read.StatusCode);
+            var body49Read = await res49Read.Content.ReadAsStringAsync();
+            var doc49Read = JsonDocument.Parse(body49Read);
+            Assert.True(doc49Read.RootElement.GetProperty("Success").GetBoolean());
+            var listUser49 = doc49Read.RootElement.GetProperty("Data").GetProperty("ListUserInGroup");
+            Assert.Equal(0, listUser49.GetArrayLength());
+
+            // 50. Ca SaveUserInGroup qua Model JSON string: Gán U02 vào GRP_STAFF
+            var req50 = new StringContent("{\"Model\":\"{\\\"Sys_Group\\\":{\\\"GroupCode\\\":\\\"GRP_STAFF\\\"},\\\"Lst_Sys_UserInGroup\\\":[{\\\"UserCode\\\":\\\"U02\\\"}]}\"}", Encoding.UTF8, "application/json");
+            var res50 = await http.PostAsync("/api/sys_group/saveuseringroup", req50);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res50.StatusCode);
+            var body50 = await res50.Content.ReadAsStringAsync();
+            var doc50 = JsonDocument.Parse(body50);
+            Assert.True(doc50.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Gán người dùng vào nhóm thành công!", doc50.RootElement.GetProperty("Title").GetString());
+
+            // Đọc lại qua /api/sys_group/getsysuser xác minh có 1 user (U02)
+            var req50Read = new StringContent("{\"GroupCode\":\"GRP_STAFF\"}", Encoding.UTF8, "application/json");
+            var res50Read = await http.PostAsync("/api/sys_group/getsysuser", req50Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res50Read.StatusCode);
+            var body50Read = await res50Read.Content.ReadAsStringAsync();
+            var doc50Read = JsonDocument.Parse(body50Read);
+            Assert.True(doc50Read.RootElement.GetProperty("Success").GetBoolean());
+            var listUser50 = doc50Read.RootElement.GetProperty("Data").GetProperty("ListUserInGroup");
+            Assert.Equal(1, listUser50.GetArrayLength());
+            Assert.Equal("U02", listUser50[0].GetProperty("UserCode").GetString());
         }
         finally
         {
