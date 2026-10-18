@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,9 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:986-1093 (ChangePassword)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1097-1258 (ChangePasswordCheckOld)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1264-1413 (ChangeInfo)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1419-1515 (Export)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1894-1913 (GetImportDicColums)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:664-682 (GenExcelExportFilePath)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203 (GetEncodedHash)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
@@ -62,14 +66,33 @@ public class Sys_UserControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
     // Hằng số che mật khẩu từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Constants\Const.Main.BE.cs:13
     private const string Default_PasswordMask = "*********";
 
-    public Sys_UserControllerPort(AppDbContext db, IConfiguration? config = null)
+    // Danh sách cột xuất Excel từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1894-1913 GetImportDicColums()
+    private static readonly Dictionary<string, string> ExportDicColumns = new()
+    {
+        { nameof(Sys_User.UserCode), "Mã người dùng" },
+        { nameof(Sys_User.UserName), "Tên người dùng" },
+        { nameof(Sys_User.Position), "Chức vụ" },
+        { nameof(Sys_User.MST), "Mã chi nhánh" },
+        { nameof(Sys_User.EMail), "Email" },
+        { nameof(Sys_User.PhoneNo), "Điện thoại" },
+        { nameof(Sys_User.FlagSysAdmin), "QT hệ thống" },
+        { nameof(Sys_User.FlagViewOrgCreate), "QLHD đi" },
+        { nameof(Sys_User.FlagViewOtherOrgCreate), "QLHD đến" },
+        { nameof(Sys_User.FlagActive), "Trạng thái" },
+        { nameof(Sys_User.ACLanguage), "Ngôn ngữ" },
+        { nameof(Sys_User.ACTimeZone), "Múi giờ" }
+    };
+
+    public Sys_UserControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -2269,6 +2292,214 @@ public class Sys_UserControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action Export từ gate Sys_UserController.cs:1419-1515.
+    /// Chuỗi gọi:
+    /// 1. Lấy thông tin người dùng từ UserState: waUserCode = userState.SysUser.UserCode (gate dòng 1421-1425).
+    /// 2. Tạo đối tượng Sys_User mẫu từ username: UserName = username, EMail = username, PhoneNo = username (gate dòng 1430-1435).
+    /// 3. Dựng điều kiện strWhereClauseSys_User qua strWhereClause_SysUserName(objSys_User) (gate dòng 1436, 1962-1982):
+    ///    UserName like '%username%' or PhoneNo like '%username%' or EMail like '%username%'.
+    /// 4. Đóng gói RQ_Sys_User và gọi Sys_UserService.Instance.WA_Sys_User_Get
+    ///    -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///    -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///    -> BIZ Sys_User_Get_New20191104 (System.cs:6635-7009).
+    /// 5. Các bước nghiệp vụ tầng BIZ:
+    ///    - Kiểm tra quyền xem của người dùng: Sys_User_GetAbilityViewOfUser(strWAUserCode) (System.cs:6733, System.Mix.cs:30-79).
+    ///      Nếu strWAUserCode không tồn tại trong Sys_User -> ném lỗi Sys_User_BizInvalidUserAbility.
+    ///    - Lọc Sys_User theo ViewAbility (#tbl_Mst_NNT_ViewAbility) và strWhereClause.
+    ///    - Sắp xếp order by su.UserCode asc.
+    /// 6. Gate nhận danh sách kết quả objRT_Sys_UserCur.Lst_Sys_User:
+    ///    - Nếu danh sách rỗng (null hoặc Count == 0):
+    ///      Trả về Json({ Success = true, Title = "Không có dữ liệu!", CheckSuccess = "1" }) (gate dòng 1506).
+    ///    - Nếu có dữ liệu (gate dòng 1461-1502):
+    ///      + Chuyển đổi ACLanguage: "vi" hoặc "vn" -> "Tiếng Việt"; "en" -> "Tiếng Anh" (gate dòng 1465-1475).
+    ///      + Chuyển đổi ACTimeZone: nếu > 0 -> "UTC +" + ACTimeZone, ngược lại -> "UTC " + ACTimeZone (gate dòng 1476-1486).
+    ///      + Lấy từ điển cột GetImportDicColums() gồm 12 cột (gate dòng 1495, 1894-1913).
+    ///      + Sinh file Excel qua GenExcelExportFilePath và ghi danh sách ra Excel qua ExcelExport.ExportToExcelFromList (gate dòng 1498-1500).
+    ///      + Trả về Json({ Success = true, Title = "Đã xuất excel thành công!", CheckSuccess = "1", strUrl = url }) (gate dòng 1502).
+    /// 7. Bắt ngoại lệ và trả về lỗi nếu có lỗi xử lý (gate dòng 1509-1514).
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_ExportReq? req = null)
+    {
+        try
+        {
+            // 1. Chuẩn hoá các tham số lọc theo gate Sys_UserController.cs:1419-1436
+            var waUserCode = StdParam(req?.WAUserCode)
+                ?? StdParam(req?.UserCode)
+                ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault());
+
+            var keyword = StdStr(req?.UserName) ?? StdStr(req?.KeyWord);
+            var reqUserCode = StdParam(req?.UserCode);
+            var reqMST = StdParam(req?.MST);
+            var reqDeptCode = StdParam(req?.DepartmentCode);
+            var reqNetworkId = StdParam(req?.NetworkID);
+            var reqOrgId = StdParam(req?.OrgID);
+            var reqFlagActive = req?.FlagActive != null ? StdFlag(req.FlagActive) : null;
+
+            // 2. Kiểm tra quyền xem của người dùng thực hiện (Sys_User_GetAbilityViewOfUser, System.Mix.cs:30-79)
+            IQueryable<string>? visibleMstsQuery = null;
+            if (!string.IsNullOrEmpty(waUserCode))
+            {
+                var callerUser = await _db.Set<Sys_User>().AsNoTracking()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(waUserCode), PortQuery.Esc));
+
+                if (callerUser == null)
+                {
+                    // Guard: Mã lỗi TError.ErridQContract.Sys_User_BizInvalidUserAbility (System.Mix.cs:74)
+                    return PortResult.Fail("Sys_User_BizInvalidUserAbility");
+                }
+
+                // Xác định phạm vi ViewAbility (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823, System.Mix.cs:1990-2067)
+                var callerMST = StdParam(callerUser.MST);
+                var callerNnt = !string.IsNullOrEmpty(callerMST)
+                    ? await _db.Set<Mst_NNT>().AsNoTracking()
+                        .FirstOrDefaultAsync(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(callerMST), PortQuery.Esc))
+                    : null;
+
+                if (callerNnt != null && string.Equals(callerNnt.DealerType?.Trim(), "NPP", StringComparison.OrdinalIgnoreCase))
+                {
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.DealerType ?? "").ToLower(), PortQuery.Equal("NPP"), PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+                else if (callerNnt != null && !string.IsNullOrEmpty(callerNnt.MSTBUPattern))
+                {
+                    var pattern = PortQuery.Contains(callerNnt.MSTBUPattern);
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.MSTBUPattern ?? "").ToLower(), pattern, PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+                else if (!string.IsNullOrEmpty(callerMST))
+                {
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(callerMST), PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+            }
+
+            // 3. Dựng truy vấn cơ sở từ bảng Sys_User (System.cs:478-492)
+            var query = _db.Set<Sys_User>().AsNoTracking();
+
+            if (visibleMstsQuery != null)
+            {
+                query = query.Where(u => visibleMstsQuery.Contains(u.MST ?? ""));
+            }
+
+            // Lọc theo username: strWhereClause_SysUserName (Sys_UserController.cs:1436, 1962-1982)
+            // UserName like '%username%' or PhoneNo like '%username%' or EMail like '%username%'
+            if (!string.IsNullOrEmpty(keyword))
+            {
+                var kwPattern = PortQuery.Contains(keyword);
+                query = query.Where(u =>
+                    EF.Functions.Like((u.UserName ?? "").ToLower(), kwPattern, PortQuery.Esc) ||
+                    EF.Functions.Like((u.PhoneNo ?? "").ToLower(), kwPattern, PortQuery.Esc) ||
+                    EF.Functions.Like((u.EMail ?? "").ToLower(), kwPattern, PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(reqUserCode) && string.IsNullOrEmpty(req?.UserName))
+            {
+                query = query.Where(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(reqUserCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(reqMST))
+            {
+                query = query.Where(u => EF.Functions.Like((u.MST ?? "").ToLower(), PortQuery.Equal(reqMST), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(reqDeptCode))
+            {
+                query = query.Where(u => EF.Functions.Like((u.DepartmentCode ?? "").ToLower(), PortQuery.Equal(reqDeptCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(reqNetworkId))
+            {
+                query = query.Where(u => EF.Functions.Like((u.NetworkID ?? "").ToLower(), PortQuery.Equal(reqNetworkId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(reqOrgId))
+            {
+                query = query.Where(u => EF.Functions.Like((u.OrgID ?? "").ToLower(), PortQuery.Equal(reqOrgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(reqFlagActive))
+            {
+                query = query.Where(u => EF.Functions.Like((u.FlagActive ?? "").ToLower(), PortQuery.Equal(reqFlagActive), PortQuery.Esc));
+            }
+
+            // 4. Sắp xếp theo UserCode asc (System.cs:6773)
+            var ordered = query.OrderBy(u => u.UserCode);
+
+            // 5. Phân trang nếu có chỉ định (BaseController.cs:77-79 mặc định Ft_RecordStart=0, Ft_RecordCount=123456000)
+            long recordStart = req?.Ft_RecordStart ?? 0;
+            long recordCount = req?.Ft_RecordCount ?? 1000000;
+            if (req != null && req.RecordCount != null && req.Ft_RecordCount == null)
+            {
+                recordCount = req.RecordCount.Value;
+                var page = req.Page ?? req.PageIndex ?? 0;
+                recordStart = (long)page * recordCount;
+            }
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Sys_User>()
+                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                               .Take((int)Math.Min(recordCount, int.MaxValue))
+                               .ToListAsync();
+
+            // 6. Kiểm tra danh sách rỗng -> trả thông báo khớp gate (Sys_UserController.cs:1504-1507)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "Không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 7. Chuyển đổi định dạng các trường ACLanguage và ACTimeZone theo gate (Sys_UserController.cs:1463-1487)
+            foreach (var item in list)
+            {
+                if (!string.IsNullOrEmpty(item.ACLanguage))
+                {
+                    if (item.ACLanguage.Equals("vi", StringComparison.OrdinalIgnoreCase) ||
+                        item.ACLanguage.Equals("vn", StringComparison.OrdinalIgnoreCase))
+                    {
+                        item.ACLanguage = "Tiếng Việt";
+                    }
+                    else if (item.ACLanguage.Equals("en", StringComparison.OrdinalIgnoreCase))
+                    {
+                        item.ACLanguage = "Tiếng Anh";
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(item.ACTimeZone) && !item.ACTimeZone.StartsWith("UTC", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (double.TryParse(item.ACTimeZone, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var tz) && tz > 0)
+                    {
+                        item.ACTimeZone = "UTC +" + item.ACTimeZone;
+                    }
+                    else
+                    {
+                        item.ACTimeZone = "UTC " + item.ACTimeZone;
+                    }
+                }
+            }
+
+            // 8. Xuất danh sách ra file Excel và trả URL (Sys_UserController.cs:1495-1502)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Sys_User));
+            PortExcel.ExportToExcelFromList(list, ExportDicColumns, filePath, nameof(Sys_User));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Mã hoá mật khẩu bằng thuật toán chuẩn idocNet: Base64(MD5(password + "idocNet")) bỏ 2 ký tự cuối ("==").
     /// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203.
     /// </summary>
@@ -2628,6 +2859,31 @@ public class Sys_User_ChangeInfoReq
 
     // Ngữ cảnh người gọi
     public string? WAUserCode { get; set; }
+}
+
+/// <summary>
+/// Model nhận tham số cho action Export của Sys_UserController.
+/// Gate: Sys_UserController.cs:1419 Export(string username = "")
+/// </summary>
+public class Sys_User_ExportReq
+{
+    public string? UserName { get; set; }
+    public string? KeyWord { get; set; }
+    public string? UserCode { get; set; }
+    public string? PhoneNo { get; set; }
+    public string? EMail { get; set; }
+    public string? MST { get; set; }
+    public string? DepartmentCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? FlagActive { get; set; }
+    public string? WAUserCode { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+    public int? RecordCount { get; set; }
+    public int? PageSize { get; set; }
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
 }
 
 

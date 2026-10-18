@@ -1952,6 +1952,163 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Export_NullReq_ReturnsSuccessTrueWithExcelUrl()
+    {
+        // Khi req null (body rỗng): lấy tất cả người dùng, xuất Excel thành công (gate Sys_UserController.cs:1419-1502)
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        var url = root.GetProperty("strUrl").GetString();
+        Assert.NotNull(url);
+        Assert.StartsWith("/TempFiles/", url);
+        Assert.EndsWith(".xlsx", url);
+    }
+
+    [Fact]
+    public async Task Export_EmptyReq_ReturnsSuccessTrueWithExcelUrl()
+    {
+        // Khi req rỗng (không truyền tham số lọc): xuất Excel thành công
+        var req = new Sys_User_ExportReq();
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
+    public async Task Export_Guard_InvalidWAUserCode_ReturnsSys_User_BizInvalidUserAbility()
+    {
+        // Guard: WAUserCode không tồn tại trong Sys_User -> ném TError.ErridQContract.Sys_User_BizInvalidUserAbility (System.Mix.cs:74)
+        var req = new Sys_User_ExportReq
+        {
+            WAUserCode = "INVALID_USER"
+        };
+        var result = await _controller.Export(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_BizInvalidUserAbility", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterNonExistent_ReturnsNoDataMessage()
+    {
+        // Khi bộ lọc không có dữ liệu phù hợp (gate Sys_UserController.cs:1504-1507) -> Title = "Không có dữ liệu!"
+        var req = new Sys_User_ExportReq
+        {
+            UserName = "nonexistent_username_xyz"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Không có dữ liệu!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.False(root.TryGetProperty("strUrl", out _));
+    }
+
+    [Fact]
+    public async Task Export_FilterByUserName_Admin_ReturnsSuccessWithExcelUrl()
+    {
+        // Bộ lọc UserName = "admin" -> tìm thấy 1 người dùng U01 -> xuất Excel thành công
+        var req = new Sys_User_ExportReq
+        {
+            UserName = "admin"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterByMST_0100000001_ReturnsSuccessWithExcelUrl()
+    {
+        // Bộ lọc MST = "0100000001" -> tìm thấy 2 người dùng (U01, U02) -> xuất Excel thành công
+        var req = new Sys_User_ExportReq
+        {
+            MST = "0100000001"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
+    public async Task Export_ACLanguageAndACTimeZone_Transformation()
+    {
+        // Cập nhật người dùng với ACLanguage và ACTimeZone để kiểm tra logic chuyển đổi (gate Sys_UserController.cs:1463-1487)
+        var u01 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U01");
+        u01.ACLanguage = "vi";
+        u01.ACTimeZone = "7";
+
+        var u02 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U02");
+        u02.ACLanguage = "en";
+        u02.ACTimeZone = "-5";
+
+        var u03 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U03");
+        u03.ACLanguage = "vn";
+        u03.ACTimeZone = "0";
+
+        await _db.SaveChangesAsync();
+
+        var result = await _controller.Export(new Sys_User_ExportReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var url = doc.RootElement.GetProperty("strUrl").GetString();
+        Assert.NotNull(url);
+
+        var physicalPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported Excel file not found at {physicalPath}");
+
+        // Đọc lại file Excel để kiểm tra nội dung chuyển đổi
+        using var stream = File.OpenRead(physicalPath);
+        var keys = new[] { "UserCode", "UserName", "Position", "MST", "EMail", "PhoneNo", "FlagSysAdmin", "FlagViewOrgCreate", "FlagViewOtherOrgCreate", "FlagActive", "ACLanguage", "ACTimeZone" };
+        var (colCount, rows) = PortExcel.ReadSheet(stream, keys);
+
+        Assert.Equal(12, colCount);
+        Assert.True(rows.Count >= 3);
+
+        var rowU01 = rows.First(r => r["UserCode"] == "U01");
+        Assert.Equal("Tiếng Việt", rowU01["ACLanguage"]);
+        Assert.Equal("UTC +7", rowU01["ACTimeZone"]);
+
+        var rowU02 = rows.First(r => r["UserCode"] == "U02");
+        Assert.Equal("Tiếng Anh", rowU02["ACLanguage"]);
+        Assert.Equal("UTC -5", rowU02["ACTimeZone"]);
+
+        var rowU03 = rows.First(r => r["UserCode"] == "U03");
+        Assert.Equal("Tiếng Việt", rowU03["ACLanguage"]);
+        Assert.Equal("UTC 0", rowU03["ACTimeZone"]);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -2865,6 +3022,52 @@ public class Sys_UserControllerPortTests : IDisposable
             Assert.Equal("U01", doc82.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
             Assert.Equal("Server Admin Email Updated", doc82.RootElement.GetProperty("Data").GetProperty("UserName").GetString());
             Assert.Equal("0909888777", doc82.RootElement.GetProperty("Data").GetProperty("PhoneNo").GetString());
+
+            // 83. Action Export: POST /api/sys_user/export với body rỗng -> 200 OK, CheckSuccess = 1, strUrl != null
+            var req83 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res83 = await http.PostAsync("/api/sys_user/export", req83);
+            Assert.True(res83.IsSuccessStatusCode);
+            var doc83 = JsonDocument.Parse(await res83.Content.ReadAsStringAsync());
+            Assert.True(doc83.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc83.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc83.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.NotNull(doc83.RootElement.GetProperty("strUrl").GetString());
+
+            // 84. Action Export: POST /api/sys_user/export guard WAUserCode không tồn tại -> 400 BadRequest (Sys_User_BizInvalidUserAbility)
+            var req84 = new StringContent(JsonSerializer.Serialize(new { WAUserCode = "INVALID_USER" }), Encoding.UTF8, "application/json");
+            var res84 = await http.PostAsync("/api/sys_user/export", req84);
+            Assert.False(res84.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res84.StatusCode);
+            var doc84 = JsonDocument.Parse(await res84.Content.ReadAsStringAsync());
+            Assert.False(doc84.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_BizInvalidUserAbility", doc84.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 85. Action Export: POST /api/sys_user/export bộ lọc 1 (UserName = admin) -> 200 OK, xuất Excel thành công
+            var req85 = new StringContent(JsonSerializer.Serialize(new { UserName = "admin" }), Encoding.UTF8, "application/json");
+            var res85 = await http.PostAsync("/api/sys_user/export", req85);
+            Assert.True(res85.IsSuccessStatusCode);
+            var doc85 = JsonDocument.Parse(await res85.Content.ReadAsStringAsync());
+            Assert.True(doc85.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc85.RootElement.GetProperty("Title").GetString());
+            Assert.NotNull(doc85.RootElement.GetProperty("strUrl").GetString());
+
+            // 86. Action Export: POST /api/sys_user/export bộ lọc 2 không có dữ liệu (UserName = nonexistent) -> 200 OK, Title = "Không có dữ liệu!"
+            var req86 = new StringContent(JsonSerializer.Serialize(new { UserName = "nonexistent" }), Encoding.UTF8, "application/json");
+            var res86 = await http.PostAsync("/api/sys_user/export", req86);
+            Assert.True(res86.IsSuccessStatusCode);
+            var doc86 = JsonDocument.Parse(await res86.Content.ReadAsStringAsync());
+            Assert.True(doc86.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Không có dữ liệu!", doc86.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc86.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // 87. Action Export: POST /api/sys_user/export bộ lọc 3 (MST = 0100000001) -> 200 OK, xuất Excel thành công
+            var req87 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001" }), Encoding.UTF8, "application/json");
+            var res87 = await http.PostAsync("/api/sys_user/export", req87);
+            Assert.True(res87.IsSuccessStatusCode);
+            var doc87 = JsonDocument.Parse(await res87.Content.ReadAsStringAsync());
+            Assert.True(doc87.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc87.RootElement.GetProperty("Title").GetString());
+            Assert.NotNull(doc87.RootElement.GetProperty("strUrl").GetString());
         }
         finally
         {
