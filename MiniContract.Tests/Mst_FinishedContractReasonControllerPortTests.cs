@@ -410,6 +410,94 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Detail_WithValidContractFinishReasonCode_ReturnsItem()
+    {
+        var req = new Mst_FinishedContractReason_DetailReq { ContractFinishReasonCode = "REASON01" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("REASON01", data.GetProperty("ContractFinishReasonCode").GetString());
+        Assert.Equal("Hết hạn hợp đồng", data.GetProperty("ContractFinishReasonName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithReasonCodeAlias_ReturnsItem()
+    {
+        var req = new Mst_FinishedContractReason_DetailReq { ReasonCode = "REASON02" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("REASON02", data.GetProperty("ContractFinishReasonCode").GetString());
+        Assert.Equal("Hai bên thỏa thuận chấm dứt", data.GetProperty("ContractFinishReasonName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithReasoncodeLowerAlias_ReturnsItem()
+    {
+        var json = "{\"reasoncode\":\"REASON03\"}";
+        var req = JsonSerializer.Deserialize<Mst_FinishedContractReason_DetailReq>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("REASON03", data.GetProperty("ContractFinishReasonCode").GetString());
+        Assert.Equal("Một bên đơn phương chấm dứt", data.GetProperty("ContractFinishReasonName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithNonExistentCode_ReturnsNullData()
+    {
+        var req = new Mst_FinishedContractReason_DetailReq { ContractFinishReasonCode = "NON_EXISTENT" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_WithEmptyBodyOrNullReq_ReturnsNullData()
+    {
+        var resNull = await _controller.Detail(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        var resEmpty = await _controller.Detail(new Mst_FinishedContractReason_DetailReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_WithNetworkIDFilter_FiltersCorrectly()
+    {
+        // Bộ lọc 1: NetworkID = 1002 và REASON05 -> tìm thấy
+        var req1 = new Mst_FinishedContractReason_DetailReq { NetworkID = "1002", ContractFinishReasonCode = "REASON05" };
+        var res1 = await _controller.Detail(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("REASON05", doc1.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+
+        // Bộ lọc 2: NetworkID = 1001 và REASON05 -> không khớp NetworkID -> Data null
+        var req2 = new Mst_FinishedContractReason_DetailReq { NetworkID = "1001", ContractFinishReasonCode = "REASON05" };
+        var res2 = await _controller.Detail(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc2.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
     public async Task Edit_EmptyOrNullBody_ReturnsBadRequestWithStrJsonError()
     {
         var resultNull = await _controller.Edit(null);
@@ -545,7 +633,7 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     }
 
     [Fact]
-    public async Task RealServer_Verification_Port8584()
+    public async Task RealServer_Verification_Port8585()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
         var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
@@ -561,7 +649,7 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8584";
+        psi.Environment["PORT"] = "8585";
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -570,7 +658,7 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8584"), Timeout = TimeSpan.FromSeconds(3) };
+            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8585"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -823,6 +911,69 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             Assert.Equal("STOPPED", data21.GetProperty("FinishType").GetString());
             Assert.Equal("Mô tả live", data21.GetProperty("FinishDescription").GetString());
             Assert.Equal("1", data21.GetProperty("FlagActive").GetString());
+
+            // ================== Kiểm thử endpoint Detail ==================
+            // Request 22: POST Detail empty body -> 200 OK, trả về Data null (gate trả View(new Mst_FinishedContractReason()))
+            var req22 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res22 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req22);
+            var body22 = await res22.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ22: {body22}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res22.StatusCode);
+            var doc22 = JsonDocument.Parse(body22);
+            Assert.True(doc22.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc22.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 23: POST Detail với ContractFinishReasonCode = REASON01 -> 200 OK, trả về REASON01
+            var req23 = new StringContent("{\"ContractFinishReasonCode\":\"REASON01\"}", Encoding.UTF8, "application/json");
+            var res23 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req23);
+            var body23 = await res23.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ23: {body23}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res23.StatusCode);
+            var doc23 = JsonDocument.Parse(body23);
+            Assert.True(doc23.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("REASON01", doc23.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+            Assert.Equal("Hết hạn cập nhật live", doc23.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonName").GetString());
+            Assert.Equal("STOPPED", doc23.RootElement.GetProperty("Data").GetProperty("FinishType").GetString());
+
+            // Request 24: POST Detail với alias ReasonCode = REASON02 -> 200 OK, trả về REASON02
+            var req24 = new StringContent("{\"ReasonCode\":\"REASON02\"}", Encoding.UTF8, "application/json");
+            var res24 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req24);
+            var body24 = await res24.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ24: {body24}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res24.StatusCode);
+            var doc24 = JsonDocument.Parse(body24);
+            Assert.True(doc24.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("REASON02", doc24.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+
+            // Request 25: POST Detail với mã không tồn tại -> 200 OK, trả về Data null
+            var req25 = new StringContent("{\"ContractFinishReasonCode\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var res25 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req25);
+            var body25 = await res25.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ25: {body25}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res25.StatusCode);
+            var doc25 = JsonDocument.Parse(body25);
+            Assert.True(doc25.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc25.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 26: POST Detail với NetworkID = 1002 và REASON05 -> 200 OK, tìm thấy
+            var req26 = new StringContent("{\"NetworkID\":\"1002\",\"ContractFinishReasonCode\":\"REASON05\"}", Encoding.UTF8, "application/json");
+            var res26 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req26);
+            var body26 = await res26.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ26: {body26}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res26.StatusCode);
+            var doc26 = JsonDocument.Parse(body26);
+            Assert.True(doc26.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("REASON05", doc26.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+
+            // Request 27: POST Detail với NetworkID = 1001 và REASON05 -> 200 OK, không khớp NetworkID -> Data null
+            var req27 = new StringContent("{\"NetworkID\":\"1001\",\"ContractFinishReasonCode\":\"REASON05\"}", Encoding.UTF8, "application/json");
+            var res27 = await http.PostAsync("/api/mst_finishedcontractreason/detail", req27);
+            var body27 = await res27.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ27: {body27}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res27.StatusCode);
+            var doc27 = JsonDocument.Parse(body27);
+            Assert.True(doc27.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc27.RootElement.GetProperty("Data").ValueKind);
         }
         finally
         {
