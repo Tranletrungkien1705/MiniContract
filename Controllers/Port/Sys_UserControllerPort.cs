@@ -14,6 +14,8 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:200-367 (Create POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:373-464 (LoadMstCustomer)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:468-473 (StopService)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:477-632 (Update GET View)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:2060-2087 (strWhereClause_Mst_Customer)
@@ -633,6 +635,262 @@ public class Sys_UserControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Port 1:1 action Update từ gate Sys_UserController.cs:477-632.
+    /// Chuỗi gọi:
+    /// 1. SysAccessCheckDeny(UserState, "MENU_QL_NGUOI_DUNG_SUA") (gate dòng 479-483).
+    /// 2. Lấy UserState: waUserCode, waMST, isSysadmin = FlagSysAdmin, isParent = (NetworkID == OrgID) (gate dòng 484-498).
+    /// 3. Nếu usercode không rỗng:
+    ///    - Dựng strWhereClause = strWhereClause_SysUser(usercode) -> Sys_User.UserCode = usercode (gate dòng 502-503, 1936-1947).
+    ///    - Đóng gói RQ_Sys_User và gọi Sys_UserService.Instance.WA_Sys_User_Get (gate dòng 505-528)
+    ///      -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///      -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///      -> BIZ Sys_User_Get_New20191104 (System.cs:6635-7009).
+    ///    - Tầng BIZ:
+    ///      + Kiểm tra quyền xem người dùng Sys_User_GetAbilityViewOfUser(strWAUserCode) (System.Mix.cs:30-79).
+    ///        Nếu strWAUserCode không tồn tại -> ném lỗi Sys_User_BizInvalidUserAbility (System.Mix.cs:74).
+    ///      + Xác định phạm vi đơn vị ViewAbility (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823, System.Mix.cs:1990-2067).
+    ///      + Lọc Sys_User theo UserCode và MST trong phạm vi ViewAbility (System.cs:6755-6848).
+    ///      + Che mật khẩu bằng Default_PasswordMask ("*********") (System.cs:6816).
+    ///      + Nối phòng ban mdept_DepartmentCode, mdept_DepartmentName và OrgID từ Mst_NNT (System.cs:6837-6846).
+    /// 4. Nếu tìm thấy người dùng (Lst_Sys_User.Count > 0) (gate dòng 530-629):
+    ///    - Danh sách NNT (ViewBag.ListMst_NNTCur):
+    ///      + Nếu isSysadmin == "0": lọc theo strWhereClause_Mst_NNT (MST = waMST, FlagActive = "1", OrgID = waOrgId) (gate dòng 541-544, 1984-2020).
+    ///      + Nếu isSysadmin == "1": strWhereClauseMst_NNTCur = null (lấy toàn bộ NNT active) (gate dòng 545-548).
+    ///      + Gọi List_Mst_NNT -> API WA_Mst_NNT_Get -> BIZ WAS_Mst_NNT_Get (Master.cs:12121-12218).
+    ///    - Danh sách phòng ban (ViewBag.ListMst_Department):
+    ///      + Lọc FlagActive = "1" (gate dòng 558-562).
+    ///      + Gọi List_Mst_DepartmentExt_Async (BaseController.cs:5532-5565), dựng cây Mst_DepartmentExtension.ToGroupBaseTree và làm phẳng có thụt lề HLevel qua Mst_DepartmentExtension.ToFlatGroupBaseTree.
+    ///    - Danh sách khách hàng đại lý (ViewBag.ListMst_Customer):
+    ///      + Lọc theo strWhereClause_Mst_Customer với FlagDealer = "1", OrgID = waOrgId, FlagActive = "1" (gate dòng 589-596, 2060-2087).
+    ///      + Gọi WA_Mst_Customer_Get -> BIZ WAS_Mst_Customer_Get (Customer.cs:1464-1612).
+    ///    - Trả về View(objRT_Sys_UserCur.Lst_Sys_User[0]) kèm ViewBag.
+    ///      Ở API Port trả về Success = true, Data = Sys_User_UpdateData.
+    /// 5. Nếu không tìm thấy người dùng hoặc usercode rỗng:
+    ///    - Trả về View(new Sys_User()) (gate dòng 631).
+    ///      Ở API Port trả về Success = true, Data = null.
+    /// 6. Bắt ngoại lệ catch (Exception ex) -> PortResult.Fail("Sys_User_Get", "Exception", ex.Message).
+    /// </summary>
+    [HttpGet("update")]
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào usercode (Gate: Sys_UserController.cs:477, 500)
+            var userCode = StdParam(req?.UserCode);
+            if (string.IsNullOrEmpty(userCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+            {
+                userCode = StdParam(qUserCode.ToString());
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(userCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_User_UpdateReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    userCode = StdParam(modelObj?.UserCode);
+                }
+                catch
+                {
+                    userCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu usercode rỗng hoặc null, gate trả về View(new Sys_User()) (Sys_UserController.cs:500, 631)
+            if (string.IsNullOrEmpty(userCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Sys_User_UpdateData?)null
+                });
+            }
+
+            // 3. Chuẩn hoá thông tin ngữ cảnh người dùng gọi (Gate: Sys_UserController.cs:484-498)
+            var waUserCode = StdParam(req?.WAUserCode)
+                ?? StdParam(req?.UserCodeCaller)
+                ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault());
+
+            Sys_User? callerUser = null;
+            IQueryable<string>? visibleMstsQuery = null;
+            if (!string.IsNullOrEmpty(waUserCode))
+            {
+                callerUser = await _db.Set<Sys_User>().AsNoTracking()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(waUserCode), PortQuery.Esc));
+
+                if (callerUser == null)
+                {
+                    // Guard: Mã lỗi TError.ErridQContract.Sys_User_BizInvalidUserAbility (System.Mix.cs:74)
+                    return PortResult.Fail("Sys_User_BizInvalidUserAbility");
+                }
+
+                // Xác định phạm vi ViewAbility (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823, System.Mix.cs:1990-2067)
+                var callerMSTFromUser = StdParam(callerUser.MST);
+                var callerNnt = !string.IsNullOrEmpty(callerMSTFromUser)
+                    ? await _db.Set<Mst_NNT>().AsNoTracking()
+                        .FirstOrDefaultAsync(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(callerMSTFromUser), PortQuery.Esc))
+                    : null;
+
+                if (callerNnt != null && string.Equals(callerNnt.DealerType?.Trim(), "NPP", StringComparison.OrdinalIgnoreCase))
+                {
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.DealerType ?? "").ToLower(), PortQuery.Equal("NPP"), PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+                else if (callerNnt != null && !string.IsNullOrEmpty(callerNnt.MSTBUPattern))
+                {
+                    var pattern = PortQuery.Contains(callerNnt.MSTBUPattern);
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.MSTBUPattern ?? "").ToLower(), pattern, PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+                else if (!string.IsNullOrEmpty(callerMSTFromUser))
+                {
+                    visibleMstsQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                        .Where(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(callerMSTFromUser), PortQuery.Esc))
+                        .Select(n => n.MST);
+                }
+            }
+
+            var waMST = StdParam(req?.MST) ?? StdParam(callerUser?.MST) ?? "0100000001";
+            var waOrgId = StdParam(req?.OrgID) ?? StdParam(callerUser?.OrgID) ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(callerUser?.NetworkID) ?? _config?["Biz_NetworkID"] ?? "1001";
+
+            // Xác định isSysadmin (Gate: Sys_UserController.cs:490, 492)
+            var isSysadmin = !string.IsNullOrEmpty(req?.IsSysAdmin)
+                ? StdFlag(req.IsSysAdmin)
+                : (!string.IsNullOrEmpty(req?.FlagSysAdmin)
+                    ? StdFlag(req.FlagSysAdmin)
+                    : (callerUser?.FlagSysAdmin == "1" ? "1" : "0"));
+
+            // Xác định isParent = NetworkID == OrgID (Gate: Sys_UserController.cs:494-498)
+            var isParent = string.Equals(networkId, waOrgId, StringComparison.OrdinalIgnoreCase);
+
+            // 4. Truy vấn người dùng theo UserCode (Gate: Sys_UserController.cs:503-530, BIZ: System.cs:6755-6848)
+            var userQuery = _db.Set<Sys_User>().AsNoTracking();
+            if (visibleMstsQuery != null)
+            {
+                userQuery = userQuery.Where(u => visibleMstsQuery.Contains(u.MST ?? ""));
+            }
+
+            var user = await userQuery.FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+            // Nếu không tìm thấy, gate trả về View(new Sys_User()) (Gate: Sys_UserController.cs:530, 631)
+            if (user == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Sys_User_UpdateData?)null
+                });
+            }
+
+            // Che mật khẩu bằng hằng số Default_PasswordMask (System.cs:6816)
+            user.UserPassword = Default_PasswordMask;
+
+            // Nối thông tin phòng ban (System.cs:6837-6838)
+            var uDeptCode = StdParam(user.DepartmentCode);
+            if (!string.IsNullOrEmpty(uDeptCode))
+            {
+                var dept = await _db.Set<Mst_Department>().AsNoTracking()
+                    .FirstOrDefaultAsync(d => EF.Functions.Like((d.DepartmentCode ?? "").ToLower(), PortQuery.Equal(uDeptCode), PortQuery.Esc));
+                if (dept != null)
+                {
+                    user.mdept_DepartmentCode = dept.DepartmentCode;
+                    user.mdept_DepartmentName = dept.DepartmentName;
+                }
+            }
+
+            // Nối OrgID từ Mst_NNT (System.cs:6839)
+            var uMST = StdParam(user.MST);
+            if (!string.IsNullOrEmpty(uMST))
+            {
+                var nnt = await _db.Set<Mst_NNT>().AsNoTracking()
+                    .FirstOrDefaultAsync(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(uMST), PortQuery.Esc));
+                if (nnt != null)
+                {
+                    user.OrgID = nnt.OrgID ?? user.OrgID;
+                }
+            }
+
+            // 5. Truy vấn danh sách Mst_NNT (Gate: Sys_UserController.cs:533-550, BIZ: Master.cs:12121-12218)
+            var nntQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                .Where(n => n.FlagActive == "1");
+
+            if (isSysadmin == "0")
+            {
+                // Khi không phải SysAdmin: lọc theo MST và OrgID của người dùng hiện tại (Sys_UserController.cs:1984-2020)
+                if (!string.IsNullOrEmpty(waMST))
+                {
+                    nntQuery = nntQuery.Where(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(waMST), PortQuery.Esc));
+                }
+                if (!string.IsNullOrEmpty(waOrgId))
+                {
+                    nntQuery = nntQuery.Where(n => EF.Functions.Like((n.OrgID ?? "").ToLower(), PortQuery.Equal(waOrgId), PortQuery.Esc));
+                }
+            }
+
+            var listMst_NNTCur = await nntQuery.OrderBy(n => n.MST).ToListAsync();
+
+            // 6. Truy vấn danh sách Mst_Department với FlagActive = '1' (Gate: Sys_UserController.cs:553-587, BIZ: Master.cs:35737-35835)
+            var deptListRaw = await _db.Set<Mst_Department>().AsNoTracking()
+                .Where(d => d.FlagActive == "1")
+                .OrderBy(d => d.DepartmentCode)
+                .ToListAsync();
+
+            var listMst_DepartmentExt = new List<Mst_DepartmentExt>();
+            foreach (var item in deptListRaw)
+            {
+                listMst_DepartmentExt.Add(new Mst_DepartmentExt
+                {
+                    DepartmentCode = item.DepartmentCode,
+                    NetworkID = item.NetworkID,
+                    DepartmentCodeParent = item.DepartmentCodeParent,
+                    DepartmentBUCode = item.DepartmentBUCode,
+                    DepartmentBUPattern = item.DepartmentBUPattern,
+                    DepartmentLevel = item.DepartmentLevel,
+                    MST = item.MST,
+                    DepartmentName = item.DepartmentName,
+                    FlagActive = item.FlagActive,
+                    LogLUDTimeUTC = item.LogLUDTimeUTC,
+                    LogLUBy = item.LogLUBy
+                });
+            }
+
+            var tree = Mst_DepartmentExtension.ToGroupBaseTree(listMst_DepartmentExt);
+            var flatTree = Mst_DepartmentExtension.ToFlatGroupBaseTree(tree);
+
+            // 7. Truy vấn danh sách Mst_Customer với FlagDealer = '1', OrgID = waOrgId, FlagActive = '1'
+            // (Gate: Sys_UserController.cs:589-624, BIZ: Customer.cs:1464-1612)
+            var custQuery = _db.Set<Mst_Customer>().AsNoTracking()
+                .Where(c => c.FlagActive == "1" && c.FlagDealer == "1");
+
+            if (!string.IsNullOrEmpty(waOrgId))
+            {
+                custQuery = custQuery.Where(c => EF.Functions.Like((c.OrgID ?? "").ToLower(), PortQuery.Equal(waOrgId), PortQuery.Esc));
+            }
+
+            var listMst_Customer = await custQuery.OrderBy(c => c.CustomerCodeSys).ToListAsync();
+
+            // 8. Đóng gói kết quả khớp gate MVC: Model là Sys_User, ViewBag chứa ListMst_NNTCur, ListMst_Department, ListMst_Customer, IsParent
+            // (Gate: Sys_UserController.cs:550, 623, 626, 628)
+            var inosBaseUrl = _config?["InosBaseUrl"];
+            var updateData = new Sys_User_UpdateData(user, isParent, listMst_NNTCur, flatTree, listMst_Customer, inosBaseUrl);
+
+            return Ok(new
+            {
+                Success = true,
+                Data = updateData
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -747,4 +1005,80 @@ public class Sys_User_LoadMstCustomerReq
 public class Sys_User_StopServiceReq
 {
 }
+
+/// <summary>
+/// Model nhận tham số cho action Update của Sys_UserController.
+/// Gate: Sys_UserController.cs:477 Update(string usercode)
+/// </summary>
+public class Sys_User_UpdateReq
+{
+    public string? UserCode { get; set; }
+    public string? Model { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? UserCodeCaller { get; set; }
+    public string? MST { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? IsSysAdmin { get; set; }
+    public string? FlagSysAdmin { get; set; }
+}
+
+/// <summary>
+/// Model kết quả trả về cho màn hình cập nhật người dùng.
+/// Khớp với Model Sys_User và ViewBag (ListMst_NNTCur, ListMst_Department, ListMst_Customer, IsParent, InosBaseUrl).
+/// Gate: Sys_UserController.cs:498, 550, 623, 626, 628.
+/// </summary>
+public class Sys_User_UpdateData : Sys_User
+{
+    public bool IsParent { get; set; }
+    public string? InosBaseUrl { get; set; }
+    public List<Mst_NNT> ListMst_NNTCur { get; set; } = new();
+    public List<Mst_DepartmentExt> ListMst_Department { get; set; } = new();
+    public List<Mst_Customer> ListMst_Customer { get; set; } = new();
+    public Sys_User? Sys_User { get; set; }
+
+    public Sys_User_UpdateData() { }
+
+    public Sys_User_UpdateData(Sys_User src, bool isParent, List<Mst_NNT> nnts, List<Mst_DepartmentExt> depts, List<Mst_Customer> custs, string? inosBaseUrl = null)
+    {
+        UserCode = src.UserCode;
+        NetworkID = src.NetworkID;
+        OrgID = src.OrgID;
+        UserName = src.UserName;
+        UserPassword = src.UserPassword;
+        PhoneNo = src.PhoneNo;
+        EMail = src.EMail;
+        MST = src.MST;
+        DepartmentCode = src.DepartmentCode;
+        Position = src.Position;
+        FlagActive = src.FlagActive;
+        FlagSysAdmin = src.FlagSysAdmin;
+        FlagNNTAdmin = src.FlagNNTAdmin;
+        FlagDLAdmin = src.FlagDLAdmin;
+        FlagViewOrgCreate = src.FlagViewOrgCreate;
+        FlagViewOtherOrgCreate = src.FlagViewOtherOrgCreate;
+        FlagBG = src.FlagBG;
+        InosAccessToken = src.InosAccessToken;
+        AuthorizeDTimeStart = src.AuthorizeDTimeStart;
+        ACId = src.ACId;
+        ACAvatar = src.ACAvatar;
+        ACEmail = src.ACEmail;
+        ACLanguage = src.ACLanguage;
+        ACName = src.ACName;
+        ACPhone = src.ACPhone;
+        ACTimeZone = src.ACTimeZone;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+        mdept_DepartmentCode = src.mdept_DepartmentCode;
+        mdept_DepartmentName = src.mdept_DepartmentName;
+
+        IsParent = isParent;
+        ListMst_NNTCur = nnts;
+        ListMst_Department = depts;
+        ListMst_Customer = custs;
+        InosBaseUrl = inosBaseUrl;
+        Sys_User = src;
+    }
+}
+
 
