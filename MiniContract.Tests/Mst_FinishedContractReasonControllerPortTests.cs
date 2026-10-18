@@ -633,6 +633,120 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_EmptyOrNullBody_ReturnsBadRequestWithStrJsonError()
+    {
+        var resultNull = await _controller.Delete(null);
+        var badNull = Assert.IsType<BadRequestObjectResult>(resultNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(badNull.Value));
+        Assert.False(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Delete", docNull.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(docNull.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+
+        var resultEmpty = await _controller.Delete(new Mst_FinishedContractReason_DeleteReq());
+        var badEmpty = Assert.IsType<BadRequestObjectResult>(resultEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(badEmpty.Value));
+        Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Delete", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentReasonCode_ReturnsOrganNotFoundError()
+    {
+        var req = new Mst_FinishedContractReason_DeleteReq
+        {
+            ContractFinishReasonCode = "NON_EXISTENT"
+        };
+        var result = await _controller.Delete(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+        var p = doc.RootElement.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("NON_EXISTENT", p.GetProperty("Check.ContractFinishReasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_WithNetworkIDFilter_NonMatchingNetworkID_ReturnsOrganNotFoundError()
+    {
+        var req = new Mst_FinishedContractReason_DeleteReq
+        {
+            NetworkID = "1002",
+            ContractFinishReasonCode = "REASON01" // REASON01 thuộc NetworkID 1001
+        };
+        var result = await _controller.Delete(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+        var p = doc.RootElement.GetProperty("Params");
+        Assert.Equal("1002", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("REASON01", p.GetProperty("Check.ContractFinishReasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_ValidItem_DeletesAndReturnsSuccess()
+    {
+        // Kiểm tra tồn tại trước khi xóa
+        var existing = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON04");
+        Assert.NotNull(existing);
+
+        var req = new Mst_FinishedContractReason_DeleteReq
+        {
+            ContractFinishReasonCode = "REASON04"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xoá nguyên nhân chấm dứt thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        // Round-trip: Kiểm tra đã xóa khỏi DB
+        var afterDelete = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON04");
+        Assert.Null(afterDelete);
+    }
+
+    [Fact]
+    public async Task Delete_WithReasonCodeAlias_DeletesSuccessfully()
+    {
+        var req = new Mst_FinishedContractReason_DeleteReq
+        {
+            ReasonCode = "REASON03"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterDelete = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON03");
+        Assert.Null(afterDelete);
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelProperty_DeletesSuccessfully()
+    {
+        var req = new Mst_FinishedContractReason_DeleteReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_FinishedContractReason_DeleteReq
+            {
+                NetworkID = "1002",
+                ContractFinishReasonCode = "REASON05"
+            })
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterDelete = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1002" && x.ContractFinishReasonCode == "REASON05");
+        Assert.Null(afterDelete);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8585()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -974,6 +1088,56 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             var doc27 = JsonDocument.Parse(body27);
             Assert.True(doc27.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(JsonValueKind.Null, doc27.RootElement.GetProperty("Data").ValueKind);
+
+            // ================== Kiểm thử endpoint Delete ==================
+            // Request 28: POST Delete empty body -> 400 Bad Request, Mst_FinishedContractReason_Delete
+            var req28 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res28 = await http.PostAsync("/api/mst_finishedcontractreason/delete", req28);
+            var body28 = await res28.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ28: {body28}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res28.StatusCode);
+            var doc28 = JsonDocument.Parse(body28);
+            Assert.False(doc28.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Delete", doc28.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 29: POST Delete non-existent code -> 400 Bad Request, Mst_FinishedContractReason_CheckDB_OrganNotFound
+            var req29 = new StringContent("{\"ContractFinishReasonCode\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var res29 = await http.PostAsync("/api/mst_finishedcontractreason/delete", req29);
+            var body29 = await res29.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ29: {body29}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res29.StatusCode);
+            var doc29 = JsonDocument.Parse(body29);
+            Assert.False(doc29.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc29.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 30: POST Delete valid item (REASON_LIVE vừa tạo ở REQ9) -> 200 OK
+            var req30 = new StringContent("{\"ContractFinishReasonCode\":\"REASON_LIVE\"}", Encoding.UTF8, "application/json");
+            var res30 = await http.PostAsync("/api/mst_finishedcontractreason/delete", req30);
+            var body30 = await res30.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ30: {body30}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res30.StatusCode);
+            var doc30 = JsonDocument.Parse(body30);
+            Assert.True(doc30.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xoá nguyên nhân chấm dứt thành công!", doc30.RootElement.GetProperty("Title").GetString());
+
+            // Request 31: Query lại REASON_LIVE qua index -> 0 bản ghi (round-trip xóa thành công)
+            var req31 = new StringContent("{\"ContractFinishReasonCode\":\"REASON_LIVE\"}", Encoding.UTF8, "application/json");
+            var res31 = await http.PostAsync("/api/mst_finishedcontractreason/index", req31);
+            var body31 = await res31.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ31: {body31}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res31.StatusCode);
+            var doc31 = JsonDocument.Parse(body31);
+            Assert.Equal(0, doc31.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // Request 32: POST Delete lại REASON_LIVE -> 400 Bad Request, OrganNotFound
+            var req32 = new StringContent("{\"ContractFinishReasonCode\":\"REASON_LIVE\"}", Encoding.UTF8, "application/json");
+            var res32 = await http.PostAsync("/api/mst_finishedcontractreason/delete", req32);
+            var body32 = await res32.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ32: {body32}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res32.StatusCode);
+            var doc32 = JsonDocument.Parse(body32);
+            Assert.False(doc32.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc32.RootElement.GetProperty("ErrorCode").GetString());
         }
         finally
         {

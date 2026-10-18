@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (Edit/Update)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (Edit/Update), 230-298 (Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46304-46382 (WAS Delete), 46383-46528 (Biz Delete), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX), 46890-46947 (DeleteX)
 [ApiController]
 [Route("api/mst_finishedcontractreason")]
 public class Mst_FinishedContractReasonControllerPort : ControllerBase
@@ -458,6 +458,99 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa nguyên nhân chấm dứt hợp đồng.
+    /// Gate: Mst_FinishedContractReasonController.cs:298-346 Delete(string reasonCode)
+    /// API:  MstFinishedContractReasonController.cs:230-298 WA_Mst_FinishedContractReason_Delete
+    /// BIZ:  Master.cs:46304-46382 WAS_Mst_FinishedContractReason_Delete -> Mst_FinishedContractReason_Delete:46383-46528 -> Mst_FinishedContractReason_DeleteX:46890-46947
+    ///       Master.cs:45487-45558 Mst_FinishedContractReason_CheckDB
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_FinishedContractReason_DeleteReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc null (lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Delete", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_FinishedContractReasonController.cs:298)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_FinishedContractReason_DeleteReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.ContractFinishReasonCode ??= modelObj.ContractFinishReasonCode ?? modelObj.ReasonCode;
+                    req.ReasonCode ??= modelObj.ReasonCode;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.ContractFinishReasonCode) &&
+            string.IsNullOrWhiteSpace(req.ReasonCode) &&
+            string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Delete", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào theo Master.cs:46917-46918
+        var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001");
+        networkId ??= "1001";
+        var reasonCode = StdParam(req.ContractFinishReasonCode ?? req.ReasonCode);
+        if (string.IsNullOrEmpty(reasonCode))
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganNotFound",
+                "Check.NetworkID", networkId,
+                "Check.ContractFinishReasonCode", req.ContractFinishReasonCode ?? req.ReasonCode);
+        }
+
+        // 3. Mở transaction và kiểm tra tồn tại bản ghi trong DB (Master.cs:46417, 46923-46930, 45516-45527)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Set<Mst_FinishedContractReason>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganNotFound",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractFinishReasonCode", reasonCode);
+            }
+
+            // 4. Xóa bản ghi khỏi DB (Master.cs:46938, 46941-46944)
+            _db.Set<Mst_FinishedContractReason>().Remove(existing);
+            await _db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+
+            // 5. Trả kết quả thành công khớp gate MVC (Mst_FinishedContractReasonController.cs:335-338)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Xoá nguyên nhân chấm dứt thành công!" },
+                Title = "Xoá nguyên nhân chấm dứt thành công!",
+                RedirectUrl = "/Mst_FinishedContractReason",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_FinishedContractReason_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -554,4 +647,16 @@ public class Mst_FinishedContractReason_EditReq
     public string? FinishDescription { get; set; }
     public string? FlagActive { get; set; }
     public string? Ft_Cols_Upd { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Delete.
+/// Gate: Mst_FinishedContractReasonController.cs:298 Delete(string reasonCode)
+/// </summary>
+public class Mst_FinishedContractReason_DeleteReq
+{
+    public string? ReasonCode { get; set; }
+    public string? ContractFinishReasonCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? Model { get; set; }
 }
