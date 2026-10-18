@@ -218,6 +218,105 @@ public class Sys_AccessControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task GetDetailData_NullReq_ReturnsAllAccess()
+    {
+        var result = await _controller.GetDetailData(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(4, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetDetailData_EmptyReq_ReturnsAllAccess()
+    {
+        var req = new Sys_Access_GetDetailDataReq();
+        var result = await _controller.GetDetailData(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(4, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetDetailData_FilterByObjectCode_ReturnsMatchingAccess()
+    {
+        var req = new Sys_Access_GetDetailDataReq { ObjectCode = "MNU_CONTRACT" };
+        var result = await _controller.GetDetailData(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(2, data.GetArrayLength());
+        Assert.Equal("ADMIN", data[0].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CONTRACT", data[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản lý hợp đồng", data[0].GetProperty("so_ObjectName").GetString());
+        Assert.Equal("SALE_MGR", data[1].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CONTRACT", data[1].GetProperty("ObjectCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetDetailData_FilterByPascalCaseObjectCode_ReturnsMatchingAccess()
+    {
+        var req = new Sys_Access_GetDetailDataReq { ObjectCode = "MNU_CUSTOMER" };
+        var result = await _controller.GetDetailData(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(1, data.GetArrayLength());
+        Assert.Equal("ADMIN", data[0].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CUSTOMER", data[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản lý khách hàng", data[0].GetProperty("so_ObjectName").GetString());
+    }
+
+    [Fact]
+    public async Task GetDetailData_FilterByNonExistentObjectCode_ReturnsEmptyList()
+    {
+        var req = new Sys_Access_GetDetailDataReq { ObjectCode = "NON_EXISTENT" };
+        var result = await _controller.GetDetailData(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(0, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetDetailData_FilterByObjectCodeAndGroupCode_ReturnsFilteredAccess()
+    {
+        var req = new Sys_Access_GetDetailDataReq { ObjectCode = "MNU_CONTRACT", GroupCode = "SALE_MGR" };
+        var result = await _controller.GetDetailData(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(1, data.GetArrayLength());
+        Assert.Equal("SALE_MGR", data[0].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CONTRACT", data[0].GetProperty("ObjectCode").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_access_{Guid.NewGuid():N}.db");
@@ -313,6 +412,54 @@ public class Sys_AccessControllerPortTests : IDisposable
             Assert.Equal(1, data4.GetProperty("ListSysAccess").GetArrayLength());
             Assert.Equal("ADMIN", data4.GetProperty("ListSysAccess")[0].GetProperty("GroupCode").GetString());
             Assert.Equal("Quản lý khách hàng", data4.GetProperty("ListSysAccess")[0].GetProperty("so_ObjectName").GetString());
+
+            // 5. GetDetailData - Ca body rỗng: POST {} -> 200 OK, Data có 4 bản ghi Sys_Access
+            var reqDtl1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDtl1 = await http.PostAsync("/api/sys_access/getdetaildata", reqDtl1);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDtl1.StatusCode);
+            var bodyDtl1 = await resDtl1.Content.ReadAsStringAsync();
+            var docDtl1 = JsonDocument.Parse(bodyDtl1);
+            Assert.True(docDtl1.RootElement.GetProperty("Success").GetBoolean());
+            var dataDtl1 = docDtl1.RootElement.GetProperty("Data");
+            Assert.Equal(4, dataDtl1.GetArrayLength());
+
+            // 6. GetDetailData - Ca lọc objectcode="MNU_CONTRACT" -> 200 OK, Data có 2 bản ghi (khác số dòng ca 5)
+            var reqDtl2 = new StringContent("{\"objectcode\":\"MNU_CONTRACT\"}", Encoding.UTF8, "application/json");
+            var resDtl2 = await http.PostAsync("/api/sys_access/getdetaildata", reqDtl2);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDtl2.StatusCode);
+            var bodyDtl2 = await resDtl2.Content.ReadAsStringAsync();
+            var docDtl2 = JsonDocument.Parse(bodyDtl2);
+            Assert.True(docDtl2.RootElement.GetProperty("Success").GetBoolean());
+            var dataDtl2 = docDtl2.RootElement.GetProperty("Data");
+            Assert.Equal(2, dataDtl2.GetArrayLength());
+            Assert.Equal("ADMIN", dataDtl2[0].GetProperty("GroupCode").GetString());
+            Assert.Equal("MNU_CONTRACT", dataDtl2[0].GetProperty("ObjectCode").GetString());
+            Assert.Equal("Quản lý hợp đồng", dataDtl2[0].GetProperty("so_ObjectName").GetString());
+            Assert.Equal("SALE_MGR", dataDtl2[1].GetProperty("GroupCode").GetString());
+            Assert.Equal("MNU_CONTRACT", dataDtl2[1].GetProperty("ObjectCode").GetString());
+
+            // 7. GetDetailData - Ca lọc objectcode="MNU_CUSTOMER" -> 200 OK, Data có 1 bản ghi
+            var reqDtl3 = new StringContent("{\"objectcode\":\"MNU_CUSTOMER\"}", Encoding.UTF8, "application/json");
+            var resDtl3 = await http.PostAsync("/api/sys_access/getdetaildata", reqDtl3);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDtl3.StatusCode);
+            var bodyDtl3 = await resDtl3.Content.ReadAsStringAsync();
+            var docDtl3 = JsonDocument.Parse(bodyDtl3);
+            Assert.True(docDtl3.RootElement.GetProperty("Success").GetBoolean());
+            var dataDtl3 = docDtl3.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataDtl3.GetArrayLength());
+            Assert.Equal("ADMIN", dataDtl3[0].GetProperty("GroupCode").GetString());
+            Assert.Equal("MNU_CUSTOMER", dataDtl3[0].GetProperty("ObjectCode").GetString());
+            Assert.Equal("Quản lý khách hàng", dataDtl3[0].GetProperty("so_ObjectName").GetString());
+
+            // 8. GetDetailData - Ca lọc objectcode="NON_EXISTENT" -> 200 OK, Data có 0 bản ghi ([])
+            var reqDtl4 = new StringContent("{\"objectcode\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var resDtl4 = await http.PostAsync("/api/sys_access/getdetaildata", reqDtl4);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDtl4.StatusCode);
+            var bodyDtl4 = await resDtl4.Content.ReadAsStringAsync();
+            var docDtl4 = JsonDocument.Parse(bodyDtl4);
+            Assert.True(docDtl4.RootElement.GetProperty("Success").GetBoolean());
+            var dataDtl4 = docDtl4.RootElement.GetProperty("Data");
+            Assert.Equal(0, dataDtl4.GetArrayLength());
         }
         finally
         {
