@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete), 351-499 (Import)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (Edit/Update), 230-298 (Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46304-46382 (WAS Delete), 46383-46528 (Biz Delete), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX), 46890-46947 (DeleteX)
 [ApiController]
@@ -165,52 +166,12 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         }
 
         var reasonName = req.ContractFinishReasonName?.Trim() ?? ""; // Master.cs:46720 string.Format("{0}", objContractFinishReasonName)
-        var finishType = "FINISHED"; // Master.cs:46721 TConst.ContractFinishType.FINISHED
         var finishDesc = req.FinishDescription?.Trim() ?? ""; // Master.cs:46722 string.Format("{0}", objFinishDescription)
-        var dtimeSys = DateTime.UtcNow; // Master.cs:45825, 45916, 46769
         var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(userCode)) userCode = "port"; // Master.cs:46770
 
-        var entity = new Mst_FinishedContractReason
-        {
-            NetworkID = networkId,
-            ContractFinishReasonCode = reasonCode,
-            ContractFinishReasonName = reasonName,
-            FinishType = finishType,
-            FinishDescription = finishDesc,
-            FlagActive = "1", // Master.cs:46768 TConst.Flag.Active
-            LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
-            LogLUBy = userCode
-        };
-
-        // 3. Mở transaction và kiểm tra trùng lặp khóa chính trong DB (Master.cs:45934, 46743-46750, 45528-45538)
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
-        {
-            var existing = await _db.Set<Mst_FinishedContractReason>()
-                .FirstOrDefaultAsync(x =>
-                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
-                    EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
-
-            if (existing != null)
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganExist",
-                    "Check.NetworkID", networkId,
-                    "Check.ContractFinishReasonCode", reasonCode);
-            }
-
-            // 4. Lưu bản ghi mới vào DB (Master.cs:46758-46779)
-            _db.Set<Mst_FinishedContractReason>().Add(entity);
-            await _db.SaveChangesAsync();
-
-            await tx.CommitAsync();
-        }
-        catch (Exception ex)
-        {
-            await tx.RollbackAsync();
-            return PortResult.Fail("Mst_FinishedContractReason_Create", "Exception", ex.Message);
-        }
+        var (err, entity) = await CreateCoreAsync(networkId, reasonCode, reasonName, finishDesc, userCode);
+        if (err != null) return err;
 
         // 5. Trả kết quả thành công khớp gate MVC (Mst_FinishedContractReasonController.cs:129-132)
         return Ok(new
@@ -548,6 +509,171 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         {
             await tx.RollbackAsync();
             return PortResult.Fail("Mst_FinishedContractReason_Delete", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Nhập dữ liệu nguyên nhân chấm dứt hợp đồng từ tệp Excel.
+    /// Gate: Mst_FinishedContractReasonController.cs:351-499 Import(HttpPostedFileWrapper file)
+    /// API:  MstFinishedContractReasonController.cs:20-88 WA_Mst_FinishedContractReason_Get, 89-140 WA_Mst_FinishedContractReason_Create
+    /// BIZ:  Master.cs:45559-45655 (WAS Get), 45656-45812 (Biz Get), 45814-46046 (WAS/Biz Create), 46529-46685 (GetX), 46686-46781 (CreateX)
+    /// </summary>
+    [HttpPost("import")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        // 1. Kiểm tra file upload (Gate lines 366-382)
+        if (file == null || file.Length == 0)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext != ".xlsx")
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 2. Đọc bảng tính bằng PortExcel.ReadSheet (Gate line 388 ExcelImportNew.Query(filePath, "A2"))
+        // Danh sách cột từ GetImportDicColums() (Gate:594-602):
+        // 1. ContractFinishReasonCode: Mã lý do(*)
+        // 2. ContractFinishReasonName: Nội dung(*)
+        // 3. FinishDescription: Mô tả
+        int columnCount;
+        List<Dictionary<string, string?>> rows;
+        try
+        {
+            using var stream = file.OpenReadStream();
+            (columnCount, rows) = PortExcel.ReadSheet(stream, new[] { "ContractFinishReasonCode", "ContractFinishReasonName", "FinishDescription" });
+        }
+        catch
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 3. Kiểm tra bảng rỗng (Gate lines 389, 485-490: table == null || table.Rows.Count == 0)
+        if (rows == null || rows.Count == 0)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "File Excel nhập không có dữ liệu!");
+        }
+
+        // 4. Kiểm tra số cột (Gate lines 392-397: table.Columns.Count != GetImportDicColums().Count)
+        if (columnCount != 3)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 5. Tải danh sách hiện tại từ DB để kiểm tra trùng (Gate lines 400-424)
+        var networkId = _config?["Biz_NetworkID"] ?? "1001";
+        var listCur = await _db.Set<Mst_FinishedContractReason>()
+            .AsNoTracking()
+            .Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc))
+            .ToListAsync();
+
+        // 6. Vòng lặp 1: Kiểm tra TẤT CẢ các dòng trước khi tạo (Gate lines 426-440)
+        foreach (var r in rows)
+        {
+            var code = r.GetValueOrDefault("ContractFinishReasonCode");
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "Mã lý do không được trống!");
+            }
+
+            var name = r.GetValueOrDefault("ContractFinishReasonName");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", "Nội dung không được trống!");
+            }
+        }
+
+        // 7. Vòng lặp 2: Lưu từng dòng tuần tự theo transaction độc lập (Gate lines 461-478, hành vi import một phần)
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+        foreach (var r in rows)
+        {
+            var code = r.GetValueOrDefault("ContractFinishReasonCode")?.Trim().ToUpperInvariant() ?? "";
+            var name = r.GetValueOrDefault("ContractFinishReasonName")?.Trim() ?? "";
+            var desc = r.GetValueOrDefault("FinishDescription")?.Trim() ?? "";
+
+            // Kiểm tra trùng mã trong danh sách hệ thống listCur (Gate lines 463-469)
+            if (listCur.Any(m => string.Equals((m.ContractFinishReasonCode ?? "").Trim(), code, StringComparison.OrdinalIgnoreCase)))
+            {
+                var exitsData = $"Mã lý do: '{code}' đã tồn tại trong hệ thống. Vui lòng kiểm tra lại!";
+                return PortResult.Fail("Mst_FinishedContractReason_Import", "Message", exitsData);
+            }
+
+            // Gọi CreateCoreAsync độc lập cho từng dòng (Gate lines 471-477)
+            var (err, entity) = await CreateCoreAsync(networkId, code, name, desc, userCode);
+            if (err != null)
+            {
+                // Lỗi ở dòng k -> dừng ngay và trả lỗi của dòng đó (các dòng trước k đã commit thành công)
+                return err;
+            }
+
+            // Cập nhật listCur trong bộ nhớ để các dòng tiếp theo trong cùng tệp nếu trùng cũng bị bắt
+            listCur.Add(new Mst_FinishedContractReason
+            {
+                NetworkID = networkId,
+                ContractFinishReasonCode = code,
+                ContractFinishReasonName = name
+            });
+        }
+
+        // 8. Trả kết quả thành công khớp gate MVC (Gate lines 480-482)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Đã nhập dữ liệu excel thành công" },
+            Title = "Đã nhập dữ liệu excel thành công"
+        });
+    }
+
+    /// <summary>
+    /// Hàm dùng chung thực hiện tạo mới 1 bản ghi Mst_FinishedContractReason trong 1 transaction riêng.
+    /// Dùng cho cả action Create đơn và vòng lặp Import (hành vi import một phần).
+    /// </summary>
+    private async Task<(IActionResult? Error, Mst_FinishedContractReason? Entity)> CreateCoreAsync(
+        string networkId, string reasonCode, string reasonName, string finishDesc, string userCode)
+    {
+        var dtimeSys = DateTime.UtcNow;
+        var entity = new Mst_FinishedContractReason
+        {
+            NetworkID = networkId,
+            ContractFinishReasonCode = reasonCode,
+            ContractFinishReasonName = reasonName,
+            FinishType = "FINISHED",
+            FinishDescription = finishDesc,
+            FlagActive = "1",
+            LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = userCode
+        };
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Set<Mst_FinishedContractReason>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
+
+            if (existing != null)
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganExist",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractFinishReasonCode", reasonCode), null);
+            }
+
+            _db.Set<Mst_FinishedContractReason>().Add(entity);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return (null, entity);
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return (PortResult.Fail("Mst_FinishedContractReason_Create", "Exception", ex.Message), null);
         }
     }
 

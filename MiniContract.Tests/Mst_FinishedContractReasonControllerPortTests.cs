@@ -2,6 +2,8 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -746,6 +748,217 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
         Assert.Null(afterDelete);
     }
 
+    private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sheet1");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return new FormFile(ms, 0, ms.Length, "file", fileName);
+    }
+
+    private static byte[] CreateExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sheet1");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task Import_NullFile_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var result = await _controller.Import(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File dữ liệu import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyFile_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var emptyStream = new MemoryStream();
+        var file = new FormFile(emptyStream, 0, 0, "file", "test.xlsx");
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File dữ liệu import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidFileExtension_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var ms = new MemoryStream(new byte[] { 1, 2, 3 });
+        var file = new FormFile(ms, 0, ms.Length, "file", "test.xls");
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File dữ liệu import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDataRows_ReturnsBadRequestWithEmptyDataMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>());
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File Excel nhập không có dữ liệu!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidColumnCount_ReturnsBadRequestWithInvalidFileMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)" }, new List<string?[]>
+        {
+            new[] { "REASON_X", "Tên X" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File dữ liệu import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_RowWithEmptyCode_ReturnsBadRequestWithEmptyCodeMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+        {
+            new[] { "", "Tên hợp lệ", "Mô tả" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã lý do không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_RowWithEmptyName_ReturnsBadRequestWithEmptyNameMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+        {
+            new[] { "REASON_NO_NAME", "  ", "Mô tả" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Nội dung không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateCodeWithExistingDbRecord_ReturnsBadRequestWithAlreadyExistsMessage()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+        {
+            new[] { "REASON01", "Trùng mã 01", "Mô tả" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã lý do: 'REASON01' đã tồn tại trong hệ thống. Vui lòng kiểm tra lại!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateCodeWithinSameFile_CommitsPreviousRowAndReturnsAlreadyExistsForSecondRow()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+        {
+            new[] { "REASON_DUP_INFILE", "Tên 1", "Mô tả 1" },
+            new[] { "REASON_DUP_INFILE", "Tên 2 trùng", "Mô tả 2" }
+        });
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã lý do: 'REASON_DUP_INFILE' đã tồn tại trong hệ thống. Vui lòng kiểm tra lại!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+        // Partial import verified: row 1 was committed into DB!
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_DUP_INFILE");
+        Assert.NotNull(saved);
+        Assert.Equal("Tên 1", saved.ContractFinishReasonName);
+    }
+
+    [Fact]
+    public async Task Import_ValidFile_ImportsAllRowsAndReturnsSuccess()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+        {
+            new[] { "REASON_IMP_1", "Lý do nhập khẩu 1", "Mô tả nhập 1" },
+            new[] { "REASON_IMP_2", "Lý do nhập khẩu 2", "Mô tả nhập 2" }
+        });
+        var result = await _controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công", doc.RootElement.GetProperty("Title").GetString());
+
+        var row1 = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_IMP_1");
+        Assert.NotNull(row1);
+        Assert.Equal("Lý do nhập khẩu 1", row1.ContractFinishReasonName);
+        Assert.Equal("FINISHED", row1.FinishType);
+        Assert.Equal("Mô tả nhập 1", row1.FinishDescription);
+        Assert.Equal("1", row1.FlagActive);
+
+        var row2 = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_IMP_2");
+        Assert.NotNull(row2);
+        Assert.Equal("Lý do nhập khẩu 2", row2.ContractFinishReasonName);
+        Assert.Equal("FINISHED", row2.FinishType);
+        Assert.Equal("Mô tả nhập 2", row2.FinishDescription);
+        Assert.Equal("1", row2.FlagActive);
+    }
+
     [Fact]
     public async Task RealServer_Verification_Port8585()
     {
@@ -1138,6 +1351,119 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             var doc32 = JsonDocument.Parse(body32);
             Assert.False(doc32.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc32.RootElement.GetProperty("ErrorCode").GetString());
+
+            // ================== Kiểm thử endpoint Import ==================
+            // Request 33: POST Import không truyền file part (file == null) -> 400 Bad Request
+            using (var emptyMultipart = new MultipartFormDataContent())
+            {
+                emptyMultipart.Add(new StringContent("no-file"), "dummyField");
+                var res33 = await http.PostAsync("/api/mst_finishedcontractreason/import", emptyMultipart);
+                var body33 = await res33.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ33: {body33}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res33.StatusCode);
+                var doc33 = JsonDocument.Parse(body33);
+                Assert.False(doc33.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc33.RootElement.GetProperty("ErrorCode").GetString());
+                Assert.Equal("File dữ liệu import không hợp lệ!", doc33.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Request 34: POST Import file sai định dạng (.txt) -> 400 Bad Request
+            using (var txtMultipart = new MultipartFormDataContent())
+            {
+                var txtBytes = Encoding.UTF8.GetBytes("Nội dung text không phải xlsx");
+                txtMultipart.Add(new ByteArrayContent(txtBytes), "file", "test.txt");
+                var res34 = await http.PostAsync("/api/mst_finishedcontractreason/import", txtMultipart);
+                var body34 = await res34.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ34: {body34}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res34.StatusCode);
+                var doc34 = JsonDocument.Parse(body34);
+                Assert.False(doc34.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc34.RootElement.GetProperty("ErrorCode").GetString());
+                Assert.Equal("File dữ liệu import không hợp lệ!", doc34.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Request 35: POST Import file rỗng (chỉ có tiêu đề) -> 400 Bad Request
+            using (var emptyDataMultipart = new MultipartFormDataContent())
+            {
+                var emptyDataBytes = CreateExcelBytes(new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>());
+                emptyDataMultipart.Add(new ByteArrayContent(emptyDataBytes), "file", "test_empty.xlsx");
+                var res35 = await http.PostAsync("/api/mst_finishedcontractreason/import", emptyDataMultipart);
+                var body35 = await res35.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ35: {body35}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res35.StatusCode);
+                var doc35 = JsonDocument.Parse(body35);
+                Assert.False(doc35.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc35.RootElement.GetProperty("ErrorCode").GetString());
+                Assert.Equal("File Excel nhập không có dữ liệu!", doc35.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Request 36: POST Import sai số cột (2 cột thay vì 3) -> 400 Bad Request
+            using (var badColMultipart = new MultipartFormDataContent())
+            {
+                var badColBytes = CreateExcelBytes(new[] { "Mã lý do(*)", "Nội dung(*)" }, new List<string?[]>
+                {
+                    new[] { "REASON_BAD_COL", "Tên" }
+                });
+                badColMultipart.Add(new ByteArrayContent(badColBytes), "file", "test_badcols.xlsx");
+                var res36 = await http.PostAsync("/api/mst_finishedcontractreason/import", badColMultipart);
+                var body36 = await res36.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ36: {body36}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res36.StatusCode);
+                var doc36 = JsonDocument.Parse(body36);
+                Assert.False(doc36.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc36.RootElement.GetProperty("ErrorCode").GetString());
+                Assert.Equal("File dữ liệu import không hợp lệ!", doc36.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Request 37: POST Import trùng mã đã có trong DB (REASON01) -> 400 Bad Request
+            using (var dupMultipart = new MultipartFormDataContent())
+            {
+                var dupBytes = CreateExcelBytes(new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+                {
+                    new[] { "REASON01", "Trùng mã 01", "Mô tả" }
+                });
+                dupMultipart.Add(new ByteArrayContent(dupBytes), "file", "test_dup.xlsx");
+                var res37 = await http.PostAsync("/api/mst_finishedcontractreason/import", dupMultipart);
+                var body37 = await res37.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ37: {body37}");
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res37.StatusCode);
+                var doc37 = JsonDocument.Parse(body37);
+                Assert.False(doc37.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Import", doc37.RootElement.GetProperty("ErrorCode").GetString());
+                Assert.Equal("Mã lý do: 'REASON01' đã tồn tại trong hệ thống. Vui lòng kiểm tra lại!", doc37.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Request 38: POST Import file hợp lệ (2 bản ghi mới) -> 200 OK
+            using (var validMultipart = new MultipartFormDataContent())
+            {
+                var validBytes = CreateExcelBytes(new[] { "Mã lý do(*)", "Nội dung(*)", "Mô tả" }, new List<string?[]>
+                {
+                    new[] { "REASON_IMP_LIVE1", "Lý do nhập live 1", "Mô tả live 1" },
+                    new[] { "REASON_IMP_LIVE2", "Lý do nhập live 2", "Mô tả live 2" }
+                });
+                validMultipart.Add(new ByteArrayContent(validBytes), "file", "test_valid.xlsx");
+                var res38 = await http.PostAsync("/api/mst_finishedcontractreason/import", validMultipart);
+                var body38 = await res38.Content.ReadAsStringAsync();
+                _output?.WriteLine($"REQ38: {body38}");
+                Assert.Equal(System.Net.HttpStatusCode.OK, res38.StatusCode);
+                var doc38 = JsonDocument.Parse(body38);
+                Assert.True(doc38.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Đã nhập dữ liệu excel thành công", doc38.RootElement.GetProperty("Title").GetString());
+            }
+
+            // Request 39: Query lại REASON_IMP_LIVE1 qua index -> tìm thấy (round-trip import lưu thành công)
+            var req39 = new StringContent("{\"ContractFinishReasonCode\":\"REASON_IMP_LIVE1\"}", Encoding.UTF8, "application/json");
+            var res39 = await http.PostAsync("/api/mst_finishedcontractreason/index", req39);
+            var body39 = await res39.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ39: {body39}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res39.StatusCode);
+            var doc39 = JsonDocument.Parse(body39);
+            var data39 = doc39.RootElement.GetProperty("Data");
+            Assert.Equal(1, data39.GetProperty("ItemCount").GetInt32());
+            Assert.Equal("REASON_IMP_LIVE1", data39.GetProperty("DataList")[0].GetProperty("ContractFinishReasonCode").GetString());
+            Assert.Equal("Lý do nhập live 1", data39.GetProperty("DataList")[0].GetProperty("ContractFinishReasonName").GetString());
+            Assert.Equal("FINISHED", data39.GetProperty("DataList")[0].GetProperty("FinishType").GetString());
+            Assert.Equal("1", data39.GetProperty("DataList")[0].GetProperty("FlagActive").GetString());
         }
         finally
         {
