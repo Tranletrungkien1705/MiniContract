@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -78,6 +79,75 @@ namespace MiniContract.Controllers.Port
                 }
             });
         }
+
+        [HttpPost("delete")]
+        public async Task<IActionResult> Delete([FromBody] Contract_TempContract_DeleteReq? req)
+        {
+            if (req == null)
+            {
+                return Ok(new { Success = true, Messages = new[] { "Mã mẫu hợp đồng không hợp lệ" } });
+            }
+
+            List<Contract_TempContractItem>? items = null;
+            if (!string.IsNullOrEmpty(req.Model))
+            {
+                try
+                {
+                    var parsedInput = JsonSerializer.Deserialize<Contract_TempContractInputModel>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    items = parsedInput?.Lst_Contract_TempContract;
+                }
+                catch
+                {
+                    try
+                    {
+                        items = JsonSerializer.Deserialize<List<Contract_TempContractItem>>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                    catch { }
+                }
+            }
+
+            if (items == null && req.Lst_Contract_TempContract != null)
+            {
+                items = req.Lst_Contract_TempContract;
+            }
+
+            if (items == null || items.Count == 0)
+            {
+                return Ok(new { Success = true, Messages = new[] { "Mã mẫu hợp đồng không hợp lệ" } });
+            }
+
+            var listTContractCode = items.Where(x => !string.IsNullOrEmpty(x.TContractCode)).Select(x => x.TContractCode!).Distinct().ToList();
+            if (listTContractCode.Count == 0)
+            {
+                return Ok(new { Success = true, Messages = new[] { "Mã mẫu hợp đồng không hợp lệ" } });
+            }
+
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var code in listTContractCode)
+                {
+                    var entity = await _db.Set<Contract_TempContract>().FirstOrDefaultAsync(x => x.TContractCode == code);
+                    if (entity != null)
+                    {
+                        _db.Set<Contract_TempContract>().Remove(entity);
+                    }
+                }
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                var message = listTContractCode.Count == 1 
+                    ? $"Xóa mẫu hợp đồng '{listTContractCode[0]}' thành công!" 
+                    : "Xóa mẫu hợp đồng thành công!";
+
+                return Ok(new { Success = true, Messages = new[] { message } });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_TempContract_Delete", "Exception", ex.Message);
+            }
+        }
     }
 
     public class Contract_TempContractSearchReq
@@ -90,5 +160,21 @@ namespace MiniContract.Controllers.Port
         public int Page { get; set; } = 0;
         public int RecordCount { get; set; } = 10;
         public string? Init { get; set; }
+    }
+
+    public class Contract_TempContract_DeleteReq
+    {
+        public string? Model { get; set; }
+        public List<Contract_TempContractItem>? Lst_Contract_TempContract { get; set; }
+    }
+
+    public class Contract_TempContractInputModel
+    {
+        public List<Contract_TempContractItem>? Lst_Contract_TempContract { get; set; }
+    }
+
+    public class Contract_TempContractItem
+    {
+        public string? TContractCode { get; set; }
     }
 }
