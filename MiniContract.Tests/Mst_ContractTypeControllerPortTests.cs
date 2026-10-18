@@ -689,6 +689,119 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Detail_EmptyBodyOrNull_ReturnsNullData()
+    {
+        var resNull = await _controller.Detail(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        var resEmpty = await _controller.Detail(new Mst_ContractType_DetailReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_ValidContractType_ReturnsMatchingItem()
+    {
+        var req = new Mst_ContractType_DetailReq { ContractType = "HD_KT" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("HD_KT", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng kinh tế", data.GetProperty("ContractTypeName").GetString());
+        Assert.Equal("Hợp đồng kinh tế thương mại", data.GetProperty("Description").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_ValidContractType_NetworkID1002_ReturnsItem()
+    {
+        // 2 bộ lọc ra 2 kết quả khác nhau: HD_VAY thuộc NetworkID 1002
+        var req = new Mst_ContractType_DetailReq { ContractType = "HD_VAY" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("1002", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("HD_VAY", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng vay vốn", data.GetProperty("ContractTypeName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithLowercaseAlias_ReturnsItem()
+    {
+        var json = "{\"contracttype\":\"HD_LD\"}";
+        var req = JsonSerializer.Deserialize<Mst_ContractType_DetailReq>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("HD_LD", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng lao động", data.GetProperty("ContractTypeName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithModelString_ReturnsItem()
+    {
+        var req = new Mst_ContractType_DetailReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_ContractType_DetailReq { ContractType = "HD_DV" })
+        };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("HD_DV", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng dịch vụ", data.GetProperty("ContractTypeName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_NonExistentContractType_ReturnsNullData()
+    {
+        var req = new Mst_ContractType_DetailReq { ContractType = "NOT_EXIST" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_NetworkIDFilterMismatch_ReturnsNullData()
+    {
+        // NetworkID = 1002 và HD_VAY -> tìm thấy
+        var req1 = new Mst_ContractType_DetailReq { NetworkID = "1002", ContractType = "HD_VAY" };
+        var res1 = await _controller.Detail(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("HD_VAY", doc1.RootElement.GetProperty("Data").GetProperty("ContractType").GetString());
+
+        // NetworkID = 1001 và HD_VAY -> không khớp NetworkID -> Data null
+        var req2 = new Mst_ContractType_DetailReq { NetworkID = "1001", ContractType = "HD_VAY" };
+        var res2 = await _controller.Detail(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc2.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8589()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_ct_{Guid.NewGuid():N}.db");
@@ -871,6 +984,72 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             Assert.Equal("Hợp đồng kiểm thử live - Đã sửa", docVerify.RootElement.GetProperty("Data").GetProperty("ContractTypeName").GetString());
             Assert.Equal("Mô tả đã sửa live", docVerify.RootElement.GetProperty("Data").GetProperty("Description").GetString());
             _output?.WriteLine($"[Verify ReadBack Update] StatusCode={(int)resVerify.StatusCode} Body={bodyVerify}");
+
+            // 5. Detail: kiểm tra các ca đọc chi tiết
+            // Ca 5.1: Body rỗng -> trả về Data = null (Gate: dòng 407 View(new Mst_ContractType()))
+            var reqDetEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDetEmpty = await http.PostAsync("/api/mst_contracttype/detail", reqDetEmpty);
+            var bodyDetEmpty = await resDetEmpty.Content.ReadAsStringAsync();
+            var docDetEmpty = JsonDocument.Parse(bodyDetEmpty);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetEmpty.StatusCode);
+            Assert.True(docDetEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docDetEmpty.RootElement.GetProperty("Data").ValueKind);
+            _output?.WriteLine($"[Detail EmptyBody] StatusCode={(int)resDetEmpty.StatusCode} Body={bodyDetEmpty}");
+
+            // Ca 5.2: Lấy theo ContractType = "HD_KT" -> trả về "HD_KT"
+            var reqDet1 = new StringContent("{\"ContractType\":\"HD_KT\"}", Encoding.UTF8, "application/json");
+            var resDet1 = await http.PostAsync("/api/mst_contracttype/detail", reqDet1);
+            var bodyDet1 = await resDet1.Content.ReadAsStringAsync();
+            var docDet1 = JsonDocument.Parse(bodyDet1);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet1.StatusCode);
+            Assert.True(docDet1.RootElement.GetProperty("Success").GetBoolean());
+            var dataDet1 = docDet1.RootElement.GetProperty("Data");
+            Assert.Equal("HD_KT", dataDet1.GetProperty("ContractType").GetString());
+            Assert.Equal("Hợp đồng kinh tế", dataDet1.GetProperty("ContractTypeName").GetString());
+            _output?.WriteLine($"[Detail Filter1 HD_KT] StatusCode={(int)resDet1.StatusCode} Body={bodyDet1}");
+
+            // Ca 5.3: Lấy theo ContractType = "HD_VAY" (NetworkID 1002) -> trả về "HD_VAY" (2 bộ lọc ra 2 bản ghi khác nhau)
+            var reqDet2 = new StringContent("{\"ContractType\":\"HD_VAY\"}", Encoding.UTF8, "application/json");
+            var resDet2 = await http.PostAsync("/api/mst_contracttype/detail", reqDet2);
+            var bodyDet2 = await resDet2.Content.ReadAsStringAsync();
+            var docDet2 = JsonDocument.Parse(bodyDet2);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet2.StatusCode);
+            Assert.True(docDet2.RootElement.GetProperty("Success").GetBoolean());
+            var dataDet2 = docDet2.RootElement.GetProperty("Data");
+            Assert.Equal("1002", dataDet2.GetProperty("NetworkID").GetString());
+            Assert.Equal("HD_VAY", dataDet2.GetProperty("ContractType").GetString());
+            Assert.Equal("Hợp đồng vay vốn", dataDet2.GetProperty("ContractTypeName").GetString());
+            _output?.WriteLine($"[Detail Filter2 HD_VAY] StatusCode={(int)resDet2.StatusCode} Body={bodyDet2}");
+
+            // Ca 5.4: Lấy theo alias contracttype = "HD_LD" -> trả về "HD_LD"
+            var reqDet3 = new StringContent("{\"contracttype\":\"HD_LD\"}", Encoding.UTF8, "application/json");
+            var resDet3 = await http.PostAsync("/api/mst_contracttype/detail", reqDet3);
+            var bodyDet3 = await resDet3.Content.ReadAsStringAsync();
+            var docDet3 = JsonDocument.Parse(bodyDet3);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDet3.StatusCode);
+            Assert.True(docDet3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("HD_LD", docDet3.RootElement.GetProperty("Data").GetProperty("ContractType").GetString());
+            _output?.WriteLine($"[Detail Alias contracttype] StatusCode={(int)resDet3.StatusCode} Body={bodyDet3}");
+
+            // Ca 5.5: Lấy theo mã không tồn tại -> Data null
+            var reqDetNone = new StringContent("{\"ContractType\":\"NOT_EXIST\"}", Encoding.UTF8, "application/json");
+            var resDetNone = await http.PostAsync("/api/mst_contracttype/detail", reqDetNone);
+            var bodyDetNone = await resDetNone.Content.ReadAsStringAsync();
+            var docDetNone = JsonDocument.Parse(bodyDetNone);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetNone.StatusCode);
+            Assert.True(docDetNone.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docDetNone.RootElement.GetProperty("Data").ValueKind);
+            _output?.WriteLine($"[Detail NonExistent] StatusCode={(int)resDetNone.StatusCode} Body={bodyDetNone}");
+
+            // Ca 5.6: Lấy theo NetworkID = 1001 và HD_VAY -> không khớp -> Data null
+            var reqDetNetFail = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"HD_VAY\"}", Encoding.UTF8, "application/json");
+            var resDetNetFail = await http.PostAsync("/api/mst_contracttype/detail", reqDetNetFail);
+            var bodyDetNetFail = await resDetNetFail.Content.ReadAsStringAsync();
+            var docDetNetFail = JsonDocument.Parse(bodyDetNetFail);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetNetFail.StatusCode);
+            Assert.True(docDetNetFail.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docDetNetFail.RootElement.GetProperty("Data").ValueKind);
+            _output?.WriteLine($"[Detail NetMismatch] StatusCode={(int)resDetNetFail.StatusCode} Body={bodyDetNetFail}");
         }
         finally
         {
