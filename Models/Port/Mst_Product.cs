@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using MiniContract.Data;
@@ -94,6 +95,14 @@ public class Mst_Product
 
     // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\ProductCentrer\Mst_Product.cs:41
     public string? ListOfPrdDynamicFieldValue { get; set; }
+
+    // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:4766
+    [NotMapped]
+    public string? ListAttribute { get; set; }
+
+    // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:4778
+    [NotMapped]
+    public string? ListBOM { get; set; }
 
     // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\ProductCentrer\Mst_Product.cs:42
     public string? ProductStd { get; set; }

@@ -2339,6 +2339,213 @@ public class Mst_ProductControllerPortTests : IDisposable
 
     #endregion
 
+    #region Export Tests
+
+    [Fact]
+    public async Task Export_WithNullReq_ReturnsExcelSuccessWith6ActiveProducts()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        var result = await controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+        Assert.EndsWith(".xlsx", strUrl);
+
+        var physicalPath = Path.Combine(testEnv.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Product");
+        Assert.NotNull(ws);
+
+        // 33 cột: Mã hàng liên quan bị xóa, Trạng thái được thêm vào
+        Assert.Equal(33, ws.Row(1).LastCellUsed()?.Address.ColumnNumber);
+        Assert.Equal("Trạng thái", ws.Cell(1, 33).GetString());
+
+        // Mặc định không chọn checkbox: chỉ xuất FlagActive = "1" -> 6 sản phẩm active (tổng dòng = 1 header + 6 data = 7)
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(7, lastRow);
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WithEmptyReq_AlsoSucceeds()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        var result = await controller.Export(new Mst_Product_ExportReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WithFilterOrgId1001_Returns5ActiveProducts()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        // OrgID = 1001, mặc định FlagActive = 1 -> PRD_ROOT_01, PRD_BASE_01_1, PRD_BASE_01_2, PRD_L2_01_1, PRD_ROOT_02 (5 dòng)
+        var result = await controller.Export(new Mst_Product_ExportReq { OrgID = "1001" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(testEnv.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Product");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(6, lastRow); // 1 header + 5 data rows
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WithFilterCkbCombo_ReturnsComboProducts()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        // CkbCombo = "1" -> ProductType = "COMBO", defaultActiveOnly = false. PRD_ROOT_03 có FlagActive = "0" nhưng khớp COMBO -> 1 dòng
+        var result = await controller.Export(new Mst_Product_ExportReq { OrgID = "1001", CkbCombo = "1" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(testEnv.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Product");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(2, lastRow); // 1 header + 1 combo product
+        Assert.Equal("Combo", ws.Cell(2, 7).GetString()); // Cột Loại hàng (ProductType) được map thành "Combo"
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WithFilterCkbServices_ReturnsServiceProducts()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        // CkbServices = "1" -> ProductType in ("SERVICE", "services") -> PRD_ROOT_02 (1 dòng)
+        var result = await controller.Export(new Mst_Product_ExportReq { OrgID = "1001", CkbServices = "1" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(testEnv.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Product");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(2, lastRow); // 1 header + 1 service product
+        Assert.Equal("Dịch vụ", ws.Cell(2, 7).GetString()); // Cột Loại hàng (ProductType) được map thành "Dịch vụ"
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_TwoDifferentFilters_ReturnDifferentRowCounts()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        // Bộ lọc 1: OrgID = 1001 -> 5 dòng
+        var res1 = await controller.Export(new Mst_Product_ExportReq { OrgID = "1001" });
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res1).Value));
+        var path1 = Path.Combine(testEnv.WebRootPath, doc1.RootElement.GetProperty("strUrl").GetString()!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb1 = new XLWorkbook(path1);
+        var count1 = wb1.Worksheet("Mst_Product").LastRowUsed()?.RowNumber();
+
+        // Bộ lọc 2: OrgID = 1001 + CkbProduct = "1" -> 4 dòng (PRD_ROOT_01, PRD_BASE_01_1, PRD_BASE_01_2, PRD_L2_01_1)
+        var res2 = await controller.Export(new Mst_Product_ExportReq { OrgID = "1001", CkbProduct = "1" });
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res2).Value));
+        var path2 = Path.Combine(testEnv.WebRootPath, doc2.RootElement.GetProperty("strUrl").GetString()!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb2 = new XLWorkbook(path2);
+        var count2 = wb2.Worksheet("Mst_Product").LastRowUsed()?.RowNumber();
+
+        Assert.Equal(6, count1); // 1 header + 5 data
+        Assert.Equal(5, count2); // 1 header + 4 data
+        Assert.NotEqual(count1, count2);
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WithInvalidLstAttribute_ReturnsFailResult()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        var result = await controller.Export(new Mst_Product_ExportReq { LstAttribute = "INVALID_JSON_{" });
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Export", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Tham số lstattribute không hợp lệ!", root.GetProperty("Params").GetProperty("Exception").GetString());
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public async Task Export_WhenExceptionOccurs_ReturnsFailResult()
+    {
+        var brokenEnv = new TestWebHostEnvironment { WebRootPath = "Z:\\non_existent_drive_for_test\\" };
+        var brokenController = new Mst_ProductControllerPort(_db, null, brokenEnv);
+
+        var result = await brokenController.Export(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Export", root.GetProperty("ErrorCode").GetString());
+    }
+
+    #endregion
+
     [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
@@ -3040,6 +3247,36 @@ public class Mst_ProductControllerPortTests : IDisposable
             var list65 = doc65.RootElement.GetProperty("ListProduct");
             Assert.Equal(1, list65.GetArrayLength());
             Assert.Equal("Sản phẩm Live Import 01 Đã Sửa", list65[0].GetProperty("ProductName").GetString());
+
+            // Ca 66: POST /api/mst_product/export với body rỗng -> 200 OK, "Đã xuất excel thành công!", CheckSuccess = "1", strUrl có .xlsx
+            var req66 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res66 = await http.PostAsync("/api/mst_product/export", req66);
+            var body66 = await res66.Content.ReadAsStringAsync();
+            Assert.True(res66.StatusCode == System.Net.HttpStatusCode.OK, $"Status {res66.StatusCode}, body: {body66}");
+            var doc66 = JsonDocument.Parse(body66);
+            Assert.True(doc66.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("1", doc66.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.Equal("Đã xuất excel thành công!", doc66.RootElement.GetProperty("Title").GetString());
+            Assert.EndsWith(".xlsx", doc66.RootElement.GetProperty("strUrl").GetString()!);
+
+            // Ca 67: POST /api/mst_product/export với OrgID = 1001, ckbcombo = 1 -> 200 OK, CheckSuccess = 1
+            var req67 = new StringContent("{\"OrgID\":\"1001\",\"ckbcombo\":\"1\"}", Encoding.UTF8, "application/json");
+            var res67 = await http.PostAsync("/api/mst_product/export", req67);
+            var body67 = await res67.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res67.StatusCode);
+            var doc67 = JsonDocument.Parse(body67);
+            Assert.True(doc67.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("1", doc67.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // Ca 68: POST /api/mst_product/export với lstattribute không hợp lệ -> 400 Bad Request, Erridn.Skycic.QContract.Mst_Product_Export
+            var req68 = new StringContent("{\"lstattribute\":\"{bad_json\"}", Encoding.UTF8, "application/json");
+            var res68 = await http.PostAsync("/api/mst_product/export", req68);
+            var body68 = await res68.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res68.StatusCode);
+            var doc68 = JsonDocument.Parse(body68);
+            Assert.False(doc68.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Export", doc68.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("Tham số lstattribute không hợp lệ!", doc68.RootElement.GetProperty("Params").GetProperty("Exception").GetString());
         }
         finally
         {
