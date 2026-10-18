@@ -9,8 +9,8 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete), 594-742 (Import)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update, Get), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update), 44142-44297 (Biz Get/Update), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 44799-44877 (WAS Delete), 44878-45023 (Biz Delete), 45024-45180 (Search/Index/Update GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX), 45373-45483 (DeleteX)
 [ApiController]
 [Route("api/mst_contracttype")]
@@ -174,49 +174,13 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         var orgId = req.OrgID != null ? StdParam(req.OrgID) : (_config?["Biz_OrgID"] ?? "7200000001");
         var contractTypeName = req.ContractTypeName?.Trim() ?? ""; // Master.cs:45218 string.Format("{0}", objContractTypeName)
         var description = req.Description?.Trim() ?? ""; // Master.cs:45219 string.Format("{0}", objDescription)
-        var dtimeSys = DateTime.UtcNow; // Master.cs:44310, 44409, 45266
         var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(userCode)) userCode = "port"; // Master.cs:45267
 
-        var entity = new Mst_ContractType
+        var (err, entity) = await CreateCoreAsync(networkId, contractType, orgId ?? "", contractTypeName, description, userCode);
+        if (err != null)
         {
-            NetworkID = networkId,
-            ContractType = contractType,
-            OrgID = orgId ?? "",
-            ContractTypeName = contractTypeName,
-            Description = description,
-            FlagActive = "1", // Master.cs:45265 TConst.Flag.Active
-            LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
-            LogLUBy = userCode
-        };
-
-        // 3. Mở transaction và kiểm tra trùng lặp khóa chính trong DB (Master.cs:44431, 45240-45247, 43988-44030)
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
-        {
-            var existing = await _db.Set<Mst_ContractType>()
-                .FirstOrDefaultAsync(x =>
-                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
-                    EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
-
-            if (existing != null)
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Mst_ContractType_CheckDB_OrganExist",
-                    "Check.NetworkID", networkId,
-                    "Check.ContractType", contractType);
-            }
-
-            // 4. Lưu bản ghi mới vào DB (Master.cs:45258-45275)
-            _db.Set<Mst_ContractType>().Add(entity);
-            await _db.SaveChangesAsync();
-
-            await tx.CommitAsync();
-        }
-        catch (Exception ex)
-        {
-            await tx.RollbackAsync();
-            return PortResult.Fail("Mst_ContractType_Create", "Exception", ex.Message);
+            return err;
         }
 
         // 5. Trả kết quả thành công khớp gate MVC (Mst_ContractTypeController.cs:135-138)
@@ -683,6 +647,179 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         {
             await tx.RollbackAsync();
             return PortResult.Fail("Mst_ContractType_Delete", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Nhập dữ liệu loại hợp đồng từ tệp Excel.
+    /// Gate: Mst_ContractTypeController.cs:594-742 Import(HttpPostedFileWrapper file)
+    /// API:  MstContractTypeController.cs:20-88 WA_Mst_ContractType_Get, 90-158 WA_Mst_ContractType_Create
+    /// BIZ:  Master.cs:44050-44141 (WAS Get), 44142-44297 (Biz Get), 44299-44548 (WAS/Biz Create), 45024-45180 (GetX), 45181-45278 (CreateX)
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        if (file == null && Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+        {
+            file = Request.Form.Files[0];
+        }
+
+        // 1. Kiểm tra file upload (Gate: Mst_ContractTypeController.cs:609-625)
+        if (file == null || file.Length == 0)
+        {
+            return PortResult.Fail("Mst_ContractType_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext != ".xlsx")
+        {
+            return PortResult.Fail("Mst_ContractType_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 2. Đọc bảng tính bằng PortExcel.ReadSheet (Gate: Mst_ContractTypeController.cs:631 ExcelImportNew.Query(filePath, "A2"))
+        // Danh sách cột từ GetImportDicColums() (Gate:837-845):
+        // 1. ContractType: Mã loại hợp đồng(*)
+        // 2. ContractTypeName: Tên loại hợp đồng(*)
+        // 3. Description: Mô tả
+        int columnCount;
+        List<Dictionary<string, string?>> rows;
+        try
+        {
+            using var stream = file.OpenReadStream();
+            (columnCount, rows) = PortExcel.ReadSheet(stream, new[] { "ContractType", "ContractTypeName", "Description" });
+        }
+        catch
+        {
+            return PortResult.Fail("Mst_ContractType_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 3. Kiểm tra bảng rỗng (Gate: Mst_ContractTypeController.cs:632, 729-734: table == null || table.Rows.Count == 0)
+        if (rows == null || rows.Count == 0)
+        {
+            return PortResult.Fail("Mst_ContractType_Import", "Message", "File Excel nhập không có dữ liệu!");
+        }
+
+        // 4. Kiểm tra số cột (Gate: Mst_ContractTypeController.cs:635-640: table.Columns.Count != GetImportDicColums().Count)
+        if (columnCount != 3)
+        {
+            return PortResult.Fail("Mst_ContractType_Import", "Message", "File dữ liệu import không hợp lệ!");
+        }
+
+        // 5. Tải danh sách hiện tại từ DB để kiểm tra trùng (Gate: Mst_ContractTypeController.cs:643-667)
+        var networkId = Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001";
+        var orgId = Request?.Headers["OrgID"].FirstOrDefault() ?? _config?["Biz_OrgID"] ?? "7200000001";
+        var listCur = await _db.Set<Mst_ContractType>()
+            .AsNoTracking()
+            .Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc))
+            .ToListAsync();
+
+        // 6. Vòng lặp 1: Kiểm tra TẤT CẢ các dòng trước khi tạo (Gate: Mst_ContractTypeController.cs:669-683)
+        foreach (var r in rows)
+        {
+            var code = r.GetValueOrDefault("ContractType");
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return PortResult.Fail("Mst_ContractType_Import", "Message", "Mã loại hợp đồng không được trống!");
+            }
+
+            var name = r.GetValueOrDefault("ContractTypeName");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return PortResult.Fail("Mst_ContractType_Import", "Message", "Tên loại hợp đồng không được trống!");
+            }
+        }
+
+        // 7. Vòng lặp 2: Lưu từng dòng tuần tự theo transaction độc lập (Gate: Mst_ContractTypeController.cs:704-722, hành vi import một phần)
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+        foreach (var r in rows)
+        {
+            var code = r.GetValueOrDefault("ContractType")?.Trim().ToUpperInvariant() ?? "";
+            var name = r.GetValueOrDefault("ContractTypeName")?.Trim() ?? "";
+            var desc = r.GetValueOrDefault("Description")?.Trim() ?? "";
+
+            // Kiểm tra trùng mã trong danh sách hệ thống listCur (Gate: Mst_ContractTypeController.cs:706-712)
+            if (listCur.Any(m => string.Equals((m.ContractType ?? "").Trim(), code, StringComparison.OrdinalIgnoreCase)))
+            {
+                var exitsData = $"Mã loại hợp đồng: '{code}' đã tồn tại trong hệ thống. Vui lòng kiểm tra lại!";
+                return PortResult.Fail("Mst_ContractType_Import", "Message", exitsData);
+            }
+
+            // Gọi CreateCoreAsync độc lập cho từng dòng (Gate lines 720-721)
+            var (err, entity) = await CreateCoreAsync(networkId, code, orgId, name, desc, userCode);
+            if (err != null)
+            {
+                // Lỗi ở dòng k -> dừng ngay và trả lỗi của dòng đó (các dòng trước k đã commit thành công)
+                return err;
+            }
+
+            // Cập nhật listCur trong bộ nhớ để các dòng tiếp theo trong cùng tệp nếu trùng cũng bị bắt
+            listCur.Add(new Mst_ContractType
+            {
+                NetworkID = networkId,
+                ContractType = code,
+                ContractTypeName = name,
+                OrgID = orgId
+            });
+        }
+
+        // 8. Trả kết quả thành công khớp gate MVC (Gate: Mst_ContractTypeController.cs:724-726)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Đã nhập dữ liệu excel thành công" },
+            Title = "Đã nhập dữ liệu excel thành công",
+            RedirectUrl = "/Mst_ContractType"
+        });
+    }
+
+    /// <summary>
+    /// Hàm dùng chung thực hiện tạo mới 1 bản ghi Mst_ContractType trong 1 transaction riêng.
+    /// Dùng cho cả action Create đơn và vòng lặp Import (hành vi import một phần).
+    /// </summary>
+    private async Task<(IActionResult? Error, Mst_ContractType? Entity)> CreateCoreAsync(
+        string networkId, string contractType, string orgId, string contractTypeName, string description, string userCode)
+    {
+        var dtimeSys = DateTime.UtcNow;
+        var entity = new Mst_ContractType
+        {
+            NetworkID = networkId,
+            ContractType = contractType,
+            OrgID = orgId,
+            ContractTypeName = contractTypeName,
+            Description = description,
+            FlagActive = "1", // Master.cs:45265 TConst.Flag.Active
+            LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = userCode
+        };
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Set<Mst_ContractType>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
+
+            if (existing != null)
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Mst_ContractType_CheckDB_OrganExist",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractType", contractType), null);
+            }
+
+            _db.Set<Mst_ContractType>().Add(entity);
+            await _db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+            return (null, entity);
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return (PortResult.Fail("Mst_ContractType_Create", "Exception", ex.Message), null);
         }
     }
 
