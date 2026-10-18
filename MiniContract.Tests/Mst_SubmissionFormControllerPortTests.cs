@@ -1359,6 +1359,126 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_WithNullOrEmptyReq_ReturnsInvalidSubFormCodeMessage()
+    {
+        // 1. null request
+        var res1 = await _controller.Delete(null);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+        var msgs1 = doc1.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã mẫu không hợp lệ", msgs1[0].GetString());
+
+        // 2. empty request {}
+        var res2 = await _controller.Delete(new Mst_SubmissionForm_DeleteReq());
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+        var msgs2 = doc2.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã mẫu không hợp lệ", msgs2[0].GetString());
+
+        // 3. SubFormCode rỗng hoặc chỉ khoảng trắng
+        var res3 = await _controller.Delete(new Mst_SubmissionForm_DeleteReq { SubFormCode = "   " });
+        var ok3 = Assert.IsType<OkObjectResult>(res3);
+        var doc3 = JsonDocument.Parse(JsonSerializer.Serialize(ok3.Value));
+        Assert.True(doc3.RootElement.GetProperty("Success").GetBoolean());
+        var msgs3 = doc3.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã mẫu không hợp lệ", msgs3[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_WithNonExistentSubFormCode_ReturnsSuccessImmediately()
+    {
+        var req = new Mst_SubmissionForm_DeleteReq { SubFormCode = "SF_NON_EXISTENT_SUBFORM" };
+        var res = await _controller.Delete(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_SubmissionForm", root.GetProperty("RedirectUrl").GetString());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Xóa mẫu gửi thành công", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_RoundTrip_ExistingItem_WithMessagesAndZns_SuccessfullyDeleted()
+    {
+        // 1. Tạo mẫu mới kèm message và ZNS
+        var reqSave = new Mst_SubmissionForm_SaveReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_TO_BE_DELETED_01",
+                SubFormName = "Mẫu Sẽ Bị Xóa",
+                OrgID = "7200000001",
+                ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormMessage = new List<Mst_SubmissionFormMessage>
+            {
+                new() { Message = "Nội dung của mẫu sẽ bị xóa" }
+            }
+        };
+        var resSave = await _controller.Save(reqSave);
+        Assert.IsType<OkObjectResult>(resSave);
+
+        // Xác nhận đã có trong DB
+        var dbItemBefore = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_TO_BE_DELETED_01");
+        Assert.NotNull(dbItemBefore);
+        var dbMsgsBefore = await _db.Set<Mst_SubmissionFormMessage>().Where(x => x.SubFormCode == "SF_TO_BE_DELETED_01").ToListAsync();
+        Assert.Single(dbMsgsBefore);
+
+        // 2. Thực hiện xóa qua action Delete
+        var reqDelete = new Mst_SubmissionForm_DeleteReq { SubFormCode = "SF_TO_BE_DELETED_01" };
+        var resDelete = await _controller.Delete(reqDelete);
+        var okDelete = Assert.IsType<OkObjectResult>(resDelete);
+        var docDelete = JsonDocument.Parse(JsonSerializer.Serialize(okDelete.Value));
+        Assert.True(docDelete.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_SubmissionForm", docDelete.RootElement.GetProperty("RedirectUrl").GetString());
+        Assert.Equal("Xóa mẫu gửi thành công", docDelete.RootElement.GetProperty("Messages")[0].GetString());
+
+        // 3. Xác nhận đã xóa sạch trong DB
+        var dbItemAfter = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_TO_BE_DELETED_01");
+        Assert.Null(dbItemAfter);
+        var dbMsgsAfter = await _db.Set<Mst_SubmissionFormMessage>().Where(x => x.SubFormCode == "SF_TO_BE_DELETED_01").ToListAsync();
+        Assert.Empty(dbMsgsAfter);
+    }
+
+    [Fact]
+    public async Task Delete_RoundTrip_WithJsonModelString_SuccessfullyDeleted()
+    {
+        // 1. Tạo mẫu mới
+        var reqSave = new Mst_SubmissionForm_SaveReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_MODEL_DELETE_01",
+                SubFormName = "Mẫu Xóa Qua Model String",
+                OrgID = "7200000001",
+                ChannelType = "SMS",
+                BulletinType = "OTP",
+                FlagActive = "1"
+            }
+        };
+        var resSave = await _controller.Save(reqSave);
+        Assert.IsType<OkObjectResult>(resSave);
+
+        // 2. Xóa qua chuỗi JSON Model
+        var modelJson = JsonSerializer.Serialize(new { SubFormCode = "SF_MODEL_DELETE_01" });
+        var reqDelete = new Mst_SubmissionForm_DeleteReq { Model = modelJson };
+        var resDelete = await _controller.Delete(reqDelete);
+        var okDelete = Assert.IsType<OkObjectResult>(resDelete);
+        var docDelete = JsonDocument.Parse(JsonSerializer.Serialize(okDelete.Value));
+        Assert.True(docDelete.RootElement.GetProperty("Success").GetBoolean());
+
+        // 3. Xác nhận đã xóa sạch trong DB
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_MODEL_DELETE_01");
+        Assert.Null(dbItem);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_submissionform_{Guid.NewGuid():N}.db");
@@ -1740,6 +1860,54 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
             var updateMsgs = docVerifyUpdate.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionFormMessage");
             Assert.Equal(1, updateMsgs.GetArrayLength());
             Assert.Equal("Ma OTP da update tren server real", updateMsgs[0].GetProperty("Message").GetString());
+
+            // Ca 31 (Delete Guard): POST body rỗng -> 200 OK, Success = true, Messages = ["Mã mẫu không hợp lệ"]
+            var reqDeleteGuard1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDeleteGuard1 = await http.PostAsync("/api/mst_submissionform/delete", reqDeleteGuard1);
+            var bodyDeleteGuard1 = await resDeleteGuard1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDeleteGuard1.StatusCode);
+            var docDeleteGuard1 = JsonDocument.Parse(bodyDeleteGuard1);
+            Assert.True(docDeleteGuard1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã mẫu không hợp lệ", docDeleteGuard1.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 32 (Delete Non-Existent): POST SubFormCode không tồn tại -> 200 OK, Success = true, Messages = ["Xóa mẫu gửi thành công"]
+            var reqDeleteNonExist = new StringContent("{\"SubFormCode\":\"SF_REAL_NOT_EXIST\"}", Encoding.UTF8, "application/json");
+            var resDeleteNonExist = await http.PostAsync("/api/mst_submissionform/delete", reqDeleteNonExist);
+            var bodyDeleteNonExist = await resDeleteNonExist.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDeleteNonExist.StatusCode);
+            var docDeleteNonExist = JsonDocument.Parse(bodyDeleteNonExist);
+            Assert.True(docDeleteNonExist.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Mst_SubmissionForm", docDeleteNonExist.RootElement.GetProperty("RedirectUrl").GetString());
+            Assert.Equal("Xóa mẫu gửi thành công", docDeleteNonExist.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 33 (Delete Round-trip): POST tạo mới mẫu "SF_REAL_DEL_01", đọc lại thấy có, sau đó xóa bằng action Delete và đọc lại thấy rỗng
+            var createDelPayload = "{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_REAL_DEL_01\",\"SubFormName\":\"Mau Xoa Real Server\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"CONTRACT_NOTIFY\",\"FlagActive\":\"1\"},\"Lst_Mst_SubmissionFormMessage\":[{\"Message\":\"Noi dung mau truoc khi xoa tren server\"}]}";
+            var reqCreateDel = new StringContent(createDelPayload, Encoding.UTF8, "application/json");
+            var resCreateDel = await http.PostAsync("/api/mst_submissionform/save", reqCreateDel);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreateDel.StatusCode);
+
+            // Xác nhận có trên server qua detail
+            var reqVerifyBeforeDel = new StringContent("{\"SubFormCode\":\"SF_REAL_DEL_01\"}", Encoding.UTF8, "application/json");
+            var resVerifyBeforeDel = await http.PostAsync("/api/mst_submissionform/detail", reqVerifyBeforeDel);
+            var bodyVerifyBeforeDel = await resVerifyBeforeDel.Content.ReadAsStringAsync();
+            var docVerifyBeforeDel = JsonDocument.Parse(bodyVerifyBeforeDel);
+            Assert.Equal(1, docVerifyBeforeDel.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+
+            // Thực hiện xóa bằng action Delete
+            var reqDoDelete = new StringContent("{\"SubFormCode\":\"SF_REAL_DEL_01\"}", Encoding.UTF8, "application/json");
+            var resDoDelete = await http.PostAsync("/api/mst_submissionform/delete", reqDoDelete);
+            var bodyDoDelete = await resDoDelete.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDoDelete.StatusCode);
+            var docDoDelete = JsonDocument.Parse(bodyDoDelete);
+            Assert.True(docDoDelete.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa mẫu gửi thành công", docDoDelete.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Xác nhận đã xóa sạch trên server qua detail
+            var reqVerifyAfterDel = new StringContent("{\"SubFormCode\":\"SF_REAL_DEL_01\"}", Encoding.UTF8, "application/json");
+            var resVerifyAfterDel = await http.PostAsync("/api/mst_submissionform/detail", reqVerifyAfterDel);
+            var bodyVerifyAfterDel = await resVerifyAfterDel.Content.ReadAsStringAsync();
+            var docVerifyAfterDel = JsonDocument.Parse(bodyVerifyAfterDel);
+            Assert.Equal(0, docVerifyAfterDel.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
         }
         finally
         {

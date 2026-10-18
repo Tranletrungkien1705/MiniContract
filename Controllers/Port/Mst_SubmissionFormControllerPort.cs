@@ -8,7 +8,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_SubmissionFormController.cs — Mst_SubmissionForm
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 142-209 (Create), 212-369 (Detail), 372-549 (CreateCopy), 667-731 (Save), 734-798 (Update), 854-873 (strWhereClauseSearchBy), 875-888 (strWhereClause_Mst_SubmissionForm)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 142-209 (Create), 212-369 (Detail), 372-549 (CreateCopy), 667-731 (Save), 734-798 (Update), 800-851 (Delete), 854-873 (strWhereClauseSearchBy), 875-888 (strWhereClause_Mst_SubmissionForm)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstSubmissionFormController.cs:21-89 (WA_Mst_SubmissionForm_Get, WA_Mst_SubmissionForm_Save), MstChannelTypeController.cs:91-140 (WA_Mst_Channel_Get), MstParamContractController.cs:19-75 (WA_Mst_ParamContractSubmissForm_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:13845-14341 (Mst_SubmissionForm_GetX), 14361-14478 (WAS_Mst_SubmissionForm_Save), 14479-15187 (Mst_SubmissionForm_Upd, Mst_SubmissionForm_UpdX), 15188-15359 (Mst_SubmissionForm_Save), 15361-15868 (Mst_SubmissionForm_SaveX), 18384-18780 (Mst_Channel_GetX), 16417-16796 (Mst_ParamContractSubmissForm_GetX)
 [ApiController]
@@ -1211,6 +1211,110 @@ public class Mst_SubmissionFormControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa cấu hình mẫu nội dung gửi.
+    /// Gate: Mst_SubmissionFormController.cs:800-851 Delete(string subformcode)
+    /// API:  MstSubmissionFormController.cs:91-159 WA_Mst_SubmissionForm_Save (FlagIsDelete = "1")
+    /// BIZ:
+    ///   - WAS_Mst_SubmissionForm_Save (MasterData.cs:14361-14478): Đóng gói và chuyển tiếp tới Mst_SubmissionForm_Save.
+    ///   - Mst_SubmissionForm_Save (MasterData.cs:15188-15359): Transaction, CheckAuthorize, gọi Mst_SubmissionForm_SaveX.
+    ///   - Mst_SubmissionForm_SaveX (MasterData.cs:15361-15868): Kiểm tra SubFormCode, nếu không tồn tại và bIsDelete -> thoát sớm thành công (idempotent); nếu tồn tại -> xóa Mst_SubmissionFormMessage, Mst_SubmissionFormZNS và Mst_SubmissionForm trong transaction.
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_SubmissionForm_DeleteReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào SubFormCode (Gate: Mst_SubmissionFormController.cs:800, 808)
+            var subFormCode = StdParam(req?.SubFormCode ?? req?.Mst_SubmissionForm?.SubFormCode);
+            if (string.IsNullOrEmpty(subFormCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Mst_SubmissionForm_DeleteReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    subFormCode = StdParam(modelObj?.SubFormCode ?? modelObj?.Mst_SubmissionForm?.SubFormCode);
+                }
+                catch
+                {
+                    subFormCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu SubFormCode rỗng/null, gate trả về JsonResultEntry: Mã mẫu không hợp lệ (Gate: Mst_SubmissionFormController.cs:838-842)
+            if (string.IsNullOrEmpty(subFormCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã mẫu không hợp lệ" },
+                    Title = "Mã mẫu không hợp lệ"
+                });
+            }
+
+            // 3. Kiểm tra tồn tại trong DB qua Mst_SubmissionForm_CheckDB (MasterData.cs:15447-15465)
+            var dbForm = await _db.Set<Mst_SubmissionForm>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(subFormCode), PortQuery.Esc));
+
+            if (dbForm == null)
+            {
+                // Thoát sớm thành công nếu xóa bản ghi không tồn tại (MasterData.cs:15457-15460: if (bIsDelete) goto MyCodeLabel_Done;)
+                return Ok(new
+                {
+                    Success = true,
+                    RedirectUrl = "/Mst_SubmissionForm",
+                    Messages = new[] { "Xóa mẫu gửi thành công" },
+                    Title = "Xóa mẫu gửi thành công"
+                });
+            }
+
+            // 4. Mở transaction và xóa dữ liệu liên quan (MasterData.cs:15239, 15705-15734)
+            using (var tx = await _db.Database.BeginTransactionAsync())
+            {
+                try
+                {
+                    var oldMsg = await _db.Set<Mst_SubmissionFormMessage>()
+                        .Where(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(subFormCode), PortQuery.Esc))
+                        .ToListAsync();
+                    if (oldMsg.Count > 0)
+                    {
+                        _db.Set<Mst_SubmissionFormMessage>().RemoveRange(oldMsg);
+                    }
+
+                    var oldZns = await _db.Set<Mst_SubmissionFormZNS>()
+                        .Where(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(subFormCode), PortQuery.Esc))
+                        .ToListAsync();
+                    if (oldZns.Count > 0)
+                    {
+                        _db.Set<Mst_SubmissionFormZNS>().RemoveRange(oldZns);
+                    }
+
+                    _db.Set<Mst_SubmissionForm>().Remove(dbForm);
+
+                    await _db.SaveChangesAsync();
+                    await tx.CommitAsync();
+                }
+                catch (Exception)
+                {
+                    await tx.RollbackAsync();
+                    throw;
+                }
+            }
+
+            // 5. Trả kết quả thành công khớp gate MVC (Mst_SubmissionFormController.cs:835-837, 842-843)
+            return Ok(new
+            {
+                Success = true,
+                RedirectUrl = "/Mst_SubmissionForm",
+                Messages = new[] { "Xóa mẫu gửi thành công" },
+                Title = "Xóa mẫu gửi thành công"
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_SubmissionForm_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? value)
     {
         var s = value?.Trim();
@@ -1362,4 +1466,13 @@ public class Mst_SubmissionForm_UpdateReq
     public Mst_SubmissionForm? Mst_SubmissionForm { get; set; }
     public List<Mst_SubmissionFormZNS>? Lst_Mst_SubmissionFormZNS { get; set; }
     public List<Mst_SubmissionFormMessage>? Lst_Mst_SubmissionFormMessage { get; set; }
+}
+
+public class Mst_SubmissionForm_DeleteReq
+{
+    public string? Model { get; set; }
+    public string? SubFormCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public Mst_SubmissionForm? Mst_SubmissionForm { get; set; }
 }
