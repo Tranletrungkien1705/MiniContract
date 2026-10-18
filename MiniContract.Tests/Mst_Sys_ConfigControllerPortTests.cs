@@ -405,6 +405,131 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateAttribute_NullReq_ReturnsOrganNotFoundFail()
+    {
+        var result = await _controller.UpdateAttribute(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.AttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task UpdateAttribute_EmptyReq_ReturnsOrganNotFoundFail()
+    {
+        var req = new Mst_Sys_Config_UpdateAttributeReq();
+        var result = await _controller.UpdateAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.AttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task UpdateAttribute_NonExistentCode_ReturnsOrganNotFoundFail()
+    {
+        var req = new Mst_Sys_Config_UpdateAttributeReq { AttributeContractCode = "ATTR_NON_EXISTENT" };
+        var result = await _controller.UpdateAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("ATTR_NON_EXISTENT", p.GetProperty("Check.AttributeContractCode").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateAttribute_ValidReq_RoundTrip_Success()
+    {
+        // ATTR01 ban đầu: AttributeName="Số hợp đồng gốc", DefaultValues="", FlagActive="1"
+        var req = new Mst_Sys_Config_UpdateAttributeReq
+        {
+            AttributeContractCode = "ATTR01",
+            AttributeName = "Số hợp đồng gốc đã sửa",
+            DefaultValues = "HD-01,HD-02",
+            FlagActive = "0"
+        };
+        var result = await _controller.UpdateAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Cập nhật thông tin hợp đồng thành công!", messages[0].GetString());
+        Assert.Equal("/Mst_Sys_Config", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra round-trip đọc lại từ DB
+        var updated = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR01");
+        Assert.NotNull(updated);
+        Assert.Equal("Số hợp đồng gốc đã sửa", updated.AttributeName);
+        Assert.Equal("HD-01,HD-02", updated.DefaultValues);
+        Assert.Equal("0", updated.FlagActive);
+        Assert.False(string.IsNullOrEmpty(updated.LogLUDTimeUTC));
+        Assert.Equal("port", updated.LogLUBy);
+    }
+
+    [Fact]
+    public async Task UpdateAttribute_JsonModelString_Success()
+    {
+        var req = new Mst_Sys_Config_UpdateAttributeReq
+        {
+            Model = "{\"AttributeContractCode\":\"ATTR01\",\"AttributeName\":\"Số hợp đồng gốc khôi phục\",\"DefaultValues\":\"\",\"FlagActive\":\"1\"}"
+        };
+        var result = await _controller.UpdateAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var updated = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR01");
+        Assert.NotNull(updated);
+        Assert.Equal("Số hợp đồng gốc khôi phục", updated.AttributeName);
+        Assert.Equal("", updated.DefaultValues);
+        Assert.Equal("1", updated.FlagActive);
+    }
+
+    [Fact]
+    public async Task UpdateAttribute_WithFtColsUpd_OnlyUpdatesSpecifiedColumns()
+    {
+        // ATTR01: AttributeName="Số hợp đồng gốc", DefaultValues="", FlagActive="1"
+        var req = new Mst_Sys_Config_UpdateAttributeReq
+        {
+            AttributeContractCode = "ATTR01",
+            AttributeName = "Tên cập nhật qua FtCols",
+            DefaultValues = "GIÁ TRỊ KHÔNG ĐƯỢC CẬP NHẬT",
+            Ft_Cols_Upd = "Mst_Attribute_Contract.AttributeName"
+        };
+        var result = await _controller.UpdateAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var updated = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR01");
+        Assert.NotNull(updated);
+        Assert.Equal("Tên cập nhật qua FtCols", updated.AttributeName);
+        Assert.Equal("", updated.DefaultValues); // Giữ nguyên không bị cập nhật
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8544()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_sys_config_{Guid.NewGuid():N}.db");
@@ -574,6 +699,48 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
             Assert.Equal(2, listAttrAfter.GetArrayLength());
             Assert.Equal("ATTR01", listAttrAfter[0].GetProperty("AttributeContractCode").GetString());
             Assert.Equal("ATTR02", listAttrAfter[1].GetProperty("AttributeContractCode").GetString());
+
+            // 13. Ca UpdateAttribute body rỗng: POST {} -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganNotFound
+            var req13 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/mst_sys_config/updateattribute", req13);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res13.StatusCode);
+            var body13 = await res13.Content.ReadAsStringAsync();
+            var doc13 = JsonDocument.Parse(body13);
+            Assert.False(doc13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", doc13.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal(JsonValueKind.Null, doc13.RootElement.GetProperty("Params").GetProperty("Check.AttributeContractCode").ValueKind);
+
+            // 14. Ca UpdateAttribute mã không tồn tại -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganNotFound
+            var req14 = new StringContent("{\"AttributeContractCode\":\"ATTR_NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/mst_sys_config/updateattribute", req14);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res14.StatusCode);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            var doc14 = JsonDocument.Parse(body14);
+            Assert.False(doc14.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", doc14.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("ATTR_NON_EXISTENT", doc14.RootElement.GetProperty("Params").GetProperty("Check.AttributeContractCode").GetString());
+
+            // 15. Ca UpdateAttribute round-trip thành công cập nhật ATTR01 -> 200 OK
+            var req15 = new StringContent("{\"AttributeContractCode\":\"ATTR01\",\"AttributeName\":\"Số hợp đồng gốc sửa thật\",\"DefaultValues\":\"VAL_TEST\",\"FlagActive\":\"0\"}", Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/mst_sys_config/updateattribute", req15);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15.StatusCode);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            var doc15 = JsonDocument.Parse(body15);
+            Assert.True(doc15.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Cập nhật thông tin hợp đồng thành công!", doc15.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Mst_Sys_Config", doc15.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 16. Đọc lại qua Index để xác nhận ATTR01 đã được cập nhật thật trong DB (round-trip)
+            var req16 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/mst_sys_config/index", req16);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res16.StatusCode);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            var doc16 = JsonDocument.Parse(body16);
+            var listAttrFinal = doc16.RootElement.GetProperty("Data").GetProperty("ListMst_Attribute_Contract");
+            Assert.Equal("ATTR01", listAttrFinal[0].GetProperty("AttributeContractCode").GetString());
+            Assert.Equal("Số hợp đồng gốc sửa thật", listAttrFinal[0].GetProperty("AttributeName").GetString());
+            Assert.Equal("VAL_TEST", listAttrFinal[0].GetProperty("DefaultValues").GetString());
+            Assert.Equal("0", listAttrFinal[0].GetProperty("FlagActive").GetString());
         }
         finally
         {
