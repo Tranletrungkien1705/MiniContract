@@ -17,13 +17,17 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:270-341 (Edit)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:346-394 (Detail)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:398-470 (Delete)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:477-567 (GetSysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1119-1138 (strWhereClause_SysUser)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:93-147 (WA_Sys_Group_Create)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:168-239 (WA_Sys_Group_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:242-313 (WA_Sys_Group_Delete)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:199-270 (WA_Sys_User_Get)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7011-7123 (WAS_Sys_User_Get) -> 6635-7009 (Sys_User_Get_New20191104)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2710-2790 (WAS_Sys_Group_Create) -> zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3118-3201 (WAS_Sys_Group_Update) -> 2937-3116 / 2791-2935 (Sys_Group_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3469-3548 (WAS_Sys_Group_Delete) -> 3318-3467 (Sys_Group_Delete), 13768-13783 (Sys_UserInGroup_Delete_ByGroup)
@@ -35,6 +39,9 @@ public class Sys_GroupControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+
+    // Hằng số che mật khẩu từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Constants\Const.Main.BE.cs:13
+    private const string Default_PasswordMask = "*********";
 
     public Sys_GroupControllerPort(AppDbContext db, IConfiguration? config = null)
     {
@@ -842,6 +849,153 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action GetSysUser từ gate Sys_GroupController.cs:477-567.
+    /// Chuỗi gọi:
+    /// 1. Khởi tạo danh sách listSysUser và listUserInGroup (gate dòng 487-488).
+    /// 2. Danh sách người dùng trạng thái Active:
+    ///    - sysUser = new Sys_User { FlagActive = Client_Flag.Active ("1") } (gate dòng 490-493).
+    ///    - Dựng strWhereClause_SysUser (gate dòng 494, 1119-1138): Sys_User.FlagActive = '1'.
+    ///    - Đóng gói RQ_Sys_User với Rt_Cols_Sys_User = "*", Rt_Cols_Sys_UserInGroup = "" (gate dòng 495-516).
+    ///    - Gọi Sys_UserService.Instance.WA_Sys_User_Get (gate dòng 517)
+    ///      -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///      -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///      -> Sys_User_Get_New20191104 (System.cs:6635-7009).
+    ///      SQL: Lọc người dùng active, order by su.UserCode asc, che mật khẩu Default_PasswordMask ("*********").
+    ///    - Nếu có kết quả thì listSysUser.AddRange(objRT_Sys_User.Lst_Sys_User) (gate dòng 518-521).
+    /// 3. Danh sách người dùng trong nhóm:
+    ///    - Dựng strWhereClause_SysGroup(groupcode) (gate dòng 525-526, 1080-1091): Sys_Group.GroupCode = groupcode.
+    ///    - Đóng gói RQ_Sys_Group với Rt_Cols_Sys_Group = null, Rt_Cols_Sys_UserInGroup = "*" (gate dòng 528-549).
+    ///    - Gọi Sys_GroupService.Instance.WA_Sys_Group_Get (gate dòng 551)
+    ///      -> API WA_Sys_Group_Get (SysGroupController.cs:20-91)
+    ///      -> BIZ WAS_Sys_Group_Get (System.cs:2283-2397)
+    ///      -> Sys_Group_Get_New20191102 (System.cs:1966-2281).
+    ///      SQL: Lọc nhóm qua #tbl_Sys_Group_Filter_Draft và #tbl_Sys_Group_Filter (System.cs:2076-2106).
+    ///      Lấy dữ liệu người dùng trong nhóm qua inner join Sys_UserInGroup suig on t.GroupCode = suig.GroupCode
+    ///      left join Sys_User su on suig.UserCode = su.UserCode
+    ///      left join Sys_Group sg on suig.GroupCode = sg.GroupCode (System.cs:2146-2167).
+    ///    - Nếu có kết quả thì listUserInGroup.AddRange(objRT_Sys_GroupCur.Lst_Sys_UserInGroup) (gate dòng 552-555).
+    /// 4. Gán ViewBag.GroupCode = groupcode, ViewBag.ListUserInGroup = listUserInGroup (gate dòng 557-558).
+    /// 5. Trả về JsonView("GetSysUser", listSysUser) (gate dòng 559).
+    /// 6. Bắt ngoại lệ catch (Exception ex) -> PortResult.Fail("Sys_Group_Get", "Exception", ex.Message) (gate dòng 561-566, System.cs:1992, TError.ErridQContract.Sys_Group_Get).
+    /// </summary>
+    [HttpPost("getsysuser")]
+    public async Task<IActionResult> GetSysUser([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_GetSysUserReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào groupcode (Gate Sys_GroupController.cs:477)
+            var groupCode = StdParam(req?.GroupCode);
+            if (string.IsNullOrEmpty(groupCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupcode", out var qGroupCode))
+            {
+                groupCode = StdParam(qGroupCode.ToString());
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(groupCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_GetSysUserReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    groupCode = StdParam(modelObj?.GroupCode);
+                }
+                catch
+                {
+                    groupCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Danh sách người dùng trạng thái Active (Gate Sys_GroupController.cs:489-522)
+            // sysUser.FlagActive = Client_Flag.Active ("1")
+            var flagActive = req?.FlagActive != null ? StdFlag(req.FlagActive) : "1";
+            var mst = StdParam(req?.MST);
+            var orgId = StdParam(req?.OrgID);
+
+            var userQuery = _db.Set<Sys_User>().AsNoTracking();
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                userQuery = userQuery.Where(u => EF.Functions.Like((u.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(mst))
+            {
+                userQuery = userQuery.Where(u => EF.Functions.Like((u.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                userQuery = userQuery.Where(u => EF.Functions.Like((u.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var listSysUser = await userQuery.OrderBy(u => u.UserCode).ToListAsync();
+            foreach (var u in listSysUser)
+            {
+                u.UserPassword = Default_PasswordMask;
+            }
+
+            // 3. Danh sách người dùng trong nhóm (Gate Sys_GroupController.cs:524-556)
+            // Lọc theo groupcode nếu có (System.cs:2081, 2146-2167)
+            var groupQuery = _db.Set<Sys_Group>().AsNoTracking();
+            if (!string.IsNullOrEmpty(groupCode))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(mst))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+
+            var groups = groupQuery.OrderBy(x => x.GroupCode);
+
+            var mappingQuery = from t in groups
+                               join suig in _db.Set<Sys_UserInGroup>().AsNoTracking() on t.GroupCode equals suig.GroupCode
+                               join su in _db.Set<Sys_User>().AsNoTracking() on suig.UserCode equals su.UserCode into gUser
+                               from su in gUser.DefaultIfEmpty()
+                               join sg in _db.Set<Sys_Group>().AsNoTracking() on suig.GroupCode equals sg.GroupCode into gGroup
+                               from sg in gGroup.DefaultIfEmpty()
+                               orderby t.GroupCode, suig.UserCode
+                               select new Sys_UserInGroup
+                               {
+                                   GroupCode = suig.GroupCode,
+                                   UserCode = suig.UserCode,
+                                   MST = suig.MST ?? (sg != null ? sg.MST : null),
+                                   LogLUDTimeUTC = suig.LogLUDTimeUTC,
+                                   LogLUBy = suig.LogLUBy,
+                                   su_UserCode = su != null ? su.UserCode : suig.UserCode,
+                                   su_UserName = su != null ? su.UserName : null,
+                                   su_FlagSysAdmin = su != null ? su.FlagSysAdmin : null,
+                                   su_FlagActive = su != null ? su.FlagActive : null,
+                                   sg_GroupCode = sg != null ? sg.GroupCode : suig.GroupCode,
+                                   sg_GroupName = sg != null ? sg.GroupName : null,
+                                   sg_FlagActive = sg != null ? sg.FlagActive : null,
+                               };
+
+            var listUserInGroup = await mappingQuery.ToListAsync();
+
+            // 4. Trả về kết quả khớp Model và ViewBag của gate MVC (Sys_GroupController.cs:557-559)
+            // Model: listSysUser; ViewBag: GroupCode, ListUserInGroup
+            var data = new Sys_Group_GetSysUserData
+            {
+                GroupCode = groupCode,
+                ListSysUser = listSysUser,
+                Lst_Sys_User = listSysUser,
+                ListUserInGroup = listUserInGroup,
+                Lst_Sys_UserInGroup = listUserInGroup
+            };
+
+            return Ok(new
+            {
+                Success = true,
+                Data = data,
+                ListSysUser = listSysUser,
+                ListUserInGroup = listUserInGroup,
+                GroupCode = groupCode
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -947,4 +1101,30 @@ public class Sys_Group_DeleteReq
 {
     public string? GroupCode { get; set; }
     public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action GetSysUser của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:477 GetSysUser(string groupcode = "")
+/// </summary>
+public class Sys_Group_GetSysUserReq
+{
+    public string? GroupCode { get; set; }
+    public string? MST { get; set; }
+    public string? OrgID { get; set; }
+    public string? FlagActive { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO cấu trúc dữ liệu trả về cho action GetSysUser của Sys_GroupController.
+/// Khớp với Model Sys_User (danh sách người dùng active) và ViewBag (GroupCode, ListUserInGroup).
+/// </summary>
+public class Sys_Group_GetSysUserData
+{
+    public string? GroupCode { get; set; }
+    public List<Sys_User> ListSysUser { get; set; } = new();
+    public List<Sys_User> Lst_Sys_User { get; set; } = new();
+    public List<Sys_UserInGroup> ListUserInGroup { get; set; } = new();
+    public List<Sys_UserInGroup> Lst_Sys_UserInGroup { get; set; } = new();
 }

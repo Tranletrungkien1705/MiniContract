@@ -873,6 +873,163 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSysUser_NullReq_ReturnsAllActiveUsersAndAllGroupMappings()
+    {
+        var result = await _controller.GetSysUser(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        var listSysUser = data.GetProperty("ListSysUser");
+        var listUserInGroup = data.GetProperty("ListUserInGroup");
+
+        Assert.Equal(3, listSysUser.GetArrayLength());
+        Assert.Equal(4, listUserInGroup.GetArrayLength());
+
+        // Kiểm tra mật khẩu được che
+        for (int i = 0; i < listSysUser.GetArrayLength(); i++)
+        {
+            Assert.Equal("*********", listSysUser[i].GetProperty("UserPassword").GetString());
+        }
+
+        // Top-level properties
+        Assert.Equal(3, root.GetProperty("ListSysUser").GetArrayLength());
+        Assert.Equal(4, root.GetProperty("ListUserInGroup").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysUser_FilterByGroupCode_AdminGroup_ReturnsTwoMappings()
+    {
+        var req = new Sys_Group_GetSysUserReq { GroupCode = "GRP_ADMIN" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_ADMIN", data.GetProperty("GroupCode").GetString());
+
+        var listSysUser = data.GetProperty("ListSysUser");
+        Assert.Equal(3, listSysUser.GetArrayLength());
+
+        var listUserInGroup = data.GetProperty("ListUserInGroup");
+        Assert.Equal(2, listUserInGroup.GetArrayLength());
+        Assert.Equal("U01", listUserInGroup[0].GetProperty("UserCode").GetString());
+        Assert.Equal("U02", listUserInGroup[1].GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysUser_FilterByGroupCode_ManagerGroup_ReturnsOneMapping()
+    {
+        var req = new Sys_Group_GetSysUserReq { GroupCode = "grp_manager" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_MANAGER", data.GetProperty("GroupCode").GetString());
+
+        var listUserInGroup = data.GetProperty("ListUserInGroup");
+        Assert.Equal(1, listUserInGroup.GetArrayLength());
+        Assert.Equal("U02", listUserInGroup[0].GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysUser_FilterByGroupCode_StaffGroup_ReturnsEmptyMappings()
+    {
+        var req = new Sys_Group_GetSysUserReq { GroupCode = "GRP_STAFF" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_STAFF", data.GetProperty("GroupCode").GetString());
+
+        var listSysUser = data.GetProperty("ListSysUser");
+        Assert.Equal(3, listSysUser.GetArrayLength());
+
+        var listUserInGroup = data.GetProperty("ListUserInGroup");
+        Assert.Equal(0, listUserInGroup.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysUser_FilterByGroupCode_NonExistentGroup_ReturnsEmptyMappings()
+    {
+        var req = new Sys_Group_GetSysUserReq { GroupCode = "GRP_NONEXISTENT" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_NONEXISTENT", data.GetProperty("GroupCode").GetString());
+
+        var listUserInGroup = data.GetProperty("ListUserInGroup");
+        Assert.Equal(0, listUserInGroup.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysUser_ViaModelJson_Success()
+    {
+        var req = new Sys_Group_GetSysUserReq { Model = "{\"GroupCode\":\"GRP_ADMIN\"}" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_ADMIN", data.GetProperty("GroupCode").GetString());
+        Assert.Equal(2, data.GetProperty("ListUserInGroup").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysUser_ViaRawCodeInModel_Success()
+    {
+        var req = new Sys_Group_GetSysUserReq { Model = "GRP_ACCOUNTANT" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("GRP_ACCOUNTANT", data.GetProperty("GroupCode").GetString());
+        Assert.Equal(1, data.GetProperty("ListUserInGroup").GetArrayLength());
+        Assert.Equal("U03", data.GetProperty("ListUserInGroup")[0].GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysUser_FilterByFlagActive_Inactive_ReturnsEmptySysUser()
+    {
+        var req = new Sys_Group_GetSysUserReq { FlagActive = "0" };
+        var result = await _controller.GetSysUser(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(0, data.GetProperty("ListSysUser").GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -1015,6 +1172,108 @@ public class Sys_GroupControllerPortTests : IDisposable
             Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
             var data9 = doc9.RootElement.GetProperty("Data");
             Assert.Equal(0, data9.GetArrayLength());
+
+            // 9a. Ca GetSysUser body rỗng: POST /api/sys_group/getsysuser {} -> 200 OK, ListSysUser=3, ListUserInGroup=4
+            var req9a = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res9a = await http.PostAsync("/api/sys_group/getsysuser", req9a);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9a.StatusCode);
+            var body9a = await res9a.Content.ReadAsStringAsync();
+            var doc9a = JsonDocument.Parse(body9a);
+            Assert.True(doc9a.RootElement.GetProperty("Success").GetBoolean());
+            var data9a = doc9a.RootElement.GetProperty("Data");
+            var listSysUser9a = data9a.GetProperty("ListSysUser");
+            var listUserInGroup9a = data9a.GetProperty("ListUserInGroup");
+            Assert.Equal(3, listSysUser9a.GetArrayLength());
+            Assert.Equal(4, listUserInGroup9a.GetArrayLength());
+            // Kiểm tra mật khẩu được che bằng "*********"
+            for (int i = 0; i < listSysUser9a.GetArrayLength(); i++)
+            {
+                Assert.Equal("*********", listSysUser9a[i].GetProperty("UserPassword").GetString());
+            }
+
+            // 9b. Ca GetSysUser lọc GroupCode="GRP_ADMIN" -> 200 OK, ListSysUser=3, ListUserInGroup=2 (U01, U02)
+            var req9b = new StringContent("{\"GroupCode\":\"GRP_ADMIN\"}", Encoding.UTF8, "application/json");
+            var res9b = await http.PostAsync("/api/sys_group/getsysuser", req9b);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9b.StatusCode);
+            var body9b = await res9b.Content.ReadAsStringAsync();
+            var doc9b = JsonDocument.Parse(body9b);
+            Assert.True(doc9b.RootElement.GetProperty("Success").GetBoolean());
+            var data9b = doc9b.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_ADMIN", data9b.GetProperty("GroupCode").GetString());
+            Assert.Equal(3, data9b.GetProperty("ListSysUser").GetArrayLength());
+            Assert.Equal(2, data9b.GetProperty("ListUserInGroup").GetArrayLength());
+            Assert.Equal("U01", data9b.GetProperty("ListUserInGroup")[0].GetProperty("UserCode").GetString());
+            Assert.Equal("U02", data9b.GetProperty("ListUserInGroup")[1].GetProperty("UserCode").GetString());
+
+            // 9c. Ca GetSysUser lọc GroupCode="GRP_MANAGER" (bộ lọc B khác số dòng ca 9b) -> 200 OK, ListSysUser=3, ListUserInGroup=1 (U02)
+            var req9c = new StringContent("{\"GroupCode\":\"GRP_MANAGER\"}", Encoding.UTF8, "application/json");
+            var res9c = await http.PostAsync("/api/sys_group/getsysuser", req9c);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9c.StatusCode);
+            var body9c = await res9c.Content.ReadAsStringAsync();
+            var doc9c = JsonDocument.Parse(body9c);
+            Assert.True(doc9c.RootElement.GetProperty("Success").GetBoolean());
+            var data9c = doc9c.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_MANAGER", data9c.GetProperty("GroupCode").GetString());
+            Assert.Equal(3, data9c.GetProperty("ListSysUser").GetArrayLength());
+            Assert.Equal(1, data9c.GetProperty("ListUserInGroup").GetArrayLength());
+            Assert.Equal("U02", data9c.GetProperty("ListUserInGroup")[0].GetProperty("UserCode").GetString());
+
+            // 9d. Ca GetSysUser lọc nhóm không có user: GroupCode="GRP_STAFF" -> 200 OK, ListSysUser=3, ListUserInGroup=0 []
+            var req9d = new StringContent("{\"GroupCode\":\"GRP_STAFF\"}", Encoding.UTF8, "application/json");
+            var res9d = await http.PostAsync("/api/sys_group/getsysuser", req9d);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9d.StatusCode);
+            var body9d = await res9d.Content.ReadAsStringAsync();
+            var doc9d = JsonDocument.Parse(body9d);
+            Assert.True(doc9d.RootElement.GetProperty("Success").GetBoolean());
+            var data9d = doc9d.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_STAFF", data9d.GetProperty("GroupCode").GetString());
+            Assert.Equal(3, data9d.GetProperty("ListSysUser").GetArrayLength());
+            Assert.Equal(0, data9d.GetProperty("ListUserInGroup").GetArrayLength());
+
+            // 9e. Ca GetSysUser lọc nhóm không tồn tại: GroupCode="GRP_NONEXISTENT" -> 200 OK, ListSysUser=3, ListUserInGroup=0 []
+            var req9e = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\"}", Encoding.UTF8, "application/json");
+            var res9e = await http.PostAsync("/api/sys_group/getsysuser", req9e);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9e.StatusCode);
+            var body9e = await res9e.Content.ReadAsStringAsync();
+            var doc9e = JsonDocument.Parse(body9e);
+            Assert.True(doc9e.RootElement.GetProperty("Success").GetBoolean());
+            var data9e = doc9e.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_NONEXISTENT", data9e.GetProperty("GroupCode").GetString());
+            Assert.Equal(3, data9e.GetProperty("ListSysUser").GetArrayLength());
+            Assert.Equal(0, data9e.GetProperty("ListUserInGroup").GetArrayLength());
+
+            // 9f. Ca GetSysUser lọc FlagActive="0" -> 200 OK, ListSysUser=0 []
+            var req9f = new StringContent("{\"FlagActive\":\"0\"}", Encoding.UTF8, "application/json");
+            var res9f = await http.PostAsync("/api/sys_group/getsysuser", req9f);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9f.StatusCode);
+            var body9f = await res9f.Content.ReadAsStringAsync();
+            var doc9f = JsonDocument.Parse(body9f);
+            Assert.True(doc9f.RootElement.GetProperty("Success").GetBoolean());
+            var data9f = doc9f.RootElement.GetProperty("Data");
+            Assert.Equal(0, data9f.GetProperty("ListSysUser").GetArrayLength());
+
+            // 9g. Ca GetSysUser qua Model JSON string -> 200 OK, ListUserInGroup=2
+            var req9g = new StringContent("{\"Model\":\"{\\\"GroupCode\\\":\\\"GRP_ADMIN\\\"}\"}", Encoding.UTF8, "application/json");
+            var res9g = await http.PostAsync("/api/sys_group/getsysuser", req9g);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9g.StatusCode);
+            var body9g = await res9g.Content.ReadAsStringAsync();
+            var doc9g = JsonDocument.Parse(body9g);
+            Assert.True(doc9g.RootElement.GetProperty("Success").GetBoolean());
+            var data9g = doc9g.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_ADMIN", data9g.GetProperty("GroupCode").GetString());
+            Assert.Equal(2, data9g.GetProperty("ListUserInGroup").GetArrayLength());
+
+            // 9h. Ca GetSysUser qua query string ?groupcode=GRP_ACCOUNTANT -> 200 OK, ListUserInGroup=1
+            var req9h = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res9h = await http.PostAsync("/api/sys_group/getsysuser?groupcode=GRP_ACCOUNTANT", req9h);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9h.StatusCode);
+            var body9h = await res9h.Content.ReadAsStringAsync();
+            var doc9h = JsonDocument.Parse(body9h);
+            Assert.True(doc9h.RootElement.GetProperty("Success").GetBoolean());
+            var data9h = doc9h.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_ACCOUNTANT", data9h.GetProperty("GroupCode").GetString());
+            Assert.Equal(1, data9h.GetProperty("ListUserInGroup").GetArrayLength());
+            Assert.Equal("U03", data9h.GetProperty("ListUserInGroup")[0].GetProperty("UserCode").GetString());
 
             // 10. Ca Create body rỗng -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_Create
             var req10 = new StringContent("{}", Encoding.UTF8, "application/json");
