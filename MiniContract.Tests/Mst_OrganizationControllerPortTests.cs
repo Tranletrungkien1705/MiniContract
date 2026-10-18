@@ -30,10 +30,11 @@ public class Mst_OrganizationControllerPortTests : IDisposable
         _db = new AppDbContext(opt, new TenantContext { OrgId = TenantContext.DefaultOrgId });
         _db.Database.EnsureCreated();
 
-        // Chạy seeder Mst_Area trước (Order = 20) rồi Mst_Org (Order = 22) và Mst_NNT (Order = 25)
+        // Chạy seeder Mst_Area trước (Order = 20) rồi Mst_Org (Order = 22), Mst_NNT (Order = 25), Mst_OrgSignConfig (Order = 40)
         new Mst_AreaSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_OrgSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_NNTSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_OrgSignConfigSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
         var config = new Microsoft.Extensions.Configuration.ConfigurationManager();
         config["Biz_NetworkID"] = "1001";
@@ -394,6 +395,94 @@ public class Mst_OrganizationControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_NullBody_ReturnsSuccessWithNullData()
+    {
+        var result = await _controller.Update(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_EmptyBody_ReturnsSuccessWithNullData()
+    {
+        var req = new Mst_Organization_UpdateReq();
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_NonExistentMST_ReturnsSuccessWithNullData()
+    {
+        var req = new Mst_Organization_UpdateReq { MST = "9999999999" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ExistingMST1_ReturnsDetailsAndAncillaryLists()
+    {
+        var req = new Mst_Organization_UpdateReq { MST = "0100000001" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("Công ty TNHH Giải Pháp Số Hà Nội", data.GetProperty("NNTFullName").GetString());
+        Assert.Equal("Miền Bắc", data.GetProperty("ma_AreaName").GetString());
+
+        // Kiểm tra danh sách cấu hình chữ ký số đi kèm (OrgID 7200000001 có 3 bản ghi)
+        var signConfigs = data.GetProperty("Lst_Mst_OrgSignConfig");
+        Assert.Equal(3, signConfigs.GetArrayLength());
+
+        // Kiểm tra danh sách vùng thị trường active (có 3 bản ghi MB 7200000001, MN 7200000001, MB 7200000002)
+        var areas = data.GetProperty("List_Mst_Area");
+        Assert.Equal(3, areas.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Update_ExistingMST3_ReturnsDifferentSignConfigCount()
+    {
+        var req = new Mst_Organization_UpdateReq { MST = "0100000003" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("0100000003", data.GetProperty("MST").GetString());
+        Assert.Equal("7200000002", data.GetProperty("OrgID").GetString());
+        Assert.Equal("Văn phòng Đại diện Miền Trung", data.GetProperty("NNTFullName").GetString());
+
+        // Kiểm tra danh sách cấu hình chữ ký số đi kèm (OrgID 7200000002 có 0 bản ghi)
+        var signConfigs = data.GetProperty("Lst_Mst_OrgSignConfig");
+        Assert.Equal(0, signConfigs.GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8583()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -528,6 +617,50 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             Assert.Equal(1, doc9.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
             Assert.Equal("0100000099", doc9.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("MST").GetString());
             Assert.Equal("Chi nhánh Cần Thơ", doc9.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("NNTFullName").GetString());
+
+            // Request 10: POST /api/mst_organization/update empty body -> 200 OK với Data null
+            var req10 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/mst_organization/update", req10);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ10 (Update Empty Body): {body10}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10.StatusCode);
+            var doc10 = JsonDocument.Parse(body10);
+            Assert.True(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc10.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 11: POST /api/mst_organization/update non-existent MST -> 200 OK với Data null
+            var req11 = new StringContent("{\"MST\":\"9999999999\"}", Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/mst_organization/update", req11);
+            var body11 = await res11.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ11 (Update Non-existent MST): {body11}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res11.StatusCode);
+            var doc11 = JsonDocument.Parse(body11);
+            Assert.True(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc11.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 12: POST /api/mst_organization/update MST 0100000001 -> 200 OK với Data chi tiết và 3 CKS
+            var req12 = new StringContent("{\"MST\":\"0100000001\"}", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/mst_organization/update", req12);
+            var body12 = await res12.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ12 (Update MST 0100000001): {body12}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res12.StatusCode);
+            var doc12 = JsonDocument.Parse(body12);
+            Assert.True(doc12.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0100000001", doc12.RootElement.GetProperty("Data").GetProperty("MST").GetString());
+            Assert.Equal("7200000001", doc12.RootElement.GetProperty("Data").GetProperty("OrgID").GetString());
+            Assert.Equal(3, doc12.RootElement.GetProperty("Data").GetProperty("Lst_Mst_OrgSignConfig").GetArrayLength());
+
+            // Request 13: POST /api/mst_organization/update MST 0100000003 -> 200 OK với 0 CKS (2 bộ lọc ra số dòng khác nhau)
+            var req13 = new StringContent("{\"MST\":\"0100000003\"}", Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/mst_organization/update", req13);
+            var body13 = await res13.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ13 (Update MST 0100000003): {body13}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res13.StatusCode);
+            var doc13 = JsonDocument.Parse(body13);
+            Assert.True(doc13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0100000003", doc13.RootElement.GetProperty("Data").GetProperty("MST").GetString());
+            Assert.Equal("7200000002", doc13.RootElement.GetProperty("Data").GetProperty("OrgID").GetString());
+            Assert.Equal(0, doc13.RootElement.GetProperty("Data").GetProperty("Lst_Mst_OrgSignConfig").GetArrayLength());
         }
         finally
         {
