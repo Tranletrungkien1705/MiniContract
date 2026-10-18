@@ -421,6 +421,148 @@ public class Mst_OrgCKSControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_NullBody_FailsWithCheckStrJson()
+    {
+        var result = await _controller.Delete(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_Delete", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyBody_FailsWithCheckStrJson()
+    {
+        var req = new Mst_OrgCKS_DeleteReq();
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_Delete", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NotFoundAutoId_FailsWithOrganNotFound()
+    {
+        var req = new Mst_OrgCKS_DeleteReq
+        {
+            AutoID = 999999,
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+
+        var p = root.GetProperty("Params");
+        Assert.Equal(999999, p.GetProperty("Check.AutoID").GetInt64());
+    }
+
+    [Fact]
+    public async Task Delete_ZeroOrNegativeAutoId_FailsWithOrganNotFound()
+    {
+        var req = new Mst_OrgCKS_DeleteReq
+        {
+            AutoID = 0
+        };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_RoundTrip_SuccessAndRemovesFromDb()
+    {
+        // Tạo bản ghi mới để xóa
+        var entity = new Mst_OrgSignConfig
+        {
+            OrgID = "7200000099",
+            SignType = "USBTOKEN",
+            CANumber = "CA_DEL_01",
+            CAOrg = "VNPT-CA",
+            FlagActive = "1"
+        };
+        _db.Set<Mst_OrgSignConfig>().Add(entity);
+        await _db.SaveChangesAsync();
+
+        var autoId = entity.AutoID;
+        Assert.True(autoId > 0);
+
+        var req = new Mst_OrgCKS_DeleteReq
+        {
+            AutoID = autoId,
+            OrgID = "7200000099"
+        };
+
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        // Kiểm tra round-trip: bản ghi không còn trong DB
+        var inDb = await _db.Set<Mst_OrgSignConfig>().FindAsync(autoId);
+        Assert.Null(inDb);
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJson_Success()
+    {
+        // Tạo bản ghi mới để xóa qua Model JSON
+        var entity = new Mst_OrgSignConfig
+        {
+            OrgID = "7200000099",
+            SignType = "REMOTE",
+            CANumber = "CA_DEL_02",
+            FlagActive = "1"
+        };
+        _db.Set<Mst_OrgSignConfig>().Add(entity);
+        await _db.SaveChangesAsync();
+
+        var autoId = entity.AutoID;
+
+        var jsonModel = JsonSerializer.Serialize(new
+        {
+            AutoID = autoId,
+            OrgID = "7200000099"
+        });
+
+        var req = new Mst_OrgCKS_DeleteReq
+        {
+            Model = jsonModel
+        };
+
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        // Kiểm tra bản ghi đã bị xóa khỏi DB
+        var inDb = await _db.Set<Mst_OrgSignConfig>().FindAsync(autoId);
+        Assert.Null(inDb);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8544()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -514,6 +656,57 @@ public class Mst_OrgCKSControllerPortTests : IDisposable
             var doc5 = JsonDocument.Parse(body5);
             Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("MODEL-JSON-CA", doc5.RootElement.GetProperty("Data").GetProperty("CAOrg").GetString());
+
+            // Ca 6 (Delete - Body rong): POST /api/mst_orgcks/delete voi {} -> 400 Bad Request voi ma loi Mst_OrgSignConfig_Delete
+            var req6 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_orgcks/delete", req6);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ6 (Delete empty body): {body6}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res6.StatusCode);
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.False(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_Delete", doc6.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 7 (Delete - NotFound): POST /api/mst_orgcks/delete voi AutoID 999999 -> 400 Bad Request voi ma loi OrganNotFound
+            var req7 = new StringContent("{\"AutoID\": 999999, \"OrgID\": \"7200000001\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_orgcks/delete", req7);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ7 (Delete AutoID 999999 NotFound): {body7}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res7.StatusCode);
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.False(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_CheckDB_OrganNotFound", doc7.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 8 (Delete - Round-trip): POST /api/mst_orgcks/delete voi AutoID 2 (USBTOKEN) -> 200 OK voi Success = true
+            var req8 = new StringContent("{\"AutoID\": 2, \"OrgID\": \"7200000001\"}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_orgcks/delete", req8);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ8 (Delete round-trip AutoID 2): {body8}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res8.StatusCode);
+            var doc8 = JsonDocument.Parse(body8);
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa chữ ký số thành công!", doc8.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 9 (Delete - Verify da bi xoa): POST /api/mst_orgcks/delete lai AutoID 2 -> 400 Bad Request OrganNotFound
+            var req9 = new StringContent("{\"AutoID\": 2, \"OrgID\": \"7200000001\"}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_orgcks/delete", req9);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ9 (Delete AutoID 2 again -> NotFound): {body9}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res9.StatusCode);
+            var doc9 = JsonDocument.Parse(body9);
+            Assert.False(doc9.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_OrgSignConfig_CheckDB_OrganNotFound", doc9.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 10 (Delete - Via Model JSON): POST /api/mst_orgcks/delete voi Model JSON -> 200 OK
+            var delModelJson = JsonSerializer.Serialize("{\"AutoID\":3,\"OrgID\":\"7200000001\"}");
+            var req10 = new StringContent($"{{\"Model\": {delModelJson}}}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/mst_orgcks/delete", req10);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ10 (Delete via Model JSON AutoID 3): {body10}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10.StatusCode);
+            var doc10 = JsonDocument.Parse(body10);
+            Assert.True(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa chữ ký số thành công!", doc10.RootElement.GetProperty("Messages")[0].GetString());
         }
         finally
         {
