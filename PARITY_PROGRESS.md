@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 80/295 (27.12%)
+**Tiến độ hiện tại**: 81/295 (27.46%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -273,7 +273,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 261 | Sys_AccessController/GetDetailData | Đã làm | 91ffe84 |
 | 262 | Sys_AccessController/GetFunction | Chưa làm | - |
 | 263 | Sys_AccessController/SaveFuncObjectInMenu | Chưa làm | - |
-| 264 | Sys_GroupController/Index | Chưa làm | - |
+| 264 | Sys_GroupController/Index | Đã làm | 39dafec |
 | 265 | Sys_GroupController/GetDetailData | Chưa làm | - |
 | 266 | Sys_GroupController/Create | Chưa làm | - |
 | 267 | Sys_GroupController/Update | Chưa làm | - |
