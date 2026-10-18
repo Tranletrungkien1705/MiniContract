@@ -1272,6 +1272,137 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_WithNullReq_ReturnsFailCheckStrJson()
+    {
+        var res = await _controller.Update(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Contains("Mst_Product_Get", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(doc.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Update_WithMissingPrlv_ReturnsFailCheckPrlv()
+    {
+        var req = new Mst_Product_UpdateReq { prroot = "PRD_ROOT_01" };
+        var res = await _controller.Update(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Contains("Mst_Product_Get", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(doc.RootElement.GetProperty("Params").TryGetProperty("Check.prlv", out _));
+    }
+
+    [Fact]
+    public async Task Update_RootProduct_ReturnsRootAndBaseProductsAndUnitCodeBaseEmpty()
+    {
+        var req = new Mst_Product_UpdateReq
+        {
+            OrgID = "1001",
+            prroot = "PRD_ROOT_01",
+            prlv = "ROOTPRD"
+        };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        var prd = data.GetProperty("Product");
+        Assert.Equal("PRD_BASE_01_1", prd.GetProperty("ProductCode").GetString());
+        Assert.Equal("BASEPRD", prd.GetProperty("ProductLevelSys").GetString());
+        Assert.Equal("", data.GetProperty("UnitCodeBase").GetString());
+
+        var listUnitCode = data.GetProperty("ListUnitCode");
+        Assert.Equal(1, listUnitCode.GetArrayLength());
+        Assert.Equal("PRD_L2_01_1", listUnitCode[0].GetProperty("ProductCode").GetString());
+        Assert.Equal("L2PRD", listUnitCode[0].GetProperty("ProductLevelSys").GetString());
+
+        var groups = data.GetProperty("List_Mst_ProductGroup");
+        Assert.Equal(2, groups.GetArrayLength());
+        var groupsUI = data.GetProperty("List_Mst_ProductGroupUI");
+        Assert.Equal(2, groupsUI.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Update_Level2Product_ReturnsUnitCodeBaseFromRootAndListUnitCode()
+    {
+        var req = new Mst_Product_UpdateReq
+        {
+            OrgID = "1001",
+            prcode = "PRD_L2_01_1",
+            prroot = "PRD_ROOT_01",
+            prlv = "L2PRD"
+        };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("CAI", data.GetProperty("UnitCodeBase").GetString());
+
+        var listUnitCode = data.GetProperty("ListUnitCode");
+        Assert.Equal(1, listUnitCode.GetArrayLength());
+        Assert.Equal("PRD_L2_01_1", listUnitCode[0].GetProperty("ProductCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_NonExistentProduct_ReturnsEmptyProductAndEmptyListUnitCode()
+    {
+        var req = new Mst_Product_UpdateReq
+        {
+            OrgID = "1001",
+            prcode = "KHONG_TON_TAI",
+            prroot = "KHONG_TON_TAI",
+            prlv = "ROOTPRD"
+        };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Null, data.GetProperty("Product").ValueKind);
+        Assert.Equal(0, data.GetProperty("ListUnitCode").GetArrayLength());
+        Assert.Equal(2, data.GetProperty("List_Mst_ProductGroup").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Update_TwoFilters_ReturnDifferentCounts()
+    {
+        // Bộ lọc 1: prroot = "PRD_ROOT_01", prlv = "ROOTPRD", OrgID = "1001" -> ListUnitCode có 1 phần tử (PRD_L2_01_1)
+        var req1 = new Mst_Product_UpdateReq
+        {
+            OrgID = "1001",
+            prroot = "PRD_ROOT_01",
+            prlv = "ROOTPRD"
+        };
+        var res1 = await _controller.Update(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var count1 = doc1.RootElement.GetProperty("Data").GetProperty("ListUnitCode").GetArrayLength();
+        Assert.Equal(1, count1);
+
+        // Bộ lọc 2: prroot = "PRD_ROOT_02", prlv = "ROOTPRD", OrgID = "1001" -> ListUnitCode có 0 phần tử
+        var req2 = new Mst_Product_UpdateReq
+        {
+            OrgID = "1001",
+            prroot = "PRD_ROOT_02",
+            prlv = "ROOTPRD"
+        };
+        var res2 = await _controller.Update(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        var count2 = doc2.RootElement.GetProperty("Data").GetProperty("ListUnitCode").GetArrayLength();
+        Assert.Equal(0, count2);
+
+        // 2 bộ lọc cho số dòng khác nhau (1 != 0)
+        Assert.NotEqual(count1, count2);
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -1673,6 +1804,61 @@ public class Mst_ProductControllerPortTests : IDisposable
             Assert.Equal(4, len37a);
             Assert.Equal(1, len37b);
             Assert.NotEqual(len37a, len37b);
+
+            // Ca 38: POST /api/mst_product/update với body rỗng hoàn toàn -> 400 Bad Request, Check.strJson
+            var req38 = new StringContent("", Encoding.UTF8, "application/json");
+            var res38 = await http.PostAsync("/api/mst_product/update", req38);
+            var body38 = await res38.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res38.StatusCode);
+            var doc38 = JsonDocument.Parse(body38);
+            Assert.False(doc38.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mst_Product_Get", doc38.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.True(doc38.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+
+            // Ca 39: POST /api/mst_product/update với body JSON {} (thiếu prlv) -> 400 Bad Request, Check.prlv
+            var req39 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res39 = await http.PostAsync("/api/mst_product/update", req39);
+            var body39 = await res39.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res39.StatusCode);
+            var doc39 = JsonDocument.Parse(body39);
+            Assert.False(doc39.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mst_Product_Get", doc39.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.True(doc39.RootElement.GetProperty("Params").TryGetProperty("Check.prlv", out _));
+
+            // Ca 40: POST /api/mst_product/update với prroot = PRD_ROOT_01, prlv = ROOTPRD, OrgID = 1001 -> 200 OK
+            var req40 = new StringContent("{\"OrgID\":\"1001\",\"prroot\":\"PRD_ROOT_01\",\"prlv\":\"ROOTPRD\"}", Encoding.UTF8, "application/json");
+            var res40 = await http.PostAsync("/api/mst_product/update", req40);
+            var body40 = await res40.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res40.StatusCode);
+            var doc40 = JsonDocument.Parse(body40);
+            Assert.True(doc40.RootElement.GetProperty("Success").GetBoolean());
+            var data40 = doc40.RootElement.GetProperty("Data");
+            Assert.Equal("PRD_BASE_01_1", data40.GetProperty("Product").GetProperty("ProductCode").GetString());
+            Assert.Equal("", data40.GetProperty("UnitCodeBase").GetString());
+            Assert.Equal(1, data40.GetProperty("ListUnitCode").GetArrayLength());
+            Assert.Equal("PRD_L2_01_1", data40.GetProperty("ListUnitCode")[0].GetProperty("ProductCode").GetString());
+            Assert.Equal(2, data40.GetProperty("List_Mst_ProductGroup").GetArrayLength());
+            Assert.Equal(2, data40.GetProperty("List_Mst_ProductGroupUI").GetArrayLength());
+
+            // Ca 41: POST /api/mst_product/update với prcode = PRD_L2_01_1, prroot = PRD_ROOT_01, prlv = L2PRD, OrgID = 1001 -> 200 OK, UnitCodeBase = CAI
+            var req41 = new StringContent("{\"OrgID\":\"1001\",\"prcode\":\"PRD_L2_01_1\",\"prroot\":\"PRD_ROOT_01\",\"prlv\":\"L2PRD\"}", Encoding.UTF8, "application/json");
+            var res41 = await http.PostAsync("/api/mst_product/update", req41);
+            var body41 = await res41.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res41.StatusCode);
+            var doc41 = JsonDocument.Parse(body41);
+            Assert.True(doc41.RootElement.GetProperty("Success").GetBoolean());
+            var data41 = doc41.RootElement.GetProperty("Data");
+            Assert.Equal("CAI", data41.GetProperty("UnitCodeBase").GetString());
+            Assert.Equal(1, data41.GetProperty("ListUnitCode").GetArrayLength());
+            Assert.Equal("PRD_L2_01_1", data41.GetProperty("ListUnitCode")[0].GetProperty("ProductCode").GetString());
+
+            // Ca 42: 2 bộ lọc Update cho ra số dòng khác nhau (PRD_ROOT_01 có ListUnitCode 1 dòng != PRD_ROOT_02 có ListUnitCode 0 dòng)
+            var req42 = new StringContent("{\"OrgID\":\"1001\",\"prroot\":\"PRD_ROOT_02\",\"prlv\":\"ROOTPRD\"}", Encoding.UTF8, "application/json");
+            var res42 = await http.PostAsync("/api/mst_product/update", req42);
+            var doc42 = JsonDocument.Parse(await res42.Content.ReadAsStringAsync());
+            var count42 = doc42.RootElement.GetProperty("Data").GetProperty("ListUnitCode").GetArrayLength();
+            Assert.Equal(0, count42);
+            Assert.NotEqual(data40.GetProperty("ListUnitCode").GetArrayLength(), count42);
         }
         finally
         {

@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save), MstProductGroupController.cs:19-89 (WA_Mst_ProductGroup_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX), 30-146 (WAS_Mst_ProductGroup_Get), 147-293 (Mst_ProductGroup_Get), 295-459 (Mst_ProductGroup_GetX)
 [ApiController]
@@ -1326,6 +1326,217 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lấy thông tin hàng hóa / dịch vụ để hiển thị màn hình cập nhật (View Update).
+    /// Gate: Mst_ProductController.cs:1418-1901 Update(string prcode, string prbscode, string prroot, string prlv)
+    ///       Mst_ProductController.cs:5224-5249 strWhereClause_Mst_Product_Update(...)
+    ///       BaseController.cs:4618-4624 RT_Mst_Product_Get
+    ///       BaseController.cs:4625-4630 List_Mst_Product_Async
+    ///       BaseController.cs:4332-4337 List_Mst_ProductGroup_Async
+    /// API:  MstProductController.cs:19-87 WA_Mst_Product_Get
+    /// BIZ:  Product.cs:4230-4643 Mst_Product_Get, 4644-4802 WAS_Mst_Product_Get
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Guard kiểm tra body rỗng (LESSON A.15, A.21)
+            if (req == null)
+            {
+                return PortResult.Fail("Mst_Product_Get", "Check.strJson", null);
+            }
+
+            // 2. Chuẩn hoá tham số đầu vào (Gate Mst_ProductController.cs:1418)
+            var prcode = StdParam(req.prcode ?? req.ProductCode);
+            var prbscode = StdParam(req.prbscode ?? req.ProductCodeBase);
+            var prroot = StdParam(req.prroot ?? req.ProductCodeRoot);
+            var prlv = StdParam(req.prlv ?? req.ProductLevelSys);
+
+            // Nguồn gate Mst_ProductController.cs:1433 gọi prlv.Equals(...) ném NullReferenceException nếu prlv rỗng/null
+            if (string.IsNullOrEmpty(prlv))
+            {
+                return PortResult.Fail("Mst_Product_Get", "Check.prlv", null);
+            }
+
+            var orgId = StdParam(req.OrgID);
+            var networkId = StdParam(req.NetworkID);
+
+            var objRT_Mst_Product = new RT_Mst_Product();
+            var objMst_Product_Root = new Mst_Product();
+            var objMst_Product = new Mst_Product();
+            var listUnitCode = new List<Mst_Product>();
+            var unitCodeBase = "";
+
+            // 3. Phân nhánh theo prlv (Gate Mst_ProductController.cs:1433-1489)
+            if (string.Equals(prlv, "ROOTPRD", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(prlv, "BASEPRD", StringComparison.OrdinalIgnoreCase))
+            {
+                // Tìm kiếm sản phẩm root / base
+                objMst_Product.ProductCodeRoot = prroot;
+                objMst_Product.ProductCodeBase = prbscode;
+            }
+            else if (string.Equals(prlv, "L2PRD", StringComparison.OrdinalIgnoreCase))
+            {
+                // Tìm kiếm sản phẩm con
+                objMst_Product.ProductCode = prcode;
+                objMst_Product_Root.ProductCode = prroot;
+
+                // Lấy thông tin sản phẩm root để lấy UnitCodeBase (Gate Mst_ProductController.cs:1451-1488)
+                var rootQuery = _db.Set<Mst_Product>().AsNoTracking();
+                if (!string.IsNullOrEmpty(prroot))
+                {
+                    rootQuery = rootQuery.Where(x => EF.Functions.Like((x.ProductCode ?? "").ToLower(), PortQuery.Equal(prroot), PortQuery.Esc));
+                }
+                if (!string.IsNullOrEmpty(orgId))
+                {
+                    rootQuery = rootQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+                }
+                if (!string.IsNullOrEmpty(networkId))
+                {
+                    rootQuery = rootQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+                }
+
+                var rootPrd = await rootQuery.OrderBy(x => x.OrgID).ThenBy(x => x.ProductCode).FirstOrDefaultAsync();
+                if (rootPrd != null && !string.IsNullOrEmpty(rootPrd.UnitCode))
+                {
+                    unitCodeBase = rootPrd.UnitCode;
+                }
+            }
+
+            // 4. Lấy thông tin nhóm sản phẩm List_Mst_ProductGroup_Async (Gate Mst_ProductController.cs:1554-1576)
+            var groupQuery = _db.Set<Mst_ProductGroup>().AsNoTracking();
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listMstProductGroup = await groupQuery.OrderBy(x => x.ProductGrpCode).ToListAsync();
+
+            // Chuyển sang Mst_ProductGroupExt (Gate Mst_ProductController.cs:1780-1804)
+            var listMst_ProductGroupUI = new List<Mst_ProductGroupExt>();
+            foreach (var grp in listMstProductGroup)
+            {
+                listMst_ProductGroupUI.Add(new Mst_ProductGroupExt
+                {
+                    OrgID = grp.OrgID,
+                    ProductGrpCode = grp.ProductGrpCode,
+                    NetworkID = grp.NetworkID,
+                    ProductGrpCodeParent = grp.ProductGrpCodeParent,
+                    ProductGrpBUCode = grp.ProductGrpBUCode,
+                    ProductGrpBUPattern = grp.ProductGrpBUPattern,
+                    ProductGrpName = grp.ProductGrpName,
+                    ProductGrpLevel = grp.ProductGrpLevel,
+                    FlagActive = grp.FlagActive,
+                    LogLUDTimeUTC = grp.LogLUDTimeUTC,
+                    LogLUBy = grp.LogLUBy
+                });
+            }
+
+            // 5. Truy vấn bảng Mst_Product (strWhereClause_Mst_Product_Update: Gate Mst_ProductController.cs:1492, 5224-5249; BIZ Product.cs:4352, 4420)
+            var query = _db.Set<Mst_Product>().AsNoTracking();
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(objMst_Product.ProductCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ProductCode ?? "").ToLower(), PortQuery.Equal(objMst_Product.ProductCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(objMst_Product.ProductCodeBase))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ProductCodeBase ?? "").ToLower(), PortQuery.Equal(objMst_Product.ProductCodeBase), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(objMst_Product.ProductCodeRoot))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ProductCodeRoot ?? "").ToLower(), PortQuery.Equal(objMst_Product.ProductCodeRoot), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(objMst_Product.ProductLevelSys))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ProductLevelSys ?? "").ToLower(), PortQuery.Equal(objMst_Product.ProductLevelSys), PortQuery.Esc));
+            }
+
+            var listProduct = await query.OrderBy(x => x.OrgID).ThenBy(x => x.ProductCode).ToListAsync();
+
+            // 6. Xử lý tìm đơn vị cơ bản và đơn vị cấp 2 (Gate Mst_ProductController.cs:1728-1753)
+            Mst_Product? objMst_Mst_Product_Root_Base = null;
+            if (listProduct.Count > 0)
+            {
+                objMst_Mst_Product_Root_Base = listProduct.FirstOrDefault(it =>
+                    !string.IsNullOrEmpty(it.ProductLevelSys) &&
+                    (string.Equals(it.ProductLevelSys, "ROOTPRD", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(it.ProductLevelSys, "BASEPRD", StringComparison.OrdinalIgnoreCase)));
+
+                foreach (var item in listProduct)
+                {
+                    var productLevelSys = item.ProductLevelSys ?? "";
+                    if (string.Equals(productLevelSys, "L2PRD", StringComparison.OrdinalIgnoreCase))
+                    {
+                        listUnitCode.Add(item);
+                    }
+                }
+
+                objRT_Mst_Product.Lst_Mst_Product = new List<Mst_Product>();
+                if (objMst_Mst_Product_Root_Base != null)
+                {
+                    objRT_Mst_Product.Lst_Mst_Product.Add(objMst_Mst_Product_Root_Base);
+                }
+            }
+            else
+            {
+                objRT_Mst_Product.Lst_Mst_Product = new List<Mst_Product>();
+            }
+
+            // GAP: Các bảng Mst_ProductType, Mst_Brand, Prd_DynamicField, Mst_Attribute, Mst_VATRate, Product_CustomField, Prd_BOM, Mst_ProductImages, Mst_ProductFiles chưa có entity trong repo đích (Rule A.18)
+            // GAP: Mst_ProductService.Instance.WA_Mst_Product_Get gọi dịch vụ ngoài sang ProductCenter (Rule P3)
+
+            var responseData = new Mst_Product_UpdateResponse
+            {
+                Rt_Mst_Product = objRT_Mst_Product,
+                Product = objMst_Mst_Product_Root_Base,
+                UnitCodeBase = unitCodeBase,
+                ListUnitCode = listUnitCode,
+                List_Mst_ProductGroup = listMstProductGroup,
+                List_Mst_ProductGroupUI = listMst_ProductGroupUI,
+                List_Mst_ProductType = new List<object>(),
+                List_Mst_Brand = new List<object>(),
+                List_Prd_DynamicField = new List<object>(),
+                List_Mst_Attribute = new List<object>(),
+                List_Mst_VATRate = new List<object>(),
+                ListProduct_CustomField = new List<object>(),
+                List_Mst_ProductImages = new List<object>(),
+                List_Mst_ProductFiles = new List<object>()
+            };
+
+            // 7. Trả về kết quả JSON chuẩn hoá (Gate Mst_ProductController.cs:1888-1901 View(obj_RT_Mst_Product))
+            return Ok(new
+            {
+                Success = true,
+                Data = responseData,
+                Rt_Mst_Product = objRT_Mst_Product,
+                Lst_Mst_Product = objRT_Mst_Product.Lst_Mst_Product,
+                Product = objMst_Mst_Product_Root_Base,
+                UnitCodeBase = unitCodeBase,
+                ListUnitCode = listUnitCode,
+                List_Mst_ProductGroup = listMstProductGroup,
+                List_Mst_ProductGroupUI = listMst_ProductGroupUI
+            });
+        }
+        catch (Exception ex)
+        {
+            // BIZ Product.cs:4257, 4620: strErrorCodeDefault = TError.ErridQContract.Mst_Product_Get
+            return PortResult.Fail("Mst_Product_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1777,4 +1988,68 @@ public class Mst_Product_ProductIngredientReq
     // Các tham số lọc bổ sung (LESSON A.14)
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// Tham số đầu vào cho action Update của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:1418-1422 Update(string prcode, string prbscode, string prroot, string prlv)
+/// </summary>
+public class Mst_Product_UpdateReq
+{
+    // Gate Mst_ProductController.cs:1418-1422
+    public string? prcode { get; set; }
+    public string? prbscode { get; set; }
+    public string? prroot { get; set; }
+    public string? prlv { get; set; }
+
+    // Hỗ trợ alias tên trường chuẩn (ProductCode, ProductCodeBase, ProductCodeRoot, ProductLevelSys)
+    public string? ProductCode { get; set; }
+    public string? ProductCodeBase { get; set; }
+    public string? ProductCodeRoot { get; set; }
+    public string? ProductLevelSys { get; set; }
+
+    // Các tham số lọc bổ sung (LESSON A.14)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// DTO chứa dữ liệu trả về cho action Update của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:1888-1901
+/// </summary>
+public class Mst_Product_UpdateResponse
+{
+    public RT_Mst_Product? Rt_Mst_Product { get; set; }
+    public Mst_Product? Product { get; set; }
+    public string? UnitCodeBase { get; set; }
+    public List<Mst_Product> ListUnitCode { get; set; } = new();
+    public List<Mst_ProductGroup> List_Mst_ProductGroup { get; set; } = new();
+    public List<Mst_ProductGroupExt> List_Mst_ProductGroupUI { get; set; } = new();
+    public List<object> List_Mst_ProductType { get; set; } = new();
+    public List<object> List_Mst_Brand { get; set; } = new();
+    public List<object> List_Prd_DynamicField { get; set; } = new();
+    public List<object> List_Mst_Attribute { get; set; } = new();
+    public List<object> List_Mst_VATRate { get; set; } = new();
+    public List<object> ListProduct_CustomField { get; set; } = new();
+    public List<object> List_Mst_ProductImages { get; set; } = new();
+    public List<object> List_Mst_ProductFiles { get; set; } = new();
+}
+
+/// <summary>
+/// DTO mở rộng thông tin nhóm hàng hoá hiển thị trên giao diện Update.
+/// Gate: Mst_ProductController.cs:1780-1804
+/// </summary>
+public class Mst_ProductGroupExt
+{
+    public string? OrgID { get; set; }
+    public string? ProductGrpCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ProductGrpCodeParent { get; set; }
+    public string? ProductGrpBUCode { get; set; }
+    public string? ProductGrpBUPattern { get; set; }
+    public string? ProductGrpName { get; set; }
+    public string? ProductGrpLevel { get; set; }
+    public string? FlagActive { get; set; }
+    public string? LogLUDTimeUTC { get; set; }
+    public string? LogLUBy { get; set; }
 }
