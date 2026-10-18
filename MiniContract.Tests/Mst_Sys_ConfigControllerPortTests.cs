@@ -310,6 +310,101 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteAttribute_NullReq_ReturnsOrganNotFoundFail()
+    {
+        var result = await _controller.DeleteAttribute(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.AttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task DeleteAttribute_EmptyReq_ReturnsOrganNotFoundFail()
+    {
+        var req = new Mst_Sys_Config_DeleteAttributeReq();
+        var result = await _controller.DeleteAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.AttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task DeleteAttribute_NonExistentCode_ReturnsOrganNotFoundFail()
+    {
+        var req = new Mst_Sys_Config_DeleteAttributeReq { AttributeContractCode = "ATTR_NON_EXISTENT" };
+        var result = await _controller.DeleteAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("ATTR_NON_EXISTENT", p.GetProperty("Check.AttributeContractCode").GetString());
+    }
+
+    [Fact]
+    public async Task DeleteAttribute_ValidCode_RoundTrip_Success()
+    {
+        // Kiểm tra trước khi xoá: ATTR03 tồn tại trong DB
+        var before = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR03");
+        Assert.NotNull(before);
+
+        var req = new Mst_Sys_Config_DeleteAttributeReq { AttributeContractCode = "ATTR03" };
+        var result = await _controller.DeleteAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Xoá thông tin thành công!", messages[0].GetString());
+
+        // Kiểm tra sau khi xoá: ATTR03 không còn trong DB (round-trip)
+        var after = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR03");
+        Assert.Null(after);
+    }
+
+    [Fact]
+    public async Task DeleteAttribute_JsonModelString_Success()
+    {
+        // Kiểm tra trước khi xoá: ATTR02 tồn tại trong DB
+        var before = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR02");
+        Assert.NotNull(before);
+
+        var req = new Mst_Sys_Config_DeleteAttributeReq
+        {
+            Model = "{\"AttributeContractCode\":\"ATTR02\"}"
+        };
+        var result = await _controller.DeleteAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        // Kiểm tra sau khi xoá: ATTR02 không còn trong DB
+        var after = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR02");
+        Assert.Null(after);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8544()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_sys_config_{Guid.NewGuid():N}.db");
@@ -439,6 +534,46 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
             Assert.Equal("1", updatedConfig.GetProperty("FlagCurrency").GetString());
             Assert.Equal("1", updatedConfig.GetProperty("FlagColmnConfig").GetString());
             Assert.Equal("0", updatedConfig.GetProperty("FlagOTP").GetString());
+
+            // 9. Ca DeleteAttribute body rỗng: POST {} -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganNotFound
+            var req9 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_sys_config/deleteattribute", req9);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res9.StatusCode);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            var doc9 = JsonDocument.Parse(body9);
+            Assert.False(doc9.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", doc9.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal(JsonValueKind.Null, doc9.RootElement.GetProperty("Params").GetProperty("Check.AttributeContractCode").ValueKind);
+
+            // 10. Ca DeleteAttribute mã không tồn tại -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganNotFound
+            var req10 = new StringContent("{\"AttributeContractCode\":\"ATTR_NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/mst_sys_config/deleteattribute", req10);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res10.StatusCode);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            var doc10 = JsonDocument.Parse(body10);
+            Assert.False(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganNotFound", doc10.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("ATTR_NON_EXISTENT", doc10.RootElement.GetProperty("Params").GetProperty("Check.AttributeContractCode").GetString());
+
+            // 11. Ca DeleteAttribute round-trip thành công xoá ATTR03 -> 200 OK
+            var req11 = new StringContent("{\"AttributeContractCode\":\"ATTR03\"}", Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/mst_sys_config/deleteattribute", req11);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res11.StatusCode);
+            var body11 = await res11.Content.ReadAsStringAsync();
+            var doc11 = JsonDocument.Parse(body11);
+            Assert.True(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xoá thông tin thành công!", doc11.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 12. Đọc lại qua Index để xác nhận ATTR03 đã bị xoá thật trong DB (chỉ còn 2 thuộc tính)
+            var req12 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/mst_sys_config/index", req12);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res12.StatusCode);
+            var body12 = await res12.Content.ReadAsStringAsync();
+            var doc12 = JsonDocument.Parse(body12);
+            var listAttrAfter = doc12.RootElement.GetProperty("Data").GetProperty("ListMst_Attribute_Contract");
+            Assert.Equal(2, listAttrAfter.GetArrayLength());
+            Assert.Equal("ATTR01", listAttrAfter[0].GetProperty("AttributeContractCode").GetString());
+            Assert.Equal("ATTR02", listAttrAfter[1].GetProperty("AttributeContractCode").GetString());
         }
         finally
         {

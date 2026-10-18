@@ -11,10 +11,16 @@ namespace MiniContract.Controllers.Port;
 // port 1:1 Mst_Sys_ConfigController.cs — Mst_Sys_Config
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:21-90 (Index)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:94-167 (Update)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:170-217 (DeleteAttribute)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:20-88 (WA_Mst_Attribute_Contract_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:230-298 (WA_Mst_Attribute_Contract_Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstSysConfigController.cs:20-88 (WA_Mst_Sys_Config_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstSysConfigController.cs:91-159 (WA_Mst_Sys_Config_Update)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7224-7312 (WAS_Mst_Sys_Config_Get) -> 7313-7439 (Mst_Sys_Config_Get) -> 7441-7597 (Mst_Sys_Config_GetX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7599-7678 (WAS_Mst_Sys_Config_Update) -> 7679-7810 (Mst_Sys_Config_Update) -> 7812-7904 (Mst_Sys_Config_UpdateX) -> 7158-7222 (Mst_Sys_Config_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7974-8070 (WAS_Mst_Attribute_Contract_Get) -> 8071-8227 (Mst_Attribute_Contract_Get) -> 8923-9052 (Mst_Attribute_Contract_GetX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:8701-8778 (WAS_Mst_Attribute_Contract_Delete) -> 8779-8922 (Mst_Attribute_Contract_Delete) -> 9254-9309 (Mst_Attribute_Contract_DeleteX) -> 7908-7972 (Mst_Attribute_Contract_CheckDB)
 [ApiController]
 [Route("api/mst_sys_config")]
 public class Mst_Sys_ConfigControllerPort : ControllerBase
@@ -273,6 +279,90 @@ public class Mst_Sys_ConfigControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action DeleteAttribute từ gate Mst_Sys_ConfigController.cs:170-217.
+    /// Chuỗi gọi:
+    /// 1. Gate nhận tham số attributecontractcode (gate dòng 170).
+    /// 2. Gate tạo RQ_Mst_Attribute_Contract chứa Mst_Attribute_Contract(AttributeContractCode) và gọi
+    ///    Mst_Attribute_ContractService.Instance.WA_Mst_Attribute_Contract_Delete (gate dòng 183-206).
+    /// 3. API WA_Mst_Attribute_Contract_Delete (MstAttributeContractController.cs:230-298)
+    ///    -> BIZ WAS_Mst_Attribute_Contract_Delete (QContract.cs:8701-8778)
+    ///    -> Mst_Attribute_Contract_Delete (QContract.cs:8779-8922, mở transaction dòng 8812)
+    ///    -> Mst_Attribute_Contract_DeleteX (QContract.cs:9254-9309):
+    ///       - Chuẩn hoá strAttributeContractCode = StdParam(objAttributeContractCode) (dòng 9280).
+    ///       - Mst_Attribute_Contract_CheckDB (QContract.cs:7908-7972): kiểm tra tồn tại bản ghi trong Mst_Attribute_Contract (dòng 7918-7928).
+    ///         Nếu không tìm thấy bản ghi (dtDB.Rows.Count < 1) -> ném Mst_Attribute_Contract_CheckDB_OrganNotFound (dòng 7940).
+    ///       - Xoá bản ghi: dtDB_Mst_Attribute_Contract.Rows[0].Delete() và lưu DB (dòng 9300-9306).
+    ///       - Commit transaction (dòng 8885).
+    /// 4. Gate trả về JsonResultEntry(Success=true, "Xoá thông tin thành công!") (gate dòng 207-209).
+    /// </summary>
+    [HttpPost("deleteattribute")]
+    public async Task<IActionResult> DeleteAttribute([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Sys_Config_DeleteAttributeReq? req)
+    {
+        try
+        {
+            var rawCode = req?.AttributeContractCode;
+            if (string.IsNullOrWhiteSpace(rawCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(req.Model);
+                    if (doc.RootElement.TryGetProperty("AttributeContractCode", out var p1) ||
+                        doc.RootElement.TryGetProperty("attributecontractcode", out p1))
+                    {
+                        rawCode = p1.GetString();
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            var code = StdParam(rawCode);
+
+            // Guard: Kiểm tra tồn tại trong DB (Mst_Attribute_Contract_CheckDB: QContract.cs:7935-7944)
+            // Nếu mã null/rỗng hoặc không tìm thấy bản ghi trong DB -> ném Mst_Attribute_Contract_CheckDB_OrganNotFound
+            if (string.IsNullOrEmpty(code))
+            {
+                return PortResult.Fail("Mst_Attribute_Contract_CheckDB_OrganNotFound", "Check.AttributeContractCode", code);
+            }
+
+            var existing = await _db.Set<Mst_Attribute_Contract>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.AttributeContractCode ?? "").ToLower(), PortQuery.Equal(code), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                return PortResult.Fail("Mst_Attribute_Contract_CheckDB_OrganNotFound", "Check.AttributeContractCode", code);
+            }
+
+            // Mở transaction và xoá bản ghi (QContract.cs:8812, 9300-9306)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.Set<Mst_Attribute_Contract>().Remove(existing);
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Xoá thông tin thành công!" },
+                    Title = "Xoá thông tin thành công!"
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Attribute_Contract_Delete", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Attribute_Contract_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -329,4 +419,15 @@ public class Mst_Sys_Config_UpdateItem
     public string? FlagCurrency { get; set; }
     public string? FlagColmnConfig { get; set; }
     public string? FlagOTP { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action DeleteAttribute của Mst_Sys_ConfigController.
+/// </summary>
+public class Mst_Sys_Config_DeleteAttributeReq
+{
+    public string? Model { get; set; }
+    public string? AttributeContractCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
 }
