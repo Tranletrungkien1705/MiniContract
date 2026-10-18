@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -21,8 +22,10 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:477-567 (GetSysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:571-621 (SaveUserInGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:626-727 (GetSysObject)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:833-962 (Import)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:968-1028 (Export)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1059-1067 (GetImportDicColums)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1068-1075 (GetImportDicColumsTemplate)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1119-1138 (strWhereClause_SysUser)
@@ -61,6 +64,14 @@ public class Sys_GroupControllerPort : ControllerBase
         { "GroupName", "Tên nhóm người dùng" },
         { "FlagActive", "Trạng thái" }
     };
+
+    // Từ điển cột mẫu import Excel từ gate Sys_GroupController.cs:1068-1075 GetImportDicColumsTemplate()
+    private static readonly Dictionary<string, string> ImportTemplateDicColumns = new()
+    {
+        { "GroupCode", "Mã nhóm người dùng" },
+        { "GroupName", "Tên nhóm người dùng" }
+    };
+    private static readonly string[] ImportTemplateColumns = { "GroupCode", "GroupName" };
 
     // Hằng số che mật khẩu từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Constants\Const.Main.BE.cs:13
     private const string Default_PasswordMask = "*********";
@@ -262,6 +273,97 @@ public class Sys_GroupControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Thực hiện logic thêm mới một nhóm người dùng Sys_Group trong transaction riêng.
+    /// Dùng chung cho action Create và action Import (từng dòng).
+    /// Nguồn: zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
+    /// </summary>
+    private async Task<(IActionResult? error, Sys_Group? entity)> CreateCoreAsync(
+        string? rawGroupCode,
+        string? rawGroupName,
+        string? userCode,
+        string? mst = null)
+    {
+        // 1. Chuẩn hoá tham số đầu vào (zTemp.cs:1119-1121)
+        var groupCode = StdParam(rawGroupCode);
+        if (string.IsNullOrEmpty(groupCode))
+        {
+            // zTemp.cs:1126-1136
+            return (PortResult.Fail("Sys_Group_Create_InvalidGroupCode", "Check.strGroupCode", rawGroupCode), null);
+        }
+
+        // Mở transaction riêng cho từng bản ghi (zTemp.cs:1078)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 2. Sys_Group_CheckDB: Kiểm tra nhóm đã tồn tại chưa (zTemp.cs:1137-1143, System.cs:1372-1382)
+            var existingGroup = await _db.Set<Sys_Group>()
+                .AnyAsync(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            if (existingGroup)
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Sys_Group_CheckDB_GroupCodeExist", "Check.GroupCodeExist", groupCode), null);
+            }
+
+            // 3. Kiểm tra tên nhóm không được rỗng (zTemp.cs:1145-1155)
+            var trimmedGroupName = rawGroupName != null ? rawGroupName.Trim() : "";
+            if (trimmedGroupName.Length < 1)
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Sys_Group_Create_InvalidGroupName", "Check.strGroupName", rawGroupName ?? ""), null);
+            }
+
+            // 4. Xác định người dùng thực hiện và Sys_User_CheckDB (zTemp.cs:1159-1168, System.cs:3572-3609)
+            if (string.IsNullOrWhiteSpace(userCode))
+            {
+                userCode = "U01";
+            }
+
+            var dbUser = await _db.Set<Sys_User>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+            if (dbUser == null)
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Sys_User_CheckDB_UserCodeNotFound", "Check.UserCodeNotFound", userCode), null);
+            }
+
+            if (dbUser.FlagActive != "1")
+            {
+                await tx.RollbackAsync();
+                return (PortResult.Fail("Sys_User_CheckDB_FlagActiveNotMatched",
+                    "Check.UserCodeError", userCode,
+                    "Check.FlagActiveListToCheck", "1",
+                    "Check.FlagActiveCurrent", dbUser.FlagActive), null);
+            }
+
+            var strMST = StdParam(dbUser.MST) ?? StdParam(mst);
+
+            // 5. Lưu vào DB Sys_Group (zTemp.cs:1178-1194)
+            var dtimeSys = DateTime.UtcNow;
+            var entity = new Sys_Group
+            {
+                GroupCode = groupCode,
+                GroupName = trimmedGroupName,
+                MST = strMST,
+                FlagActive = "1",
+                LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUBy = userCode
+            };
+
+            _db.Set<Sys_Group>().Add(entity);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return (null, entity);
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return (PortResult.Fail("Sys_Group_Create", "Exception", ex.Message), null);
+        }
+    }
+
+    /// <summary>
     /// Port 1:1 action Create từ gate Sys_GroupController.cs:161-171 (GET), 173-213 (POST).
     /// Chuỗi gọi:
     /// 1. SysAccessCheckDeny(UserState, "MENU_QL_NHOM_NGUOI_DUNG_TAO_MOI") (gate dòng 163-167).
@@ -330,94 +432,22 @@ public class Sys_GroupControllerPort : ControllerBase
             return PortResult.Fail("Sys_Group_Create", "Check.strJson", null);
         }
 
-        // 2. Chuẩn hoá tham số đầu vào (zTemp.cs:1119-1121)
-        var groupCode = StdParam(req.GroupCode);
-        if (string.IsNullOrEmpty(groupCode))
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault() ?? req.WAUserCode ?? req.UserCode;
+        var (err, entity) = await CreateCoreAsync(req.GroupCode, req.GroupName, userCode, req.MST);
+        if (err != null)
         {
-            // zTemp.cs:1126-1136
-            return PortResult.Fail("Sys_Group_Create_InvalidGroupCode", "Check.strGroupCode", req.GroupCode);
+            return err;
         }
 
-        // Mở transaction (zTemp.cs:1078)
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
+        // 7. Trả kết quả thành công khớp gate MVC (Sys_GroupController.cs:209-212)
+        return Ok(new
         {
-            // 3. Sys_Group_CheckDB: Kiểm tra nhóm đã tồn tại chưa (zTemp.cs:1137-1143, System.cs:1372-1382)
-            var existingGroup = await _db.Set<Sys_Group>()
-                .AnyAsync(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
-            if (existingGroup)
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Sys_Group_CheckDB_GroupCodeExist", "Check.GroupCodeExist", groupCode);
-            }
-
-            // 4. Kiểm tra tên nhóm không được rỗng (zTemp.cs:1145-1155)
-            var rawGroupName = req.GroupName != null ? req.GroupName.Trim() : "";
-            if (rawGroupName.Length < 1)
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Sys_Group_Create_InvalidGroupName", "Check.strGroupName", req.GroupName ?? "");
-            }
-            var groupName = rawGroupName;
-
-            // 5. Xác định người dùng thực hiện và Sys_User_CheckDB (zTemp.cs:1159-1168, System.cs:3572-3609)
-            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault() ?? req.WAUserCode ?? req.UserCode;
-            if (string.IsNullOrWhiteSpace(userCode))
-            {
-                userCode = "U01";
-            }
-
-            var dbUser = await _db.Set<Sys_User>()
-                .FirstOrDefaultAsync(x => EF.Functions.Like((x.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
-
-            if (dbUser == null)
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Sys_User_CheckDB_UserCodeNotFound", "Check.UserCodeNotFound", userCode);
-            }
-
-            if (dbUser.FlagActive != "1")
-            {
-                await tx.RollbackAsync();
-                return PortResult.Fail("Sys_User_CheckDB_FlagActiveNotMatched",
-                    "Check.UserCodeError", userCode,
-                    "Check.FlagActiveListToCheck", "1",
-                    "Check.FlagActiveCurrent", dbUser.FlagActive);
-            }
-
-            var strMST = StdParam(dbUser.MST) ?? StdParam(req.MST);
-
-            // 6. Lưu vào DB Sys_Group (zTemp.cs:1178-1194)
-            var dtimeSys = DateTime.UtcNow;
-            var entity = new Sys_Group
-            {
-                GroupCode = groupCode,
-                GroupName = groupName,
-                MST = strMST,
-                FlagActive = "1",
-                LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
-                LogLUBy = userCode
-            };
-
-            _db.Set<Sys_Group>().Add(entity);
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            // 7. Trả kết quả thành công khớp gate MVC (Sys_GroupController.cs:209-212)
-            return Ok(new
-            {
-                Success = true,
-                Messages = new[] { "Tạo nhóm người dùng thành công!" },
-                Title = "Tạo nhóm người dùng thành công!",
-                RedirectUrl = "/Sys_Group",
-                Data = entity
-            });
-        }
-        catch (Exception ex)
-        {
-            await tx.RollbackAsync();
-            return PortResult.Fail("Sys_Group_Create", "Exception", ex.Message);
-        }
+            Success = true,
+            Messages = new[] { "Tạo nhóm người dùng thành công!" },
+            Title = "Tạo nhóm người dùng thành công!",
+            RedirectUrl = "/Sys_Group",
+            Data = entity
+        });
     }
 
     /// <summary>
@@ -1475,6 +1505,183 @@ public class Sys_GroupControllerPort : ControllerBase
         catch (Exception ex)
         {
             return PortResult.Fail("Sys_Group_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Port 1:1 action Import từ gate Sys_GroupController.cs:833-962.
+    /// Chuỗi gọi:
+    /// 1. Nhận file upload HttpPostedFileWrapper file (gate dòng 833).
+    /// 2. Khởi tạo resultEntry = new JsonResultEntry { Success = false } (gate dòng 835).
+    /// 3. Lấy UserState: AddressAPIs, waUserCode, waUserPassword (gate dòng 836-840).
+    /// 4. Kiểm tra phần mở rộng tệp: if (ext != ".xlsx" && ext != ".xls") ->
+    ///    exitsData = "File excel import không hợp lệ!", resultEntry.AddMessage, return Json (gate dòng 848-852).
+    /// 5. Đọc bảng tính bằng ExcelImportNew.Query(filePath, "A2") (gate dòng 864).
+    /// 6. Kiểm tra dữ liệu bảng tính:
+    ///    - Nếu table == null || table.Rows.Count <= 0 ->
+    ///      exitsData = "File excel import không có dữ liệu!", return Json (gate dòng 865, 950-954).
+    ///    - Nếu table.Columns.Count != 2 ->
+    ///      exitsData = "File excel import không hợp lệ!", return Json (gate dòng 867-872).
+    /// 7. Check null: duyệt từng dòng:
+    ///    - dr["GroupCode"] rỗng -> exitsData = "Mã nhóm người dùng không được trống!", return Json (gate dòng 878-882).
+    ///    - dr["GroupName"] rỗng -> exitsData = "Tên nhóm người dùng không được trống!", return Json (gate dòng 884-889).
+    /// 8. Check duplicate: duyệt các cặp dòng:
+    ///    - groupCodeCur trùng _groupCodeCur ->
+    ///      exitsData = "Mã nhóm người dùng '" + groupCodeCur + "' bị lặp trong file excel!", return Json (gate dòng 894-910).
+    /// 9. Chuyển đổi sang List&lt;Sys_Group&gt; và duyệt lưu từng dòng (gate dòng 913-944):
+    ///    - item.FlagActive = "1" (gate dòng 919).
+    ///    - Gọi Sys_GroupService.Instance.WA_Sys_Group_Create(objRQ_Sys_Group, addressAPIs) (gate dòng 942)
+    ///      -> API WA_Sys_Group_Create (SysGroupController.cs:94-165)
+    ///      -> BIZ WAS_Sys_Group_Create (System.cs:2710-2790)
+    ///      -> Sys_Group_Create_New20191102 (zTemp.cs:1040-1235).
+    ///      Mỗi dòng lưu trong 1 transaction độc lập. Lỗi dòng k dừng và trả lỗi của dòng đó (các dòng trước k đã commit - partial import, LESSON A.9).
+    /// 10. Trả về kết quả thành công (gate dòng 946-949):
+    ///     Success = true, Messages = ["Đã nhập dữ liệu excel thành công!"], Title = "Đã nhập dữ liệu excel thành công!", RedirectUrl = "/Sys_Group".
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import()
+    {
+        IFormFile? file = null;
+        try
+        {
+            if (Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+            {
+                file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+            }
+        }
+        catch { }
+        return await ProcessImportAsync(file);
+    }
+
+    [NonAction]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        return await ProcessImportAsync(file);
+    }
+
+    private async Task<IActionResult> ProcessImportAsync(IFormFile? file)
+    {
+        try
+        {
+            if (file == null && Request?.HasFormContentType == true)
+            {
+                try
+                {
+                    if (Request.Form.Files.Count > 0)
+                    {
+                        file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+                    }
+                }
+                catch { }
+            }
+
+            // 1. Kiểm tra file upload (Gate dòng 848-852)
+            if (file == null || file.Length == 0)
+            {
+                return PortResult.Fail("Sys_Group_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".xlsx" && ext != ".xls")
+            {
+                return PortResult.Fail("Sys_Group_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 2. Đọc bảng tính bằng PortExcel.ReadSheet từ ô A2 (Gate:864 ExcelImportNew.Query(filePath, "A2"))
+            // 2 cột từ GetImportDicColumsTemplate() (Gate:1068-1075):
+            // 1. GroupCode: Mã nhóm người dùng
+            // 2. GroupName: Tên nhóm người dùng
+            int columnCount;
+            List<Dictionary<string, string?>> rows;
+            try
+            {
+                using var stream = file.OpenReadStream();
+                (columnCount, rows) = PortExcel.ReadSheet(stream, ImportTemplateColumns, firstDataRow: 2);
+            }
+            catch
+            {
+                return PortResult.Fail("Sys_Group_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 3. Kiểm tra bảng rỗng (Gate dòng 865, 950-954: if (table != null && table.Rows.Count > 0) ... else { "File excel import không có dữ liệu!" })
+            if (rows == null || rows.Count == 0)
+            {
+                return PortResult.Fail("Sys_Group_Import", "Message", "File excel import không có dữ liệu!");
+            }
+
+            // 4. Kiểm tra số cột (Gate dòng 867-872: table.Columns.Count != 2)
+            if (columnCount != 2)
+            {
+                return PortResult.Fail("Sys_Group_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 5. Kiểm tra rỗng từng trường cho toàn bộ danh sách (Gate dòng 875-891 #region["Check null"])
+            foreach (var dr in rows)
+            {
+                var gCode = dr.GetValueOrDefault("GroupCode");
+                if (string.IsNullOrWhiteSpace(gCode))
+                {
+                    return PortResult.Fail("Sys_Group_Import", "Message", "Mã nhóm người dùng không được trống!");
+                }
+
+                var gName = dr.GetValueOrDefault("GroupName");
+                if (string.IsNullOrWhiteSpace(gName))
+                {
+                    return PortResult.Fail("Sys_Group_Import", "Message", "Tên nhóm người dùng không được trống!");
+                }
+            }
+
+            // 6. Kiểm tra trùng lặp mã trong chính file Excel (Gate dòng 893-911 #region["Check duplicate"])
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var groupCodeCur = (rows[i].GetValueOrDefault("GroupCode") ?? "").Trim();
+                for (var j = 0; j < rows.Count; j++)
+                {
+                    if (i != j)
+                    {
+                        var otherCodeCur = (rows[j].GetValueOrDefault("GroupCode") ?? "").Trim();
+                        if (groupCodeCur.Equals(otherCodeCur, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var exitsData = "Mã nhóm người dùng '" + groupCodeCur + "' bị lặp trong file excel!";
+                            return PortResult.Fail("Sys_Group_Import", "Message", exitsData);
+                        }
+                    }
+                }
+            }
+
+            // 7. Xác định người dùng thực hiện (Gate dòng 839, 927)
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode))
+            {
+                userCode = "U01";
+            }
+
+            // 8. Duyệt từng dòng và lưu dữ liệu độc lập với transaction riêng (Gate dòng 915-944; hành vi import một phần)
+            foreach (var item in rows)
+            {
+                var gCode = item.GetValueOrDefault("GroupCode");
+                var gName = item.GetValueOrDefault("GroupName");
+
+                var (err, _) = await CreateCoreAsync(gCode, gName, userCode);
+                if (err != null)
+                {
+                    // Dừng ngay ở dòng k và trả lỗi của dòng đó (các dòng trước k đã được commit thành công)
+                    return err;
+                }
+            }
+
+            // 9. Trả kết quả thành công khớp gate MVC (Gate dòng 946-949)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Đã nhập dữ liệu excel thành công!" },
+                Title = "Đã nhập dữ liệu excel thành công!",
+                RedirectUrl = "/Sys_Group"
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Import", "Exception", ex.Message);
         }
     }
 

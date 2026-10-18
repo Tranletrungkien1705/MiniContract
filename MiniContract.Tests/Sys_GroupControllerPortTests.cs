@@ -3,6 +3,8 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -1444,6 +1446,305 @@ public class Sys_GroupControllerPortTests : IDisposable
         Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
     }
 
+    private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sys_Group");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return new FormFile(ms, 0, ms.Length, "file", fileName);
+    }
+
+    private static byte[] CreateExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Sys_Group");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task Import_NullFile_ReturnsFail_InvalidFile()
+    {
+        var res = await _controller.Import(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyFile_ReturnsFail_InvalidFile()
+    {
+        var emptyFile = new FormFile(new MemoryStream(Array.Empty<byte>()), 0, 0, "file", "test.xlsx");
+        var res = await _controller.Import(emptyFile);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidExtension_ReturnsFail_InvalidFile()
+    {
+        var content = Encoding.UTF8.GetBytes("not excel");
+        var txtFile = new FormFile(new MemoryStream(content), 0, content.Length, "file", "test.txt");
+        var res = await _controller.Import(txtFile);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDataRows_ReturnsFail_NoData()
+    {
+        var file = CreateExcelFormFile("empty.xlsx", new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" }, new List<string?[]>());
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không có dữ liệu!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidColumnCount_ReturnsFail_InvalidFile()
+    {
+        var file = CreateExcelFormFile("3cols.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng", "Cột thừa" },
+            new List<string?[]> { new string?[] { "GRP_NEW", "Nhóm Mới", "Thừa" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyGroupCode_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("empty_code.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "", "Nhóm thiếu mã" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã nhóm người dùng không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyGroupName_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("empty_name.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "GRP_NONAME", "" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Tên nhóm người dùng không được trống!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateInExcel_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("duplicate.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]>
+            {
+                new string?[] { "GRP_DUP", "Nhóm Lặp 1" },
+                new string?[] { "GRP_DUP", "Nhóm Lặp 2" }
+            });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã nhóm người dùng 'GRP_DUP' bị lặp trong file excel!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_GroupCodeAlreadyExistsInDB_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("exist.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "GRP_ADMIN", "Nhóm Trùng Admin" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("GRP_ADMIN", root.GetProperty("Params").GetProperty("Check.GroupCodeExist").GetString());
+    }
+
+    [Fact]
+    public async Task Import_UserNotFound_ReturnsFail()
+    {
+        var httpCtx = new DefaultHttpContext();
+        httpCtx.Request.Headers["WAUserCode"] = "USER_NOT_EXIST";
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpCtx };
+
+        var file = CreateExcelFormFile("valid.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "GRP_NEW_01", "Nhóm Mới 01" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound", root.GetProperty("ErrorCode").GetString());
+
+        _controller.ControllerContext = new ControllerContext();
+    }
+
+    [Fact]
+    public async Task Import_UserInactive_ReturnsFail()
+    {
+        _db.Set<Sys_User>().Add(new Sys_User
+        {
+            UserCode = "U_INACTIVE_FOR_IMP",
+            UserName = "Người dùng ngưng hoạt động",
+            FlagActive = "0",
+            MST = "0100000001"
+        });
+        await _db.SaveChangesAsync();
+
+        var httpCtx = new DefaultHttpContext();
+        httpCtx.Request.Headers["WAUserCode"] = "U_INACTIVE_FOR_IMP";
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpCtx };
+
+        var file = CreateExcelFormFile("valid.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "GRP_NEW_02", "Nhóm Mới 02" } });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+
+        _controller.ControllerContext = new ControllerContext();
+    }
+
+    [Fact]
+    public async Task Import_Success_SingleRow_RoundTrip()
+    {
+        var file = CreateExcelFormFile("single.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]> { new string?[] { "GRP_IMP_01", "Nhóm Import Đơn" } });
+        var res = await _controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", root.GetProperty("Title").GetString());
+
+        // Đọc lại từ DB xác minh round-trip
+        var saved = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_IMP_01");
+        Assert.NotNull(saved);
+        Assert.Equal("Nhóm Import Đơn", saved.GroupName);
+        Assert.Equal("1", saved.FlagActive);
+        Assert.Equal("0100000001", saved.MST);
+        Assert.Equal("U01", saved.LogLUBy);
+    }
+
+    [Fact]
+    public async Task Import_Success_MultiRow_RoundTrip()
+    {
+        var file = CreateExcelFormFile("multi.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]>
+            {
+                new string?[] { "GRP_IMP_02", "Nhóm Import Hai" },
+                new string?[] { "GRP_IMP_03", "Nhóm Import Ba" }
+            });
+        var res = await _controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var g2 = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_IMP_02");
+        Assert.NotNull(g2);
+        Assert.Equal("Nhóm Import Hai", g2.GroupName);
+
+        var g3 = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_IMP_03");
+        Assert.NotNull(g3);
+        Assert.Equal("Nhóm Import Ba", g3.GroupName);
+    }
+
+    [Fact]
+    public async Task Import_PartialImport_WhenSecondRowFails_FirstRowCommitted()
+    {
+        var file = CreateExcelFormFile("partial.xlsx",
+            new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" },
+            new List<string?[]>
+            {
+                new string?[] { "GRP_IMP_PART1", "Nhóm Hợp Lệ Trước" },
+                new string?[] { "GRP_ADMIN", "Nhóm Trùng Bị Lỗi" }
+            });
+        var res = await _controller.Import(file);
+        var badResult = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist", root.GetProperty("ErrorCode").GetString());
+
+        // Kiểm tra dòng 1 GRP_IMP_PART1 đã được commit thành công (partial import theo LESSON A.9)
+        var part1 = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_IMP_PART1");
+        Assert.NotNull(part1);
+        Assert.Equal("Nhóm Hợp Lệ Trước", part1.GroupName);
+    }
+
     [Fact]
     public async Task RealServer_Verification()
     {
@@ -2312,6 +2613,104 @@ public class Sys_GroupControllerPortTests : IDisposable
             var doc64 = JsonDocument.Parse(body64);
             Assert.True(doc64.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Đã xuất excel thành công!", doc64.RootElement.GetProperty("Title").GetString());
+
+            // 65. Ca Import body rỗng: POST /api/sys_group/import rỗng -> 400 Bad Request, "File excel import không hợp lệ!"
+            var res65 = await http.PostAsync("/api/sys_group/import", new MultipartFormDataContent());
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res65.StatusCode);
+            var body65 = await res65.Content.ReadAsStringAsync();
+            var doc65 = JsonDocument.Parse(body65);
+            Assert.False(doc65.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Import", doc65.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("File excel import không hợp lệ!", doc65.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 66. Ca Import file không có dữ liệu: POST /api/sys_group/import file 0 dòng -> 400 Bad Request, "File excel import không có dữ liệu!"
+            var emptyBytes = CreateExcelBytes(new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" }, new List<string?[]>());
+            using var form66 = new MultipartFormDataContent();
+            var content66 = new ByteArrayContent(emptyBytes);
+            content66.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form66.Add(content66, "file", "empty.xlsx");
+            var res66 = await http.PostAsync("/api/sys_group/import", form66);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res66.StatusCode);
+            var body66 = await res66.Content.ReadAsStringAsync();
+            var doc66 = JsonDocument.Parse(body66);
+            Assert.False(doc66.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File excel import không có dữ liệu!", doc66.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 67. Ca Import file sai số cột (3 cột): POST /api/sys_group/import -> 400 Bad Request, "File excel import không hợp lệ!"
+            var invalidColBytes = CreateExcelBytes(new[] { "Mã nhóm người dùng", "Tên nhóm người dùng", "Thừa" }, new List<string?[]> { new string?[] { "GRP_X", "Nhóm X", "Thừa" } });
+            using var form67 = new MultipartFormDataContent();
+            var content67 = new ByteArrayContent(invalidColBytes);
+            content67.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form67.Add(content67, "file", "invalid_cols.xlsx");
+            var res67 = await http.PostAsync("/api/sys_group/import", form67);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res67.StatusCode);
+            var body67 = await res67.Content.ReadAsStringAsync();
+            var doc67 = JsonDocument.Parse(body67);
+            Assert.False(doc67.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File excel import không hợp lệ!", doc67.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 68. Ca Import file có mã nhóm bị lặp: POST /api/sys_group/import -> 400 Bad Request
+            var dupBytes = CreateExcelBytes(new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" }, new List<string?[]>
+            {
+                new string?[] { "GRP_REAL_DUP", "Nhóm Lặp 1" },
+                new string?[] { "GRP_REAL_DUP", "Nhóm Lặp 2" }
+            });
+            using var form68 = new MultipartFormDataContent();
+            var content68 = new ByteArrayContent(dupBytes);
+            content68.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form68.Add(content68, "file", "duplicate.xlsx");
+            var res68 = await http.PostAsync("/api/sys_group/import", form68);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res68.StatusCode);
+            var body68 = await res68.Content.ReadAsStringAsync();
+            var doc68 = JsonDocument.Parse(body68);
+            Assert.False(doc68.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng 'GRP_REAL_DUP' bị lặp trong file excel!", doc68.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // 69. Ca Import file có mã nhóm đã tồn tại trong DB (GRP_ADMIN) -> 400 Bad Request
+            var existBytes = CreateExcelBytes(new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" }, new List<string?[]>
+            {
+                new string?[] { "GRP_ADMIN", "Nhóm Admin Trùng" }
+            });
+            using var form69 = new MultipartFormDataContent();
+            var content69 = new ByteArrayContent(existBytes);
+            content69.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form69.Add(content69, "file", "exist.xlsx");
+            var res69 = await http.PostAsync("/api/sys_group/import", form69);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res69.StatusCode);
+            var body69 = await res69.Content.ReadAsStringAsync();
+            var doc69 = JsonDocument.Parse(body69);
+            Assert.False(doc69.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist", doc69.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 70. Ca Import thành công round-trip -> 200 OK -> đọc lại qua /api/sys_group/index thấy nhóm mới
+            var validBytes = CreateExcelBytes(new[] { "Mã nhóm người dùng", "Tên nhóm người dùng" }, new List<string?[]>
+            {
+                new string?[] { "GRP_REAL_IMP_OK", "Nhóm Import Server Thật" }
+            });
+            using var form70 = new MultipartFormDataContent();
+            var content70 = new ByteArrayContent(validBytes);
+            content70.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form70.Add(content70, "file", "valid.xlsx");
+            var res70 = await http.PostAsync("/api/sys_group/import", form70);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res70.StatusCode);
+            var body70 = await res70.Content.ReadAsStringAsync();
+            var doc70 = JsonDocument.Parse(body70);
+            Assert.True(doc70.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã nhập dữ liệu excel thành công!", doc70.RootElement.GetProperty("Title").GetString());
+
+            // Đọc lại qua /api/sys_group/index để xác minh round-trip
+            var req70Read = new StringContent("{\"GroupCode\":\"GRP_REAL_IMP_OK\"}", Encoding.UTF8, "application/json");
+            var res70Read = await http.PostAsync("/api/sys_group/index", req70Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res70Read.StatusCode);
+            var body70Read = await res70Read.Content.ReadAsStringAsync();
+            var doc70Read = JsonDocument.Parse(body70Read);
+            Assert.True(doc70Read.RootElement.GetProperty("Success").GetBoolean());
+            var data70Read = doc70Read.RootElement.GetProperty("Data");
+            Assert.Equal(1, data70Read.GetProperty("ItemCount").GetInt32());
+            var itemImported = data70Read.GetProperty("DataList")[0];
+            Assert.Equal("GRP_REAL_IMP_OK", itemImported.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Import Server Thật", itemImported.GetProperty("GroupName").GetString());
+            Assert.Equal("1", itemImported.GetProperty("FlagActive").GetString());
         }
         finally
         {
