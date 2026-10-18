@@ -44,6 +44,10 @@ public class Sys_UserControllerPortTests : IDisposable
         var userSeeder = new Sys_UserSeeder();
         userSeeder.SeedAsync(_db).GetAwaiter().GetResult();
 
+        // Seed Mst_Customer
+        var custSeeder = new Mst_CustomerSeeder();
+        custSeeder.SeedAsync(_db).GetAwaiter().GetResult();
+
         _controller = new Sys_UserControllerPort(_db);
     }
 
@@ -457,6 +461,119 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadMstCustomer_NullReq_ReturnsEmptyList()
+    {
+        // Khi req null (body rỗng): trả về danh sách rỗng Data = []
+        var result = await _controller.LoadMstCustomer(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal(0, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task LoadMstCustomer_EmptyReq_ReturnsEmptyList()
+    {
+        // Khi req không có MST: trả về danh sách rỗng Data = []
+        var req = new Sys_User_LoadMstCustomerReq();
+        var result = await _controller.LoadMstCustomer(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal(0, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task LoadMstCustomer_NonExistentMST_ReturnsEmptyList()
+    {
+        // Khi MST không tồn tại trong Mst_NNT: trả về danh sách rỗng Data = []
+        var req = new Sys_User_LoadMstCustomerReq { MST = "9999999999" };
+        var result = await _controller.LoadMstCustomer(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal(0, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task LoadMstCustomer_ValidMST_ReturnsDealerCustomers()
+    {
+        // MST 0100000001 tương ứng OrgID 7200000001
+        // Bảng Mst_Customer có 5 bản ghi:
+        // - CUS001: OrgID=7200000001, FlagDealer=1, FlagActive=1 -> KHỚP (1 dòng)
+        // - CUS002: OrgID=7200000001, FlagDealer=0, FlagActive=1 -> Không khớp FlagDealer
+        // - CUS003: OrgID=7200000001, FlagDealer=0, FlagActive=1 -> Không khớp FlagDealer
+        // - CUS004: OrgID=7200000001, FlagDealer=0, FlagActive=0 -> Không khớp FlagActive & FlagDealer
+        // - CUS005: OrgID=7200000002, FlagDealer=1, FlagActive=1 -> Không khớp OrgID
+        var req = new Sys_User_LoadMstCustomerReq
+        {
+            MST = "0100000001",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.LoadMstCustomer(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal(1, data.GetArrayLength());
+
+        var customer = data[0];
+        Assert.Equal("CUS001", customer.GetProperty("CustomerCodeSys").GetString());
+        Assert.Equal("KH001", customer.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Công ty Cổ phần Alpha", customer.GetProperty("CustomerName").GetString());
+        Assert.Equal("7200000001", customer.GetProperty("OrgID").GetString());
+        Assert.Equal("1", customer.GetProperty("FlagDealer").GetString());
+        Assert.Equal("1", customer.GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task LoadMstCustomer_FilterComparison_DifferentRecordCounts()
+    {
+        // Bộ lọc 1: Người dùng thường (IsSysAdmin = 0) với OrgID = 7200000002 gọi MST 0100000001
+        // NNT 0100000001 thuộc OrgID 7200000001 nên bị loại trừ ở bước lọc NNT -> trả về 0 dòng
+        var reqNormal = new Sys_User_LoadMstCustomerReq
+        {
+            MST = "0100000001",
+            OrgID = "7200000002",
+            IsSysAdmin = "0"
+        };
+        var resNormal = await _controller.LoadMstCustomer(reqNormal);
+        var okNormal = Assert.IsType<OkObjectResult>(resNormal);
+        var docNormal = JsonDocument.Parse(JsonSerializer.Serialize(okNormal.Value));
+        Assert.Equal(0, docNormal.RootElement.GetProperty("Data").GetArrayLength());
+
+        // Bộ lọc 2: SysAdmin (IsSysAdmin = 1) với OrgID = 7200000002 gọi MST 0100000001
+        // Sysadmin không bị lọc OrgID ở bước NNT, tìm thấy NNT 0100000001 (OrgID 7200000001)
+        // và tải được 1 khách hàng đại lý CUS001 -> trả về 1 dòng (khác số dòng với bộ lọc 1)
+        var reqAdmin = new Sys_User_LoadMstCustomerReq
+        {
+            MST = "0100000001",
+            OrgID = "7200000002",
+            IsSysAdmin = "1"
+        };
+        var resAdmin = await _controller.LoadMstCustomer(reqAdmin);
+        var okAdmin = Assert.IsType<OkObjectResult>(resAdmin);
+        var docAdmin = JsonDocument.Parse(JsonSerializer.Serialize(okAdmin.Value));
+        Assert.Equal(1, docAdmin.RootElement.GetProperty("Data").GetArrayLength());
+        Assert.Equal("CUS001", docAdmin.RootElement.GetProperty("Data")[0].GetProperty("CustomerCodeSys").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -651,6 +768,56 @@ public class Sys_UserControllerPortTests : IDisposable
             Assert.Equal("Server Created User", createdItem.GetProperty("UserName").GetString());
             Assert.Equal("Phòng Kế Toán", createdItem.GetProperty("mdept_DepartmentName").GetString());
             Assert.Equal("*********", createdItem.GetProperty("UserPassword").GetString());
+
+            // 15. Action LoadMstCustomer: POST /api/sys_user/loadmstcustomer với body rỗng -> 200 OK, Data = []
+            var req15 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/sys_user/loadmstcustomer", req15);
+            Assert.True(res15.IsSuccessStatusCode);
+            var doc15 = JsonDocument.Parse(await res15.Content.ReadAsStringAsync());
+            Assert.True(doc15.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, doc15.RootElement.GetProperty("Data").GetArrayLength());
+
+            // 16. Action LoadMstCustomer: POST với MST không tồn tại -> 200 OK, Data = []
+            var req16 = new StringContent(JsonSerializer.Serialize(new { MST = "9999999999" }), Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/sys_user/loadmstcustomer", req16);
+            Assert.True(res16.IsSuccessStatusCode);
+            var doc16 = JsonDocument.Parse(await res16.Content.ReadAsStringAsync());
+            Assert.True(doc16.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, doc16.RootElement.GetProperty("Data").GetArrayLength());
+
+            // 17. Action LoadMstCustomer: POST với MST hợp lệ 0100000001 -> 200 OK, Data có 1 phần tử (CUS001)
+            var req17 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001", OrgID = "7200000001" }), Encoding.UTF8, "application/json");
+            var res17 = await http.PostAsync("/api/sys_user/loadmstcustomer", req17);
+            Assert.True(res17.IsSuccessStatusCode);
+            var doc17 = JsonDocument.Parse(await res17.Content.ReadAsStringAsync());
+            Assert.True(doc17.RootElement.GetProperty("Success").GetBoolean());
+            var custList17 = doc17.RootElement.GetProperty("Data");
+            Assert.Equal(1, custList17.GetArrayLength());
+            Assert.Equal("CUS001", custList17[0].GetProperty("CustomerCodeSys").GetString());
+            Assert.Equal("Công ty Cổ phần Alpha", custList17[0].GetProperty("CustomerName").GetString());
+            Assert.Equal("1", custList17[0].GetProperty("FlagDealer").GetString());
+
+            // 18. Action LoadMstCustomer alias: POST /api/sys_user/loadmst_customer -> 200 OK, Data có 1 phần tử
+            var req18 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001", OrgID = "7200000001" }), Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/sys_user/loadmst_customer", req18);
+            Assert.True(res18.IsSuccessStatusCode);
+            var doc18 = JsonDocument.Parse(await res18.Content.ReadAsStringAsync());
+            Assert.True(doc18.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(1, doc18.RootElement.GetProperty("Data").GetArrayLength());
+
+            // 19. Action LoadMstCustomer bộ lọc khác biệt: Người dùng thường không khớp OrgID -> 0 dòng
+            var req19 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001", OrgID = "7200000002", IsSysAdmin = "0" }), Encoding.UTF8, "application/json");
+            var res19 = await http.PostAsync("/api/sys_user/loadmstcustomer", req19);
+            Assert.True(res19.IsSuccessStatusCode);
+            var doc19 = JsonDocument.Parse(await res19.Content.ReadAsStringAsync());
+            Assert.Equal(0, doc19.RootElement.GetProperty("Data").GetArrayLength());
+
+            // 20. Action LoadMstCustomer bộ lọc khác biệt: SysAdmin khớp mọi NNT -> 1 dòng (khác số dòng)
+            var req20 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001", OrgID = "7200000002", IsSysAdmin = "1" }), Encoding.UTF8, "application/json");
+            var res20 = await http.PostAsync("/api/sys_user/loadmstcustomer", req20);
+            Assert.True(res20.IsSuccessStatusCode);
+            var doc20 = JsonDocument.Parse(await res20.Content.ReadAsStringAsync());
+            Assert.Equal(1, doc20.RootElement.GetProperty("Data").GetArrayLength());
         }
         finally
         {

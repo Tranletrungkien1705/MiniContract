@@ -12,18 +12,23 @@ namespace MiniContract.Controllers.Port;
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:25-110 (Index)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:114-196 (Create GET View)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:200-367 (Create POST)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:373-464 (LoadMstCustomer)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:2060-2087 (strWhereClause_Mst_Customer)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:4026-4060 (List_Mst_NNT)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:5417-5427 (WA_Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:5497-5525 (List_Mst_Department_Task)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:5532-5565 (List_Mst_DepartmentExt_Async)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:199-270 (WA_Sys_User_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:20-89 (WA_Mst_NNT_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:421-492 (WA_Sys_User_Create)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7011-7123 (WAS_Sys_User_Get) -> 6635-7009 (Sys_User_Get_New20191104)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12121-12218 (WAS_Mst_NNT_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35737-35835 (WAS_Mst_Department_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get) -> 996-1462 (Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:9907-9950 (WAS_Sys_User_Create) -> 7863-8027 (Sys_User_Create_New20200110)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:30-79 (Sys_User_GetAbilityViewOfUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:1990-2067 (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823)
@@ -508,6 +513,107 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action LoadMstCustomer từ gate Sys_UserController.cs:373-464.
+    /// Chuỗi gọi:
+    /// 1. Lấy UserState: waUserCode, waMST, isSysadmin = FlagSysAdmin, isParent = (NetworkID == OrgID) (gate dòng 375-389).
+    /// 2. Khởi tạo đối tượng Mst_NNT với MST = mst, FlagActive = "1", OrgID = UserState.Mst_NNT.OrgID (gate dòng 392-397).
+    /// 3. Dựng strWhereClauseMst_NNTCur qua strWhereClause_Mst_NNT (Sys_UserController.cs:1984-2020):
+    ///    - Nếu isSysadmin == "0": lọc theo MST = mst, FlagActive = "1", OrgID = UserState.Mst_NNT.OrgID.
+    ///    - Nếu isSysadmin == "1": strWhereClauseMst_NNTCur = null (lấy toàn bộ Mst_NNT hoạt động).
+    ///    - Gọi List_Mst_NNT(strWhereClauseMst_NNTCur) -> API WA_Mst_NNT_Get -> BIZ WAS_Mst_NNT_Get (gate dòng 408).
+    /// 4. Tìm objMst_NNT = listMst_NNTCur.Where(x => x.MST.Equals(mst)).FirstOrDefault() (gate dòng 415).
+    /// 5. Nếu objMst_NNT != null:
+    ///    - Dựng strWhereClause_Mst_Customer (Sys_UserController.cs:2060-2087) với FlagDealer = "1", OrgID = objMst_NNT.OrgID, FlagActive = "1".
+    ///    - Gọi Mst_CustomerService.Instance.WA_Mst_Customer_Get -> API WA_Mst_Customer_Get (MstCustomerController.cs:92-162)
+    ///      -> BIZ WAS_Mst_Customer_Get (Customer.cs:1464-1612) -> Mst_Customer_Get.
+    ///    - Lấy danh sách Lst_Mst_Customer đưa vào listMst_Customer (gate dòng 446-450).
+    /// 6. Trả về JsonView("LoadMst_Customer", listMst_Customer) (gate dòng 456).
+    ///    Khi không tìm thấy objMst_NNT hoặc body rỗng: listMst_Customer rỗng [].
+    /// 7. Bắt ngoại lệ nếu có: trả về lỗi với mã mặc định TError.ErridQContract.WAS_Mst_Customer_Get (Customer.cs:1481).
+    /// </summary>
+    [HttpPost("loadmstcustomer")]
+    [HttpPost("loadmst_customer")]
+    public async Task<IActionResult> LoadMstCustomer([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_LoadMstCustomerReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào (PORT_RULES §3)
+            var strMST = StdParam(req?.MST) ?? StdParam(Request?.Query["mst"].FirstOrDefault());
+            var waUserCode = StdParam(req?.WAUserCode) ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault());
+
+            Sys_User? callerUser = null;
+            if (!string.IsNullOrEmpty(waUserCode))
+            {
+                callerUser = await _db.Set<Sys_User>().AsNoTracking()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(waUserCode), PortQuery.Esc));
+            }
+
+            var waOrgId = StdParam(req?.OrgID) ?? StdParam(callerUser?.OrgID) ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(callerUser?.NetworkID) ?? _config?["Biz_NetworkID"] ?? "1001";
+
+            // Xác định isSysadmin (Gate Sys_UserController.cs:381)
+            var isSysadmin = !string.IsNullOrEmpty(req?.IsSysAdmin)
+                ? StdFlag(req.IsSysAdmin)
+                : (!string.IsNullOrEmpty(req?.FlagSysAdmin)
+                    ? StdFlag(req.FlagSysAdmin)
+                    : (callerUser?.FlagSysAdmin == "1" ? "1" : "0"));
+
+            // 2. Truy vấn danh sách Mst_NNT (Gate Sys_UserController.cs:391-408)
+            var nntQuery = _db.Set<Mst_NNT>().AsNoTracking()
+                .Where(n => n.FlagActive == "1");
+
+            if (isSysadmin == "0")
+            {
+                // Khi không phải SysAdmin: lọc theo OrgID của đơn vị người dùng hiện tại (Sys_UserController.cs:1984-2020)
+                if (!string.IsNullOrEmpty(waOrgId))
+                {
+                    nntQuery = nntQuery.Where(n => EF.Functions.Like((n.OrgID ?? "").ToLower(), PortQuery.Equal(waOrgId), PortQuery.Esc));
+                }
+                if (!string.IsNullOrEmpty(strMST))
+                {
+                    nntQuery = nntQuery.Where(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
+                }
+            }
+
+            var listMst_NNTCur = await nntQuery.ToListAsync();
+
+            // 3. Tìm objMst_NNT = listMst_NNTCur.Where(x => x.MST.Equals(mst)).FirstOrDefault() (Gate Sys_UserController.cs:415)
+            var listMst_Customer = new List<Mst_Customer>();
+            if (!string.IsNullOrEmpty(strMST) && listMst_NNTCur.Count > 0)
+            {
+                var objMst_NNT = listMst_NNTCur.FirstOrDefault(x => string.Equals(x.MST, strMST, StringComparison.OrdinalIgnoreCase));
+                if (objMst_NNT != null)
+                {
+                    // 4. Truy vấn danh sách Mst_Customer với FlagDealer = '1', OrgID = objMst_NNT.OrgID, FlagActive = '1'
+                    // (Gate Sys_UserController.cs:418-450, BIZ Customer.cs:1464-1612)
+                    var targetOrgId = StdParam(objMst_NNT.OrgID);
+                    var custQuery = _db.Set<Mst_Customer>().AsNoTracking()
+                        .Where(c => c.FlagActive == "1" && c.FlagDealer == "1");
+
+                    if (!string.IsNullOrEmpty(targetOrgId))
+                    {
+                        custQuery = custQuery.Where(c => EF.Functions.Like((c.OrgID ?? "").ToLower(), PortQuery.Equal(targetOrgId), PortQuery.Esc));
+                    }
+
+                    listMst_Customer = await custQuery.OrderBy(c => c.CustomerCodeSys).ToListAsync();
+                }
+            }
+
+            // 5. Trả về cấu trúc Success / Data chứa List<Mst_Customer> (Gate: JsonView("LoadMst_Customer", listMst_Customer))
+            return Ok(new
+            {
+                Success = true,
+                Data = listMst_Customer
+            });
+        }
+        catch (Exception ex)
+        {
+            // BIZ Customer.cs:1481: strErrorCodeDefault = TError.ErridQContract.WAS_Mst_Customer_Get
+            return PortResult.Fail("WAS_Mst_Customer_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -598,5 +704,19 @@ public class Sys_User_IndexReq
     public int? PageSize { get; set; }
     public int? Page { get; set; }
     public int? PageIndex { get; set; }
+    public string? WAUserCode { get; set; }
+}
+
+/// <summary>
+/// Model nhận tham số cho action LoadMstCustomer của Sys_UserController.
+/// Gate: Sys_UserController.cs:373 LoadMstCustomer(string mst)
+/// </summary>
+public class Sys_User_LoadMstCustomerReq
+{
+    public string? MST { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? IsSysAdmin { get; set; }
+    public string? FlagSysAdmin { get; set; }
     public string? WAUserCode { get; set; }
 }
