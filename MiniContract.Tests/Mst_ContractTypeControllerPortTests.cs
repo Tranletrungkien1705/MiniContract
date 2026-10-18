@@ -1245,6 +1245,119 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Export_EmptyBody_ReturnsExcelSuccessWith5Rows()
+    {
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(strUrl));
+
+        // Kiểm tra file vật lý đã được tạo và đọc nội dung
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported file does not exist at {physicalPath}");
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal("Mst_ContractType", ws.Name);
+        Assert.Equal("Mã loại hợp đồng(*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên loại hợp đồng(*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Mô tả", ws.Cell(1, 3).GetString());
+        Assert.Equal("Trạng thái", ws.Cell(1, 4).GetString());
+
+        // 5 dòng dữ liệu từ seed
+        Assert.Equal(6, ws.LastRowUsed()?.RowNumber());
+    }
+
+    [Fact]
+    public async Task Export_FilterByNetworkID1001_Returns4Rows()
+    {
+        var req = new Mst_ContractType_ExportReq { NetworkID = "1001" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(5, ws.LastRowUsed()?.RowNumber()); // 1 header + 4 rows
+    }
+
+    [Fact]
+    public async Task Export_FilterByNetworkID1002_Returns1Row()
+    {
+        var req = new Mst_ContractType_ExportReq { NetworkID = "1002" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(2, ws.LastRowUsed()?.RowNumber()); // 1 header + 1 row
+        Assert.Equal("HD_VAY", ws.Cell(2, 1).GetString());
+        Assert.Equal("Hợp đồng vay vốn", ws.Cell(2, 2).GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterNonExistent_ReturnsCheckFileNullMessage()
+    {
+        var req = new Mst_ContractType_ExportReq { ContractType = "NOT_EXIST" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("File Excel nhập không có dữ liệu!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.False(root.TryGetProperty("strUrl", out _));
+    }
+
+    [Fact]
+    public async Task Export_Pagination_Start0_Count2_Returns2Rows()
+    {
+        var req = new Mst_ContractType_ExportReq
+        {
+            Ft_RecordStart = 0,
+            Ft_RecordCount = 2
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(3, ws.LastRowUsed()?.RowNumber()); // 1 header + 2 rows
+        Assert.Equal("HD_DV", ws.Cell(2, 1).GetString());
+        Assert.Equal("HD_KT", ws.Cell(3, 1).GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8589()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_ct_{Guid.NewGuid():N}.db");
@@ -1640,6 +1753,44 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             Assert.Equal("HD_IMP_LIVE1", docVerifyImp.RootElement.GetProperty("Data").GetProperty("ContractType").GetString());
             Assert.Equal("Hợp đồng nhập live 1", docVerifyImp.RootElement.GetProperty("Data").GetProperty("ContractTypeName").GetString());
             _output?.WriteLine($"[Verify After Import] StatusCode={(int)resVerifyImp.StatusCode} Body={bodyVerifyImp}");
+
+            // 8. Export: kiểm tra các ca xuất file Excel
+            // Ca 8.1: Lọc mã không tồn tại -> trả về File Excel nhập không có dữ liệu!
+            var reqExpEmpty = new StringContent("{\"ContractType\":\"NOT_EXIST\"}", Encoding.UTF8, "application/json");
+            var resExpEmpty = await http.PostAsync("/api/mst_contracttype/export", reqExpEmpty);
+            var bodyExpEmpty = await resExpEmpty.Content.ReadAsStringAsync();
+            var docExpEmpty = JsonDocument.Parse(bodyExpEmpty);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resExpEmpty.StatusCode);
+            Assert.True(docExpEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File Excel nhập không có dữ liệu!", docExpEmpty.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", docExpEmpty.RootElement.GetProperty("CheckSuccess").GetString());
+            _output?.WriteLine($"[Export EmptyFilter] StatusCode={(int)resExpEmpty.StatusCode} Body={bodyExpEmpty}");
+
+            // Ca 8.2: Xuất với bộ lọc 1: NetworkID = "1001" -> thành công trả về strUrl
+            var reqExp1 = new StringContent("{\"NetworkID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var resExp1 = await http.PostAsync("/api/mst_contracttype/export", reqExp1);
+            var bodyExp1 = await resExp1.Content.ReadAsStringAsync();
+            var docExp1 = JsonDocument.Parse(bodyExp1);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resExp1.StatusCode);
+            Assert.True(docExp1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", docExp1.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", docExp1.RootElement.GetProperty("CheckSuccess").GetString());
+            var url1 = docExp1.RootElement.GetProperty("strUrl").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(url1));
+            _output?.WriteLine($"[Export Filter1 NetworkID=1001] StatusCode={(int)resExp1.StatusCode} Body={bodyExp1}");
+
+            // Ca 8.3: Xuất với bộ lọc 2: NetworkID = "1002" -> thành công trả về strUrl (2 bộ lọc ra 2 tập dữ liệu khác nhau)
+            var reqExp2 = new StringContent("{\"NetworkID\":\"1002\"}", Encoding.UTF8, "application/json");
+            var resExp2 = await http.PostAsync("/api/mst_contracttype/export", reqExp2);
+            var bodyExp2 = await resExp2.Content.ReadAsStringAsync();
+            var docExp2 = JsonDocument.Parse(bodyExp2);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resExp2.StatusCode);
+            Assert.True(docExp2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", docExp2.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", docExp2.RootElement.GetProperty("CheckSuccess").GetString());
+            var url2 = docExp2.RootElement.GetProperty("strUrl").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(url2));
+            _output?.WriteLine($"[Export Filter2 NetworkID=1002] StatusCode={(int)resExp2.StatusCode} Body={bodyExp2}");
         }
         finally
         {

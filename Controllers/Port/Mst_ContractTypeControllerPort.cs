@@ -9,20 +9,30 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete), 594-742 (Import)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update, Get), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update), 44142-44297 (Biz Get/Update), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 44799-44877 (WAS Delete), 44878-45023 (Biz Delete), 45024-45180 (Search/Index/Update GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX), 45373-45483 (DeleteX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete), 594-742 (Import), 748-807 (Export)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update, Get, Export), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update/Export), 44142-44297 (Biz Get/Update/Export), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 44799-44877 (WAS Delete), 44878-45023 (Biz Delete), 45024-45180 (Search/Index/Update/Export GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX), 45373-45483 (DeleteX)
 [ApiController]
 [Route("api/mst_contracttype")]
 public class Mst_ContractTypeControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_ContractTypeControllerPort(AppDbContext db, IConfiguration? config = null)
+    private static readonly Dictionary<string, string> ExportDicColumns = new()
+    {
+        { "ContractType", "Mã loại hợp đồng(*)" },
+        { "ContractTypeName", "Tên loại hợp đồng(*)" },
+        { "Description", "Mô tả" },
+        { "FlagActive", "Trạng thái" }
+    };
+
+    public Mst_ContractTypeControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -775,6 +785,113 @@ public class Mst_ContractTypeControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xuất danh sách loại hợp đồng ra tệp Excel.
+    /// Gate: Mst_ContractTypeController.cs:748-807 Export(int page = 0, int recordcount = 10)
+    /// API:  MstContractTypeController.cs:20-88 WA_Mst_ContractType_Get
+    /// BIZ:  Master.cs:44050-44141 (WAS Get), 44142-44297 (Biz Get), 45024-45180 (GetX)
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ContractType_ExportReq? req)
+    {
+        try
+        {
+            // 1. Dựng truy vấn cơ sở từ bảng Mst_ContractType (Master.cs:45078-45087, 45120-45127)
+            var query = _db.Set<Mst_ContractType>().AsNoTracking();
+
+            // 2. Bộ lọc điều kiện theo các cột hỗ trợ (Master.cs:45139-45155)
+            var networkId = req?.NetworkID?.Trim();
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var orgId = req?.OrgID?.Trim();
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var contractType = req?.ContractType?.Trim();
+            if (!string.IsNullOrEmpty(contractType))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
+            }
+
+            var contractTypeName = req?.ContractTypeName?.Trim();
+            if (!string.IsNullOrEmpty(contractTypeName))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractTypeName ?? "").ToLower(), PortQuery.Contains(contractTypeName), PortQuery.Esc));
+            }
+
+            var description = req?.Description?.Trim();
+            if (!string.IsNullOrEmpty(description))
+            {
+                query = query.Where(x => EF.Functions.Like((x.Description ?? "").ToLower(), PortQuery.Contains(description), PortQuery.Esc));
+            }
+
+            var flagActive = req?.FlagActive?.Trim();
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var keyWord = req?.KeyWord?.Trim();
+            if (!string.IsNullOrEmpty(keyWord))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractTypeName ?? "").ToLower(), PortQuery.Contains(keyWord), PortQuery.Esc)
+                                      || EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Contains(keyWord), PortQuery.Esc));
+            }
+
+            // 3. Sắp xếp: order by mo.NetworkID asc, then by ContractType (Master.cs:45086, 45126)
+            var ordered = query.OrderBy(x => x.NetworkID).ThenBy(x => x.ContractType);
+
+            // 4. Phân trang nếu có truyền (Gate lines 773-774: Ft_RecordStart = "0", Ft_RecordCount = "123456000")
+            long recordStart = req?.Ft_RecordStart ?? 0;
+            long recordCount = req?.Ft_RecordCount ?? 123456000;
+            if (req != null && req.RecordCount != null && req.Ft_RecordCount == null)
+            {
+                recordCount = req.RecordCount.Value;
+                var page = req.Page ?? req.PageIndex ?? 0;
+                recordStart = (long)page * recordCount;
+            }
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_ContractType>()
+                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                               .Take((int)Math.Min(recordCount, int.MaxValue))
+                               .ToListAsync();
+
+            // 5. Kiểm tra danh sách rỗng (Gate lines 785, 796-797: Nonsense.MESS_CHECK_FILE_NULL)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "File Excel nhập không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 6. Xuất danh sách ra file Excel và trả URL (Gate lines 787-793: Nonsense.MESS_EXPORT_EXCEL_SUCCESS)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_ContractType));
+            PortExcel.ExportToExcelFromList(list, ExportDicColumns, filePath, nameof(Mst_ContractType));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_ContractType_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Hàm dùng chung thực hiện tạo mới 1 bản ghi Mst_ContractType trong 1 transaction riêng.
     /// Dùng cho cả action Create đơn và vòng lặp Import (hành vi import một phần).
     /// </summary>
@@ -959,4 +1076,26 @@ public class Mst_ContractType_DeleteReq
     public string? NetworkID { get; set; }
     public string? OrgID { get; set; }
     public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Export.
+/// Gate: Mst_ContractTypeController.cs:748 Export(int page = 0, int recordcount = 10)
+/// </summary>
+public class Mst_ContractType_ExportReq
+{
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
+    public int? RecordCount { get; set; }
+    public int? PageSize { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? ContractType { get; set; }
+    public string? ContractTypeName { get; set; }
+    public string? Description { get; set; }
+    public string? FlagActive { get; set; }
+    public string? KeyWord { get; set; }
 }
