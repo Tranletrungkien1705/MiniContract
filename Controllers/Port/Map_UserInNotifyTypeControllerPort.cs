@@ -10,10 +10,11 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Map_UserInNotifyTypeController.cs — Map_UserInNotifyType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Map_UserInNotifyTypeController.cs:20-92 (Index), 96-144 (DoSearch)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MapUserInNotifyTypeController.cs:92-160 (WA_Map_UserInNotifyType_Get)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Map_UserInNotifyTypeController.cs:20-92 (Index), 96-144 (DoSearch), 148-200 (SaveData)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MapUserInNotifyTypeController.cs:92-160 (WA_Map_UserInNotifyType_Get), 21-89 (WA_Map_UserInNotifyType_Save)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:20-89 (WA_Mst_NNT_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:56083-56200 (WAS_Map_UserInNotifyType_Get) -> 56201-56331 (Map_UserInNotifyType_Get) -> 56333-56616 (Map_UserInNotifyType_GetX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:57011-57106 (WAS_Map_UserInNotifyType_Save) -> 56619-56770 (Map_UserInNotifyType_Save) -> 56772-57009 (Map_UserInNotifyType_SaveX), 54659-54718 (Map_UserInNotifyType_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12121-12218 (WAS_Mst_NNT_Get) -> Mst_NNT_Get
 [ApiController]
 [Route("api/map_userinnotifytype")]
@@ -99,6 +100,223 @@ public class Map_UserInNotifyTypeControllerPort : ControllerBase
         {
             return PortResult.Fail("Map_UserInNotifyType_Get", "Exception", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Port 1:1 action SaveData từ gate Map_UserInNotifyTypeController.cs:148-200.
+    /// Chuỗi gọi:
+    /// 1. Kiểm tra quyền SysAccessCheckDeny(UserState, "MENU_MNG_MAP_USERINNOTIFYTYPE") (gate dòng 150-154).
+    /// 2. Deserialize model: List<Map_UserInNotifyType> (gate dòng 161).
+    /// 3. Đóng gói RQ_Map_UserInNotifyType và gọi Map_UserInNotifyTypeService.Instance.WA_Map_UserInNotifyType_Save (gate dòng 163-189).
+    ///    - API: MapUserInNotifyTypeController.cs:21-89 (WA_Map_UserInNotifyType_Save) -> CheckGatewayAuthentication -> WAS_Map_UserInNotifyType_Save.
+    ///    - BIZ: Master.cs:57011-57106 (WAS_Map_UserInNotifyType_Save) -> 56619-56770 (Map_UserInNotifyType_Save) -> 56772-57009 (Map_UserInNotifyType_SaveX).
+    /// 4. Các bước nghiệp vụ tầng BIZ:
+    ///    - Transaction begin (_cf.db.BeginTransaction(), Master.cs:56657).
+    ///    - Kiểm tra bảng Map_UserInNotifyType: nếu tập dữ liệu không chứa bảng -> ném Map_UserInNotifyType_SaveX_Input_InvoiceTblNotFound (Master.cs:56832-56841).
+    ///    - Kiểm tra số dòng: nếu bảng có số dòng < 1 -> ném Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid (Master.cs:56845-56855).
+    ///    - Chuẩn hoá các trường: UserCode (StdParam), NotifyType (StdParam), FlagNotify (StdFlag), LogLUDTimeUTC (UTC now), LogLUBy (strWAUserCode) (Master.cs:56857-56885).
+    ///    - Gọi Map_UserInNotifyType_CheckDB(UserCode, NotifyType, "", "") (Master.cs:56873-56880, 54659-54718).
+    ///    - Xoá các bản ghi trùng (UserCode, NotifyType) trong bảng Map_UserInNotifyType (Master.cs:56912-56925).
+    ///    - Nếu FlagIsDelete != "1" (!bIsDelete): Chèn các bản ghi mới vào Map_UserInNotifyType (Master.cs:56929-56968).
+    ///    - Commit transaction (Master.cs:56733). Rollback nếu có lỗi ngoại lệ và trả mã lỗi Map_UserInNotifyType_Save (Master.cs:56740-56749).
+    /// 5. Phản hồi: Success = true, Messages = ["Phân quyền thông báo thành công!"], Title = "Phân quyền thông báo thành công!" (gate dòng 190-192).
+    /// </summary>
+    [HttpPost("savedata")]
+    [HttpPost("save")]
+    public async Task<IActionResult> SaveData([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] JsonElement? rawBody)
+    {
+        try
+        {
+            // 1. Phân tích dữ liệu đầu vào từ JSON body
+            var (hasTable, items, flagIsDelete, waUserCode) = ParseSaveDataInput(rawBody);
+
+            // 2. Guard 1: Kiểm tra bảng Map_UserInNotifyType (Master.cs:56832-56841)
+            if (!hasTable)
+            {
+                return PortResult.Fail("Map_UserInNotifyType_SaveX_Input_InvoiceTblNotFound", "Check.TableName", "Map_UserInNotifyType");
+            }
+
+            // 3. Guard 2: Kiểm tra số dòng dữ liệu < 1 (Master.cs:56845-56855)
+            if (items == null || items.Count < 1)
+            {
+                return PortResult.Fail("Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", "Check.TableName", "Map_UserInNotifyType");
+            }
+
+            // 4. Chuẩn hoá các trường dữ liệu theo Master.cs:56857-56885
+            var processedList = new List<Map_UserInNotifyType>();
+            var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+            foreach (var raw in items)
+            {
+                var uCode = StdParam(raw.UserCode);
+                var nType = StdParam(raw.NotifyType);
+                if (!string.IsNullOrEmpty(uCode) && !string.IsNullOrEmpty(nType))
+                {
+                    processedList.Add(new Map_UserInNotifyType
+                    {
+                        UserCode = uCode,
+                        NotifyType = nType,
+                        FlagNotify = StdFlag(raw.FlagNotify),
+                        LogLUDTimeUTC = dtimeSys,
+                        LogLUBy = waUserCode
+                    });
+                }
+            }
+
+            if (processedList.Count < 1)
+            {
+                return PortResult.Fail("Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", "Check.TableName", "Map_UserInNotifyType");
+            }
+
+            // 5. Mở Transaction lưu dữ liệu theo Master.cs:56657-56745
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var bIsDelete = (flagIsDelete?.Trim() == "1");
+
+                // Xoá các bản ghi trùng UserCode và NotifyType (Master.cs:56912-56925)
+                foreach (var item in processedList)
+                {
+                    var existing = await _db.Set<Map_UserInNotifyType>()
+                        .Where(x => EF.Functions.Like((x.UserCode ?? "").ToLower(), PortQuery.Equal(item.UserCode), PortQuery.Esc)
+                                 && EF.Functions.Like((x.NotifyType ?? "").ToLower(), PortQuery.Equal(item.NotifyType), PortQuery.Esc))
+                        .ToListAsync();
+
+                    if (existing.Count > 0)
+                    {
+                        _db.Set<Map_UserInNotifyType>().RemoveRange(existing);
+                    }
+                }
+                await _db.SaveChangesAsync();
+
+                // Nếu không phải cờ xoá (!bIsDelete) thì thêm mới (Master.cs:56929-56968)
+                if (!bIsDelete)
+                {
+                    // Lọc trùng lặp trong chính danh sách input nếu có (lấy phần tử cuối cùng)
+                    var distinctItems = processedList
+                        .GroupBy(x => new { x.UserCode, x.NotifyType })
+                        .Select(g => g.Last())
+                        .ToList();
+
+                    await _db.Set<Map_UserInNotifyType>().AddRangeAsync(distinctItems);
+                    await _db.SaveChangesAsync();
+                }
+
+                await tx.CommitAsync();
+
+                // 6. Trả về kết quả thành công theo gate Map_UserInNotifyTypeController.cs:190-192
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Phân quyền thông báo thành công!" },
+                    Title = "Phân quyền thông báo thành công!"
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Map_UserInNotifyType_Save", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Map_UserInNotifyType_Save", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Hàm trích xuất dữ liệu danh sách Map_UserInNotifyType từ các định dạng đầu vào khác nhau:
+    /// 1. Mảng JSON trực tiếp [...]
+    /// 2. Đối tượng { "Lst_Map_UserInNotifyType": [...] }
+    /// 3. Đối tượng { "model": "[{...}]" } hoặc { "model": [...] }
+    /// 4. Đối tượng { "data": [...] }
+    /// </summary>
+    private static (bool hasTable, List<Map_UserInNotifyType>? items, string flagIsDelete, string waUserCode) ParseSaveDataInput(JsonElement? rawBody)
+    {
+        if (rawBody == null || rawBody.Value.ValueKind == JsonValueKind.Undefined || rawBody.Value.ValueKind == JsonValueKind.Null)
+        {
+            return (true, null, "0", "port");
+        }
+
+        var flagIsDelete = "0";
+        var waUserCode = "port";
+
+        if (rawBody.Value.ValueKind == JsonValueKind.Array)
+        {
+            var list = JsonSerializer.Deserialize<List<Map_UserInNotifyType>>(rawBody.Value.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return (true, list, flagIsDelete, waUserCode);
+        }
+
+        if (rawBody.Value.ValueKind == JsonValueKind.Object)
+        {
+            var root = rawBody.Value;
+            if (root.TryGetProperty("FlagIsDelete", out var fidProp) || root.TryGetProperty("flagIsDelete", out fidProp))
+            {
+                flagIsDelete = fidProp.GetString() ?? "0";
+            }
+            if (root.TryGetProperty("WAUserCode", out var wucProp) || root.TryGetProperty("waUserCode", out wucProp))
+            {
+                waUserCode = wucProp.GetString() ?? "port";
+            }
+
+            bool foundTableProp = false;
+            List<Map_UserInNotifyType>? list = null;
+
+            if (root.TryGetProperty("Lst_Map_UserInNotifyType", out var lstProp) || root.TryGetProperty("lst_Map_UserInNotifyType", out lstProp))
+            {
+                foundTableProp = true;
+                if (lstProp.ValueKind == JsonValueKind.Array)
+                {
+                    list = JsonSerializer.Deserialize<List<Map_UserInNotifyType>>(lstProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+            }
+            else if (root.TryGetProperty("model", out var modelProp) || root.TryGetProperty("Model", out modelProp))
+            {
+                foundTableProp = true;
+                if (modelProp.ValueKind == JsonValueKind.String)
+                {
+                    var str = modelProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(str))
+                    {
+                        try
+                        {
+                            list = JsonSerializer.Deserialize<List<Map_UserInNotifyType>>(str, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        }
+                        catch
+                        {
+                            list = new List<Map_UserInNotifyType>();
+                        }
+                    }
+                }
+                else if (modelProp.ValueKind == JsonValueKind.Array)
+                {
+                    list = JsonSerializer.Deserialize<List<Map_UserInNotifyType>>(modelProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+            }
+            else if (root.TryGetProperty("data", out var dataProp) || root.TryGetProperty("Data", out dataProp))
+            {
+                foundTableProp = true;
+                if (dataProp.ValueKind == JsonValueKind.Array)
+                {
+                    list = JsonSerializer.Deserialize<List<Map_UserInNotifyType>>(dataProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+            }
+
+            // Nếu request chứa các trường khác nhưng không chứa trường bảng Map_UserInNotifyType
+            if (!foundTableProp)
+            {
+                var propCount = 0;
+                foreach (var _ in root.EnumerateObject()) propCount++;
+                if (propCount > 0)
+                {
+                    return (false, null, flagIsDelete, waUserCode);
+                }
+            }
+
+            return (true, list, flagIsDelete, waUserCode);
+        }
+
+        return (true, null, flagIsDelete, waUserCode);
     }
 
     /// <summary>
@@ -225,6 +443,17 @@ public class Map_UserInNotifyType_IndexReq
 /// </summary>
 public class Map_UserInNotifyType_DoSearchReq : Map_UserInNotifyType_IndexReq
 {
+}
+
+/// <summary>
+/// DTO yêu cầu cho action SaveData của Map_UserInNotifyTypeController.
+/// </summary>
+public class Map_UserInNotifyType_SaveDataReq
+{
+    public object? Model { get; set; }
+    public List<Map_UserInNotifyType>? Lst_Map_UserInNotifyType { get; set; }
+    public string? FlagIsDelete { get; set; }
+    public string? WAUserCode { get; set; }
 }
 
 /// <summary>

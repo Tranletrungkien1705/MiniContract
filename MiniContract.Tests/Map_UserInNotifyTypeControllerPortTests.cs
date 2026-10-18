@@ -336,6 +336,174 @@ public class Map_UserInNotifyTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveData_NullBody_ReturnsInvoiceTblInvalid()
+    {
+        var result = await _controller.SaveData(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Map_UserInNotifyType", root.GetProperty("Params").GetProperty("Check.TableName").GetString());
+    }
+
+    [Fact]
+    public async Task SaveData_EmptyObject_ReturnsInvoiceTblInvalid()
+    {
+        var docIn = JsonDocument.Parse("{}");
+        var result = await _controller.SaveData(docIn.RootElement);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task SaveData_EmptyList_ReturnsInvoiceTblInvalid()
+    {
+        var docIn = JsonDocument.Parse("[]");
+        var result = await _controller.SaveData(docIn.RootElement);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task SaveData_TableNotFound_ReturnsInvoiceTblNotFound()
+    {
+        var docIn = JsonDocument.Parse("{\"UnknownTable\": []}");
+        var result = await _controller.SaveData(docIn.RootElement);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Map_UserInNotifyType", root.GetProperty("Params").GetProperty("Check.TableName").GetString());
+    }
+
+    [Fact]
+    public async Task SaveData_InsertAndUpsert_SuccessRoundTrip()
+    {
+        // Ban đầu có 4 bản ghi: U01-NT01 (FlagNotify=1), U01-NT02 (1), U02-NT01 (1), U03-NT03 (0)
+        // Thực hiện cập nhật U01-NT01 thành FlagNotify=0 và thêm mới U01-NT03 FlagNotify=1
+        var jsonInput = JsonSerializer.Serialize(new
+        {
+            Lst_Map_UserInNotifyType = new[]
+            {
+                new { UserCode = "u01", NotifyType = "nt01", FlagNotify = "0" },
+                new { UserCode = "u01", NotifyType = "nt03", FlagNotify = "1" }
+            }
+        });
+        var docIn = JsonDocument.Parse(jsonInput);
+
+        var result = await _controller.SaveData(docIn.RootElement);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Phân quyền thông báo thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        // Kiểm tra round-trip đọc lại qua Index
+        var indexRes = await _controller.Index(new Map_UserInNotifyType_IndexReq { UserCode = "U01" });
+        var okIndex = Assert.IsType<OkObjectResult>(indexRes);
+        var docIndex = JsonDocument.Parse(JsonSerializer.Serialize(okIndex.Value));
+        var data = docIndex.RootElement.GetProperty("Data");
+
+        // U01 giờ có 3 bản ghi: NT01, NT02, NT03
+        Assert.Equal(3, data.GetProperty("ItemCount").GetInt32());
+
+        // Kiểm tra FlagNotify của NT01 đã thành 0
+        var list = data.GetProperty("Lst_Map_UserInNotifyType");
+        var nt01 = false;
+        var nt03 = false;
+        foreach (var item in list.EnumerateArray())
+        {
+            if (item.GetProperty("NotifyType").GetString() == "NT01")
+            {
+                Assert.Equal("0", item.GetProperty("FlagNotify").GetString());
+                nt01 = true;
+            }
+            if (item.GetProperty("NotifyType").GetString() == "NT03")
+            {
+                Assert.Equal("1", item.GetProperty("FlagNotify").GetString());
+                nt03 = true;
+            }
+        }
+        Assert.True(nt01);
+        Assert.True(nt03);
+
+        // Tổng số bản ghi trong bảng tăng từ 4 lên 5
+        var allRes = await _controller.Index(null);
+        var docAll = JsonDocument.Parse(JsonSerializer.Serialize(((OkObjectResult)allRes).Value));
+        Assert.Equal(5, docAll.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task SaveData_DeleteWithFlagIsDelete1_SuccessRoundTrip()
+    {
+        // Xoá bản ghi U03 - NT03 với FlagIsDelete = "1"
+        var jsonInput = JsonSerializer.Serialize(new
+        {
+            FlagIsDelete = "1",
+            Lst_Map_UserInNotifyType = new[]
+            {
+                new { UserCode = "u03", NotifyType = "nt03" }
+            }
+        });
+        var docIn = JsonDocument.Parse(jsonInput);
+
+        var result = await _controller.SaveData(docIn.RootElement);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        // Đọc lại thấy U03 không còn bản ghi nào
+        var indexRes = await _controller.Index(new Map_UserInNotifyType_IndexReq { UserCode = "U03" });
+        var docIndex = JsonDocument.Parse(JsonSerializer.Serialize(((OkObjectResult)indexRes).Value));
+        Assert.Equal(0, docIndex.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+        // Tổng số bản ghi trong bảng giảm từ 4 xuống 3
+        var allRes = await _controller.Index(null);
+        var docAll = JsonDocument.Parse(JsonSerializer.Serialize(((OkObjectResult)allRes).Value));
+        Assert.Equal(3, docAll.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task SaveData_StringModelFormat_Success()
+    {
+        // Định dạng chuỗi { "model": "[{...}]" } theo đúng gate SaveData(string model)
+        var innerJson = JsonSerializer.Serialize(new[]
+        {
+            new { UserCode = "u02", NotifyType = "nt02", FlagNotify = "1" }
+        });
+        var jsonInput = JsonSerializer.Serialize(new { model = innerJson });
+        var docIn = JsonDocument.Parse(jsonInput);
+
+        var result = await _controller.SaveData(docIn.RootElement);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        // Kiểm tra round-trip U02 - NT02 đã được tạo
+        var indexRes = await _controller.Index(new Map_UserInNotifyType_IndexReq { UserCode = "U02", NotifyType = "NT02" });
+        var docIndex = JsonDocument.Parse(JsonSerializer.Serialize(((OkObjectResult)indexRes).Value));
+        Assert.Equal(1, docIndex.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port_MapUserInNotifyType()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_map_userinnotifytype_{Guid.NewGuid():N}.db");
@@ -454,6 +622,66 @@ public class Map_UserInNotifyTypeControllerPortTests : IDisposable
             var docDs5 = JsonDocument.Parse(await resDs5.Content.ReadAsStringAsync());
             Assert.Equal(0, docDs5.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
             Assert.Equal(0, docDs5.RootElement.GetProperty("Data").GetProperty("PageCount").GetInt32());
+
+            // 11. Kiểm tra action SaveData: Guard body rỗng POST {} -> 400 BadRequest (Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid)
+            var reqSd1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resSd1 = await http.PostAsync("/api/map_userinnotifytype/savedata", reqSd1);
+            Assert.False(resSd1.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resSd1.StatusCode);
+            var docSd1 = JsonDocument.Parse(await resSd1.Content.ReadAsStringAsync());
+            Assert.False(docSd1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblInvalid", docSd1.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 12. Kiểm tra action SaveData: Guard bảng không tồn tại -> 400 BadRequest (Map_UserInNotifyType_SaveX_Input_InvoiceTblNotFound)
+            var reqSd2 = new StringContent(JsonSerializer.Serialize(new { UnknownTable = new object[0] }), Encoding.UTF8, "application/json");
+            var resSd2 = await http.PostAsync("/api/map_userinnotifytype/savedata", reqSd2);
+            Assert.False(resSd2.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resSd2.StatusCode);
+            var docSd2 = JsonDocument.Parse(await resSd2.Content.ReadAsStringAsync());
+            Assert.False(docSd2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Map_UserInNotifyType_SaveX_Input_InvoiceTblNotFound", docSd2.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 13. Kiểm tra action SaveData: Round-trip GHI thêm mới bản ghi U01-NT03 -> 200 OK
+            var reqSd3 = new StringContent(JsonSerializer.Serialize(new
+            {
+                Lst_Map_UserInNotifyType = new[]
+                {
+                    new { UserCode = "U01", NotifyType = "NT03", FlagNotify = "1" }
+                }
+            }), Encoding.UTF8, "application/json");
+            var resSd3 = await http.PostAsync("/api/map_userinnotifytype/savedata", reqSd3);
+            Assert.True(resSd3.IsSuccessStatusCode);
+            var docSd3 = JsonDocument.Parse(await resSd3.Content.ReadAsStringAsync());
+            Assert.True(docSd3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Phân quyền thông báo thành công!", docSd3.RootElement.GetProperty("Title").GetString());
+
+            // Đọc lại qua Index để xác minh round-trip U01 giờ có 3 bản ghi
+            var reqVerifyU01 = new StringContent(JsonSerializer.Serialize(new { UserCode = "U01" }), Encoding.UTF8, "application/json");
+            var resVerifyU01 = await http.PostAsync("/api/map_userinnotifytype/index", reqVerifyU01);
+            Assert.True(resVerifyU01.IsSuccessStatusCode);
+            var docVerifyU01 = JsonDocument.Parse(await resVerifyU01.Content.ReadAsStringAsync());
+            Assert.Equal(3, docVerifyU01.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 14. Kiểm tra action SaveData: Round-trip XOÁ bản ghi U03-NT03 với FlagIsDelete = 1 -> 200 OK
+            var reqSd4 = new StringContent(JsonSerializer.Serialize(new
+            {
+                FlagIsDelete = "1",
+                Lst_Map_UserInNotifyType = new[]
+                {
+                    new { UserCode = "U03", NotifyType = "NT03" }
+                }
+            }), Encoding.UTF8, "application/json");
+            var resSd4 = await http.PostAsync("/api/map_userinnotifytype/savedata", reqSd4);
+            Assert.True(resSd4.IsSuccessStatusCode);
+            var docSd4 = JsonDocument.Parse(await resSd4.Content.ReadAsStringAsync());
+            Assert.True(docSd4.RootElement.GetProperty("Success").GetBoolean());
+
+            // Đọc lại qua Index để xác minh round-trip U03 giờ có 0 bản ghi
+            var reqVerifyU03 = new StringContent(JsonSerializer.Serialize(new { UserCode = "U03" }), Encoding.UTF8, "application/json");
+            var resVerifyU03 = await http.PostAsync("/api/map_userinnotifytype/index", reqVerifyU03);
+            Assert.True(resVerifyU03.IsSuccessStatusCode);
+            var docVerifyU03 = JsonDocument.Parse(await resVerifyU03.Content.ReadAsStringAsync());
+            Assert.Equal(0, docVerifyU03.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
         }
         finally
         {
