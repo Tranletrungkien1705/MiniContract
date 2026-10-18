@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 127/295 (43.05%)
+**Tiến độ hiện tại**: 128/295 (43.39%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -302,6 +302,6 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 290 | Sys_UserController/ChangeInfo | Đã làm | 80dfedd |
 | 291 | Sys_UserController/Export | Đã làm | 6f6c328 |
 | 292 | Sys_UserController/ExportTemplate | Đã làm | 51d7fe4 |
-| 293 | Sys_UserController/Import | Chưa làm | - |
+| 293 | Sys_UserController/Import | Đã làm | 59c4490 |
 | 294 | Sys_UserController/CheckUserExist | Chưa làm | - |
 | 295 | ZaloController/Index | Chưa làm | - |
