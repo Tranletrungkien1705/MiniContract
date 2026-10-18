@@ -55,8 +55,9 @@ public class Mst_SubmissionFormSeeder : IPortSeeder
                 SubFormName = "Mẫu gửi Email 01",
                 OrgID = "7200000001",
                 ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY",
                 FlagActive = "1",
-                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUDTimeUTC = "2024-01-01 10:00:00",
                 LogLUBy = "port"
             },
             new Mst_SubmissionForm
@@ -65,8 +66,9 @@ public class Mst_SubmissionFormSeeder : IPortSeeder
                 SubFormName = "Mẫu gửi SMS 01",
                 OrgID = "7200000001",
                 ChannelType = "SMS",
+                BulletinType = "OTP",
                 FlagActive = "1",
-                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUDTimeUTC = "2024-01-02 10:00:00",
                 LogLUBy = "port"
             },
             new Mst_SubmissionForm
@@ -75,8 +77,20 @@ public class Mst_SubmissionFormSeeder : IPortSeeder
                 SubFormName = "Mẫu gửi Zalo 01",
                 OrgID = "7200000001",
                 ChannelType = "ZALO",
+                BulletinType = "ZNS_NOTIFY",
                 FlagActive = "1",
-                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUDTimeUTC = "2024-01-03 10:00:00",
+                LogLUBy = "port"
+            },
+            new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_SMS_INACTIVE",
+                SubFormName = "Mẫu gửi SMS tạm dừng",
+                OrgID = "7200000001",
+                ChannelType = "SMS",
+                BulletinType = "OTP",
+                FlagActive = "0",
+                LogLUDTimeUTC = "2024-01-04 10:00:00",
                 LogLUBy = "port"
             }
         );
