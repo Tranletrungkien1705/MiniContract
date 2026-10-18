@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get)
 [ApiController]
@@ -568,6 +568,34 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xuất file Excel mẫu để import khách hàng.
+    /// Gate: Mst_CustomerController.cs:567-578 ExportTemplate()
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    public async Task<IActionResult> ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_ExportTemplateReq? req = null)
+    {
+        try
+        {
+            var list = new List<Mst_Customer>();
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_Customer));
+            PortExcel.ExportToExcelFromList(list, DicColNames, filePath, nameof(Mst_Customer));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
     private async Task EnrichCustomersAsync(List<Mst_Customer> list)
     {
         if (list.Count == 0) return;
@@ -752,4 +780,9 @@ public class Mst_Customer_ExportReq
     public string? NetworkID { get; set; }
     public string? FlagActive { get; set; }
 }
+
+public class Mst_Customer_ExportTemplateReq
+{
+}
+
 
