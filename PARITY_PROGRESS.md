@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 92/295 (31.19%)
+**Tiến độ hiện tại**: 93/295 (31.53%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -289,7 +289,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 277 | Sys_GroupController/ExportTemplate | Chưa làm | - |
 | 278 | Sys_UserController/Index | Đã làm | 90c6275 |
 | 279 | Sys_UserController/Create | Đã làm | a66cf83 |
-| 280 | Sys_UserController/LoadMstCustomer | Chưa làm | - |
+| 280 | Sys_UserController/LoadMstCustomer | Đã làm | 2565131 |
 | 281 | Sys_UserController/StopService | Chưa làm | - |
 | 282 | Sys_UserController/Update | Chưa làm | - |
 | 283 | Sys_UserController/Edit | Chưa làm | - |
