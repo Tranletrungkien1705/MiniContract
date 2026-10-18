@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 115/295 (38.98%)
+**Tiến độ hiện tại**: 116/295 (39.32%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -297,7 +297,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 285 | Sys_UserController/Delete | Đã làm | 7424e9f |
 | 286 | Sys_UserController/ShowPopupChangePassword | Đã làm | bf0f00c |
 | 287 | Sys_UserController/ShowPopupChangePasswordCheckOld | Đã làm | aa20a26 |
-| 288 | Sys_UserController/ChangePassword | Chưa làm | - |
+| 288 | Sys_UserController/ChangePassword | Đã làm | 73cf631 |
 | 289 | Sys_UserController/ChangePasswordCheckOld | Chưa làm | - |
 | 290 | Sys_UserController/ChangeInfo | Chưa làm | - |
 | 291 | Sys_UserController/Export | Chưa làm | - |
