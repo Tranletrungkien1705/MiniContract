@@ -14,12 +14,15 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:161-171 (Create GET)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:173-213 (Create POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:218-266 (Update)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:270-341 (Edit)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:93-147 (WA_Sys_Group_Create)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:168-239 (WA_Sys_Group_Update)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2710-2790 (WAS_Sys_Group_Create) -> zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3118-3201 (WAS_Sys_Group_Update) -> 2937-3116 / 2791-2935 (Sys_Group_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:1341-1400 (Sys_Group_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3552-3611 (Sys_User_CheckDB)
 [ApiController]
@@ -473,6 +476,147 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Edit từ gate Sys_GroupController.cs:270-341.
+    /// Chuỗi gọi:
+    /// 1. Deserialize model -> Sys_Group (gate dòng 278).
+    /// 2. Kiểm tra if (model != null && !CUtils.IsNullOrEmpty(objSys_Group.GroupCode)) (gate dòng 280):
+    ///    Nếu rỗng: trả về Success = true, AddMessage("Mã nhóm người dùng trống!") (gate dòng 336-337).
+    /// 3. Dựng strWhereClause = strWhereClause_SysGroup(GroupCode) (gate dòng 283).
+    ///    Gọi Sys_GroupService.Instance.WA_Sys_Group_Get(objRQ_Sys_Group, addressAPIs) (gate dòng 306).
+    /// 4. Kiểm tra if (objRT_Sys_GroupCur.Lst_Sys_Group != null && objRT_Sys_GroupCur.Lst_Sys_Group.Count > 0) (gate dòng 307):
+    ///    Nếu không thấy: trả về Success = true, AddMessage("Mã nhóm người dùng '" + objSys_Group.GroupCode + "' không có trong hệ thống!") (gate dòng 330-331).
+    /// 5. Nếu tìm thấy:
+    ///    Gán GroupName, FlagActive, thiết lập strFt_Cols_Upd (gate dòng 309-320).
+    ///    Gọi Sys_GroupService.Instance.WA_Sys_Group_Update(objRQ_Sys_Group, addressAPIs) (gate dòng 322)
+    ///    -> API WA_Sys_Group_Update (SysGroupController.cs:168-239)
+    ///    -> BIZ WAS_Sys_Group_Update (System.cs:3118-3201)
+    ///    -> Sys_Group_Update (System.cs:2937-3116 / 2791-2935).
+    /// 6. BIZ Sys_Group_Update:
+    ///    - Mở transaction: _cf.db.BeginTransaction() (System.cs:2981).
+    ///    - Chuẩn hoá strGroupCode = StdParam(objGroupCode), strGroupName = string.Format("{0}", objGroupName).Trim(), strFlagActive = StdFlag(objFlagActive) (System.cs:3025-3027).
+    ///    - Gọi Sys_Group_CheckDB(..., FlagExistToCheck = "1", ...) (System.cs:3035-3041).
+    ///    - Nếu bUpd_GroupName && strGroupName.Length < 1 -> ném Sys_Group_Update_InvalidGroupName (System.cs:3043-3053).
+    ///    - Cập nhật GroupName, FlagActive, LogLUDTimeUTC = dtimeSys, LogLUBy = strWAUserCode (System.cs:3059-3068).
+    ///    - Commit transaction (System.cs:3075).
+    /// 7. Trả về kết quả khớp gate MVC (Sys_GroupController.cs:324-326):
+    ///    Success = true, Messages = ["Sửa nhóm người dùng thành công!"], RedirectUrl = Url.Action("Index").
+    /// </summary>
+    [HttpPost("edit")]
+    [HttpPost("save")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_EditReq? req)
+    {
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Sys_GroupController.cs:270, 278)
+        if (!string.IsNullOrWhiteSpace(req?.Model))
+        {
+            try
+            {
+                var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_EditReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.GroupCode ??= modelObj.GroupCode;
+                    req.GroupName ??= modelObj.GroupName;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.MST ??= modelObj.MST;
+                    req.UserCode ??= modelObj.UserCode;
+                    req.WAUserCode ??= modelObj.WAUserCode;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.Ft_Cols_Upd ??= modelObj.Ft_Cols_Upd;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        // Gate guard 1: Kiểm tra model và GroupCode không được rỗng (Sys_GroupController.cs:280, 334-338)
+        var rawGroupCode = req?.GroupCode;
+        if (req == null || string.IsNullOrWhiteSpace(rawGroupCode))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Mã nhóm người dùng trống!" },
+                Title = "Mã nhóm người dùng trống!"
+            });
+        }
+
+        var groupCode = StdParam(rawGroupCode);
+        if (string.IsNullOrEmpty(groupCode))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Mã nhóm người dùng trống!" },
+                Title = "Mã nhóm người dùng trống!"
+            });
+        }
+
+        // Gate guard 2: Tra cứu bản ghi nhóm hiện có trong DB qua WA_Sys_Group_Get (Sys_GroupController.cs:282-307, 328-332)
+        var existing = await _db.Set<Sys_Group>()
+            .FirstOrDefaultAsync(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+
+        if (existing == null)
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { $"Mã nhóm người dùng '{rawGroupCode}' không có trong hệ thống!" },
+                Title = $"Mã nhóm người dùng '{rawGroupCode}' không có trong hệ thống!"
+            });
+        }
+
+        // Xác định các cột cập nhật theo gate (Sys_GroupController.cs:312-315: GroupName, FlagActive)
+        var strFt_Cols_Upd = (StdParam(req.Ft_Cols_Upd) ?? "SYS_GROUP.GROUPNAME,SYS_GROUP.FLAGACTIVE,").ToUpperInvariant();
+        bool bUpd_GroupName = strFt_Cols_Upd.Contains("SYS_GROUP.GROUPNAME") || strFt_Cols_Upd.Contains("GROUPNAME");
+        bool bUpd_FlagActive = strFt_Cols_Upd.Contains("SYS_GROUP.FLAGACTIVE") || strFt_Cols_Upd.Contains("FLAGACTIVE");
+
+        // Chuẩn hoá dữ liệu cập nhật theo System.cs:3026-3027
+        var strGroupName = string.Format("{0}", req.GroupName).Trim();
+        var strFlagActive = req.FlagActive != null ? StdFlag(req.FlagActive) : (existing.FlagActive ?? "1");
+
+        // Mở transaction cập nhật (System.cs:2981)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Biz guard: Nếu cập nhật GroupName mà strGroupName.Length < 1 -> ném Sys_Group_Update_InvalidGroupName (System.cs:3043-3053)
+            if (bUpd_GroupName && strGroupName.Length < 1)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_Group_Update_InvalidGroupName", "Check.strGroupName", req.GroupName ?? "");
+            }
+
+            if (bUpd_GroupName) existing.GroupName = strGroupName;
+            if (bUpd_FlagActive) existing.FlagActive = strFlagActive;
+
+            var dtimeSys = DateTime.UtcNow;
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault() ?? req.WAUserCode ?? req.UserCode;
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            existing.LogLUBy = userCode;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // Trả kết quả thành công khớp gate MVC (Sys_GroupController.cs:324-326)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Sửa nhóm người dùng thành công!" },
+                Title = "Sửa nhóm người dùng thành công!",
+                RedirectUrl = "/Sys_Group",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Sys_Group_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -540,4 +684,21 @@ public class Sys_Group_UpdateReq
     public string? GroupCode { get; set; }
     public string? MST { get; set; }
     public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Edit của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:270 Edit(string model)
+/// </summary>
+public class Sys_Group_EditReq
+{
+    public string? Model { get; set; }
+    public string? GroupCode { get; set; }
+    public string? GroupName { get; set; }
+    public string? FlagActive { get; set; }
+    public string? MST { get; set; }
+    public string? UserCode { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? Ft_Cols_Upd { get; set; }
 }

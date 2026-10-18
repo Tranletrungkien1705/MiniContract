@@ -524,6 +524,131 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_NullReq_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Edit(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyReq_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyGroupCode_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq { GroupCode = "   ", GroupName = "Nhóm mới" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentGroupCode_ReturnsNotFoundMessage()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq { GroupCode = "GRP_NONEXISTENT", GroupName = "Nhóm mới" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyGroupName_ReturnsInvalidGroupName()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq { GroupCode = "GRP_ADMIN", GroupName = "" });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Update_InvalidGroupName", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_WhitespaceGroupName_ReturnsInvalidGroupName()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq { GroupCode = "GRP_ADMIN", GroupName = "   " });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Update_InvalidGroupName", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_ValidReq_SuccessAndRoundTrip()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq
+        {
+            GroupCode = "grp_manager",
+            GroupName = "Nhóm Quản lý hợp đồng ĐÃ SỬA",
+            FlagActive = "1"
+        });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Sửa nhóm người dùng thành công!", messages[0].GetString());
+
+        var updated = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_MANAGER");
+        Assert.NotNull(updated);
+        Assert.Equal("Nhóm Quản lý hợp đồng ĐÃ SỬA", updated.GroupName);
+        Assert.Equal("1", updated.FlagActive);
+    }
+
+    [Fact]
+    public async Task Edit_ViaModelJson_SuccessAndRoundTrip()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq
+        {
+            Model = "{\"GroupCode\":\"GRP_STAFF\",\"GroupName\":\"Nhóm Nhân viên kinh doanh MỚI\",\"FlagActive\":\"1\"}"
+        });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var staff = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_STAFF");
+        Assert.NotNull(staff);
+        Assert.Equal("Nhóm Nhân viên kinh doanh MỚI", staff.GroupName);
+    }
+
+    [Fact]
+    public async Task Edit_ChangeFlagActive_Success()
+    {
+        var result = await _controller.Edit(new Sys_Group_EditReq
+        {
+            GroupCode = "GRP_INACTIVE",
+            GroupName = "Nhóm Kích Hoạt Lại",
+            FlagActive = "1"
+        });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var inactive = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_INACTIVE");
+        Assert.NotNull(inactive);
+        Assert.Equal("1", inactive.FlagActive);
+        Assert.Equal("Nhóm Kích Hoạt Lại", inactive.GroupName);
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -826,6 +951,73 @@ public class Sys_GroupControllerPortTests : IDisposable
             Assert.Equal(JsonValueKind.Object, data23.ValueKind);
             Assert.Equal("GRP_ACCOUNTANT", data23.GetProperty("GroupCode").GetString());
             Assert.Equal("Nhóm Kế toán", data23.GetProperty("GroupName").GetString());
+
+            // 24. Ca Edit body rỗng: POST /api/sys_group/edit {} -> 200 OK, Success=true, Messages=["Mã nhóm người dùng trống!"]
+            var req24 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res24 = await http.PostAsync("/api/sys_group/edit", req24);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res24.StatusCode);
+            var body24 = await res24.Content.ReadAsStringAsync();
+            var doc24 = JsonDocument.Parse(body24);
+            Assert.True(doc24.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng trống!", doc24.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 25. Ca Edit GroupCode không tồn tại: POST /api/sys_group/edit {"GroupCode":"GRP_NONEXISTENT","GroupName":"Nhóm mới"} -> 200 OK, Success=true, Messages=["Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!"]
+            var req25 = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\",\"GroupName\":\"Nhóm mới\"}", Encoding.UTF8, "application/json");
+            var res25 = await http.PostAsync("/api/sys_group/edit", req25);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res25.StatusCode);
+            var body25 = await res25.Content.ReadAsStringAsync();
+            var doc25 = JsonDocument.Parse(body25);
+            Assert.True(doc25.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!", doc25.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 26. Ca Edit GroupName rỗng: POST /api/sys_group/edit {"GroupCode":"GRP_ADMIN","GroupName":""} -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_Update_InvalidGroupName
+            var req26 = new StringContent("{\"GroupCode\":\"GRP_ADMIN\",\"GroupName\":\"\"}", Encoding.UTF8, "application/json");
+            var res26 = await http.PostAsync("/api/sys_group/edit", req26);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res26.StatusCode);
+            var body26 = await res26.Content.ReadAsStringAsync();
+            var doc26 = JsonDocument.Parse(body26);
+            Assert.False(doc26.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Update_InvalidGroupName", doc26.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 27. Ca Edit thành công round-trip: POST /api/sys_group/edit {"GroupCode":"GRP_ACCOUNTANT","GroupName":"Nhóm Kế toán ĐÃ SỬA","FlagActive":"1"} -> 200 OK, Success=true
+            var req27 = new StringContent("{\"GroupCode\":\"GRP_ACCOUNTANT\",\"GroupName\":\"Nhóm Kế toán ĐÃ SỬA\",\"FlagActive\":\"1\"}", Encoding.UTF8, "application/json");
+            var res27 = await http.PostAsync("/api/sys_group/edit", req27);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res27.StatusCode);
+            var body27 = await res27.Content.ReadAsStringAsync();
+            var doc27 = JsonDocument.Parse(body27);
+            Assert.True(doc27.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa nhóm người dùng thành công!", doc27.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 28. Đọc lại qua /api/sys_group/update để xác minh round-trip
+            var req28 = new StringContent("{\"GroupCode\":\"GRP_ACCOUNTANT\"}", Encoding.UTF8, "application/json");
+            var res28 = await http.PostAsync("/api/sys_group/update", req28);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res28.StatusCode);
+            var body28 = await res28.Content.ReadAsStringAsync();
+            var doc28 = JsonDocument.Parse(body28);
+            Assert.True(doc28.RootElement.GetProperty("Success").GetBoolean());
+            var data28 = doc28.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_ACCOUNTANT", data28.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Kế toán ĐÃ SỬA", data28.GetProperty("GroupName").GetString());
+
+            // 29. Ca Edit qua Model JSON string: POST /api/sys_group/edit {"Model":"{\"GroupCode\":\"GRP_INACTIVE\",\"GroupName\":\"Nhóm Tái Kích Hoạt\",\"FlagActive\":\"1\"}"}
+            var req29 = new StringContent("{\"Model\":\"{\\\"GroupCode\\\":\\\"GRP_INACTIVE\\\",\\\"GroupName\\\":\\\"Nhóm Tái Kích Hoạt\\\",\\\"FlagActive\\\":\\\"1\\\"}\"}", Encoding.UTF8, "application/json");
+            var res29 = await http.PostAsync("/api/sys_group/edit", req29);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res29.StatusCode);
+            var body29 = await res29.Content.ReadAsStringAsync();
+            var doc29 = JsonDocument.Parse(body29);
+            Assert.True(doc29.RootElement.GetProperty("Success").GetBoolean());
+
+            // 30. Đọc lại qua /api/sys_group/update xác minh FlagActive="1" và GroupName="Nhóm Tái Kích Hoạt"
+            var req30 = new StringContent("{\"GroupCode\":\"GRP_INACTIVE\"}", Encoding.UTF8, "application/json");
+            var res30 = await http.PostAsync("/api/sys_group/update", req30);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res30.StatusCode);
+            var body30 = await res30.Content.ReadAsStringAsync();
+            var doc30 = JsonDocument.Parse(body30);
+            Assert.True(doc30.RootElement.GetProperty("Success").GetBoolean());
+            var data30 = doc30.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_INACTIVE", data30.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Tái Kích Hoạt", data30.GetProperty("GroupName").GetString());
+            Assert.Equal("1", data30.GetProperty("FlagActive").GetString());
         }
         finally
         {
