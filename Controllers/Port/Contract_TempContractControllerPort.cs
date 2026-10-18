@@ -16,6 +16,102 @@ namespace MiniContract.Controllers.Port
             _db = db;
         }
 
+        [HttpPost("detail")]
+        public async Task<ActionResult> Detail([FromBody] Contract_TempDetailReq? req)
+        {
+            req ??= new Contract_TempDetailReq();
+            var tcontractcode = req.TContractCode ?? string.Empty;
+            var networkID = req.NetworkID ?? "1001";
+            var orgID = req.OrgID ?? "ROOT";
+
+            var contract = await _db.Set<Contract_TempContract>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like(x.TContractCode.ToLower(), PortQuery.Equal(tcontractcode), PortQuery.Esc));
+
+            var lstContractTempContract = new List<Contract_TempContract>();
+            var lstAttributeTemp = new List<Contract_Attribute_Temp>();
+            var lstContractTempContractParty = new List<Contract_TempContractParty>();
+            var lstContractTempElement = new List<Contract_TempElement>();
+            var lstContractTempChecker = new List<Contract_TempChecker>();
+
+            if (contract != null)
+            {
+                lstContractTempContract.Add(contract);
+                lstAttributeTemp = await _db.Set<Contract_Attribute_Temp>()
+                    .Where(x => x.TContractCode == contract.TContractCode)
+                    .ToListAsync();
+                lstContractTempContractParty = await _db.Set<Contract_TempContractParty>()
+                    .Where(x => x.TContractCode == contract.TContractCode)
+                    .ToListAsync();
+                lstContractTempElement = await _db.Set<Contract_TempElement>()
+                    .Where(x => x.TContractCode == contract.TContractCode)
+                    .ToListAsync();
+                lstContractTempChecker = await _db.Set<Contract_TempChecker>()
+                    .Where(x => x.TContractCode == contract.TContractCode)
+                    .ToListAsync();
+            }
+
+            if (lstContractTempChecker == null)
+            {
+                lstContractTempChecker = new List<Contract_TempChecker>();
+            }
+
+            var listMstParamContractElement = await _db.Set<Mst_ParamContractElement>()
+                .Where(x => x.FlagActive == "1")
+                .ToListAsync();
+
+            var listMstContractType = await _db.Set<Mst_ContractType>()
+                .Where(x => x.NetworkID == networkID && x.FlagActive == "1")
+                .ToListAsync();
+
+            var allUser = await _db.Set<Sys_User>()
+                .Where(x => x.NetworkID == networkID && x.FlagActive == "1")
+                .ToListAsync();
+
+            var attData = await _db.Set<Mst_Attribute_Contract>()
+                .Where(x => x.NetworkID == networkID && x.FlagActive == "1")
+                .ToListAsync();
+
+            // Process ElementJson deserialize like source
+            var processedElements = new List<Contract_TempElement>();
+            foreach (var item in lstContractTempElement)
+            {
+                var obj = item;
+                if (!string.IsNullOrEmpty(item.ElementJson))
+                {
+                    try
+                    {
+                        var deserialized = System.Text.Json.JsonSerializer.Deserialize<Contract_TempElement>(item.ElementJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (deserialized != null) obj = deserialized;
+                    }
+                    catch { }
+                }
+                processedElements.Add(obj);
+            }
+
+            var model = new
+            {
+                Lst_Contract_TempContract = lstContractTempContract,
+                Lst_Contract_Attribute_Temp = lstAttributeTemp,
+                Lst_Contract_TempContractParty = lstContractTempContractParty,
+                Lst_Contract_TempContractFiles = new List<object>(),
+                Lst_Contract_TempElement = processedElements,
+                Lst_Contract_TempChecker = lstContractTempChecker
+            };
+
+            var resultData = new
+            {
+                Model = model,
+                TypeList = listMstContractType,
+                AttList = attData,
+                ListMst_ParamContractElement = listMstParamContractElement,
+                AllUser = allUser,
+                IsUpdate = "1",
+                tContractCodeCur = tcontractcode
+            };
+
+            return Ok(resultData);
+        }
+
         [HttpPost("update")]
         public async Task<ActionResult> Update([FromBody] Contract_TempUpdateReq? req)
         {
@@ -209,6 +305,13 @@ namespace MiniContract.Controllers.Port
                 Data = ret
             });
         }
+    }
+
+    public class Contract_TempDetailReq
+    {
+        public string? TContractCode { get; set; }
+        public string? NetworkID { get; set; }
+        public string? OrgID { get; set; }
     }
 
     public class Contract_TempUpdateReq
