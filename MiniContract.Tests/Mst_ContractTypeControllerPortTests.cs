@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -822,7 +822,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8589";
+        var freePort = FreePort.Get(); psi.Environment["PORT"] = freePort.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -831,7 +831,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8589"), Timeout = TimeSpan.FromSeconds(3) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort}"), Timeout = TimeSpan.FromSeconds(3) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {

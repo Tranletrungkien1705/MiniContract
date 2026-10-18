@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -511,7 +511,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8541";
+        var freePort8541 = FreePort.Get(); psi.Environment["PORT"] = freePort8541.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -520,7 +520,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8541"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8541}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -779,7 +779,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8542";
+        var freePort8542 = FreePort.Get(); psi.Environment["PORT"] = freePort8542.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -788,7 +788,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8542"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8542}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -1046,7 +1046,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8543";
+        var freePort8543 = FreePort.Get(); psi.Environment["PORT"] = freePort8543.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -1055,7 +1055,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8543"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8543}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -1300,7 +1300,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8544";
+        var freePort8544 = FreePort.Get(); psi.Environment["PORT"] = freePort8544.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -1309,7 +1309,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8544"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8544}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -1558,7 +1558,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8545";
+        var freePort8545 = FreePort.Get(); psi.Environment["PORT"] = freePort8545.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -1567,7 +1567,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8545"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8545}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -1840,7 +1840,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8546";
+        var freePort8546 = FreePort.Get(); psi.Environment["PORT"] = freePort8546.ToString();
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -1849,7 +1849,7 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8546"), Timeout = TimeSpan.FromSeconds(5) };
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort8546}"), Timeout = TimeSpan.FromSeconds(5) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
