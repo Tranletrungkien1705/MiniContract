@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ChannelController.cs — Mst_Channel
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ChannelController.cs:572-733
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ChannelController.cs:572-733 (Save), 21-165 (Index), 479-567 (ZaloDisconnect)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstChannelTypeController.cs:376-444
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:18938-19034, 19053-19169, 21232-22492
 [ApiController]
@@ -370,6 +370,72 @@ public class Mst_ChannelControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Ngắt kết nối kênh Zalo (xoá trắng token và thông tin Zalo OA).
+    /// Gate: Mst_ChannelController.cs:479-567 ZaloDisconnect()
+    /// API: MstChannelTypeController.cs:91-140 (WA_Mst_Channel_Get), 376-444 (WA_Mst_Channel_Save)
+    /// BIZ: MasterData.cs:18814-18935 (WAS_Mst_Channel_Get), 18938-19034 (WAS_Mst_Channel_Save)
+    /// </summary>
+    [HttpPost("zalodisconnect")]
+    public async Task<IActionResult> ZaloDisconnect([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Channel_ZaloDisconnectReq? req)
+    {
+        // 1. Kiểm tra OrgID bắt buộc (MasterData.cs:21295-21306)
+        var orgId = StdParam(req?.OrgID);
+        if (string.IsNullOrEmpty(orgId))
+        {
+            return PortResult.Fail("Mst_Channel_SaveX_InvalidOrgID", "Check.strOrgID", req?.OrgID);
+        }
+
+        // 2. Lấy kênh cấu hình Mst_ChannelZalo hiện có của OrgID
+        // Gate: Mst_ChannelController.cs:496-520 Ft_WhereClause = "Mst_Channel.OrgID = " + orgID + " and Mst_Channel.FlagActive = '1'"
+        var existingZalo = await _db.Set<Mst_ChannelZalo>()
+            .FirstOrDefaultAsync(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc) && x.FlagActive == "1");
+
+        // 3. Nếu có cấu hình Zalo, thực hiện ngắt kết nối bằng cách xoá trắng các token và OAID
+        // Gate: Mst_ChannelController.cs:520-551
+        if (existingZalo != null)
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+                var userCode = "port";
+
+                existingZalo.AccessToken = "";
+                existingZalo.RefreshToken = "";
+                existingZalo.ZaloOAID = "";
+                existingZalo.AppID = "";
+                existingZalo.LogLUDTimeUTC = dtimeSys;
+                existingZalo.LogLUBy = userCode;
+
+                var existingChannel = await _db.Set<Mst_Channel>()
+                    .FirstOrDefaultAsync(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc) && x.FlagActive == "1");
+                if (existingChannel != null)
+                {
+                    existingChannel.LogLUDTimeUTC = dtimeSys;
+                    existingChannel.LogLUBy = userCode;
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch (Exception)
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        // 4. Trả kết quả thành công khớp Gate (Mst_ChannelController.cs:553-559)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Ngắt kết nối Zalo thành công!" },
+            Title = "Ngắt kết nối Zalo thành công!",
+            RedirectUrl = "/Mst_Channel"
+        });
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -389,6 +455,12 @@ public class Mst_Channel_SaveReq
 }
 
 public class Mst_Channel_IndexReq
+{
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+public class Mst_Channel_ZaloDisconnectReq
 {
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }

@@ -311,6 +311,63 @@ public class Mst_ChannelControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task ZaloDisconnect_EmptyOrgID_FailsWithInvalidOrgID()
+    {
+        var req = new Mst_Channel_ZaloDisconnectReq { OrgID = "" };
+        var result = await _controller.ZaloDisconnect(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Channel_SaveX_InvalidOrgID", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task ZaloDisconnect_NonExistentOrgID_SucceedsWithoutError()
+    {
+        // 7200000002 has channel but no Zalo record seeded -> skips update and returns success
+        var req = new Mst_Channel_ZaloDisconnectReq { OrgID = "7200000002" };
+        var result = await _controller.ZaloDisconnect(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Ngắt kết nối Zalo thành công!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ZaloDisconnect_RoundTrip_SuccessAndClearsZaloCredentials()
+    {
+        // 7200000001 is seeded with ZaloOAID = "1358767413636684272"
+        var beforeZalo = await _db.Set<Mst_ChannelZalo>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(beforeZalo);
+        Assert.Equal("1358767413636684272", beforeZalo.ZaloOAID);
+
+        var req = new Mst_Channel_ZaloDisconnectReq { OrgID = "7200000001" };
+        var result = await _controller.ZaloDisconnect(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Ngắt kết nối Zalo thành công!", root.GetProperty("Title").GetString());
+
+        // Verify credentials in DB are cleared
+        var afterZalo = await _db.Set<Mst_ChannelZalo>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(afterZalo);
+        Assert.Equal("", afterZalo.ZaloOAID);
+        Assert.Equal("", afterZalo.AccessToken);
+        Assert.Equal("", afterZalo.RefreshToken);
+        Assert.Equal("", afterZalo.AppID);
+        Assert.Equal("port", afterZalo.LogLUBy);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8538()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -444,6 +501,30 @@ public class Mst_ChannelControllerPortTests : IDisposable
             Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
             var data8 = doc8.RootElement.GetProperty("Data");
             Assert.Equal(0, data8.GetProperty("Lst_Mst_Channel").GetArrayLength());
+
+            // Request 9: POST /api/mst_channel/zalodisconnect with empty OrgID -> 400 BadRequest Mst_Channel_SaveX_InvalidOrgID
+            var req9 = new StringContent("{\"OrgID\":\"\"}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_channel/zalodisconnect", req9);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ9: {body9}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res9.StatusCode);
+            Assert.Contains("Mst_Channel_SaveX_InvalidOrgID", body9);
+
+            // Request 10: POST /api/mst_channel/zalodisconnect with non-existent Zalo OrgID -> 200 OK
+            var req10 = new StringContent("{\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/mst_channel/zalodisconnect", req10);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ10: {body10}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10.StatusCode);
+            Assert.Contains("Ngắt kết nối Zalo thành công!", body10);
+
+            // Request 11: POST /api/mst_channel/zalodisconnect round-trip for 7200000001 -> 200 OK
+            var req11 = new StringContent("{\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/mst_channel/zalodisconnect", req11);
+            var body11 = await res11.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ11: {body11}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res11.StatusCode);
+            Assert.Contains("Ngắt kết nối Zalo thành công!", body11);
         }
         finally
         {
