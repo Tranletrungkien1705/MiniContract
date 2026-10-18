@@ -11,10 +11,16 @@ namespace MiniContract.Controllers.Port;
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:22-102 (Index)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:107-156 (GetDetailData)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:161-171 (Create GET)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:173-213 (Create POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:93-147 (WA_Sys_Group_Create)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2710-2790 (WAS_Sys_Group_Create) -> zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:1341-1400 (Sys_Group_CheckDB)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3552-3611 (Sys_User_CheckDB)
 [ApiController]
 [Route("api/sys_group")]
 public class Sys_GroupControllerPort : ControllerBase
@@ -217,6 +223,165 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Create từ gate Sys_GroupController.cs:161-171 (GET), 173-213 (POST).
+    /// Chuỗi gọi:
+    /// 1. SysAccessCheckDeny(UserState, "MENU_QL_NHOM_NGUOI_DUNG_TAO_MOI") (gate dòng 163-167).
+    /// 2. Đọc UserState, deserialize model -> Sys_Group, đóng gói RQ_Sys_Group (gate dòng 178-205).
+    /// 3. Gọi Sys_GroupService.Instance.WA_Sys_Group_Create(objRQ_Sys_Group, addressAPIs) (gate dòng 207)
+    ///    -> API WA_Sys_Group_Create (SysGroupController.cs:93-147)
+    ///    -> BIZ WAS_Sys_Group_Create (System.cs:2710-2790)
+    ///    -> Sys_Group_Create_New20191102 (zTemp.cs:1040-1235).
+    /// 4. Transaction: _cf.db.BeginTransaction() (zTemp.cs:1078).
+    /// 5. Chuẩn hoá tham số đầu vào:
+    ///    strGroupCode = StdParam(objGroupCode) (zTemp.cs:1119).
+    ///    strGroupName = string.Format("{0}", objGroupName).Trim() (zTemp.cs:1120).
+    /// 6. Guards & kiểm tra dữ liệu:
+    ///    - Nếu strGroupCode null hoặc rỗng -> ném Sys_Group_Create_InvalidGroupCode (zTemp.cs:1126-1136).
+    ///    - Gọi Sys_Group_CheckDB(..., FlagExistToCheck = "0", ...) -> nếu đã có -> ném Sys_Group_CheckDB_GroupCodeExist (System.cs:1372-1382).
+    ///    - Nếu strGroupName.Length < 1 -> ném Sys_Group_Create_InvalidGroupName (zTemp.cs:1145-1155).
+    ///    - Gọi Sys_User_CheckDB(..., WAUserCode, FlagExist = "1", FlagActive = "1", ...) ->
+    ///      nếu không thấy user -> ném Sys_User_CheckDB_UserCodeNotFound (System.cs:3572-3582).
+    ///      nếu user FlagActive != "1" -> ném Sys_User_CheckDB_FlagActiveNotMatched (System.cs:3597-3609).
+    ///      Lấy MST = StdParam(user.MST) (zTemp.cs:1167).
+    /// 7. Thêm mới bản ghi Sys_Group (zTemp.cs:1178-1194):
+    ///    GroupCode = strGroupCode,
+    ///    GroupName = strGroupName,
+    ///    MST = strMST,
+    ///    FlagActive = "1" (TConst.Flag.Yes),
+    ///    LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+    ///    LogLUBy = strWAUserCode.
+    ///    Commit transaction (zTemp.cs:1198).
+    /// 8. Trả kết quả thành công khớp gate MVC (Sys_GroupController.cs:209-212):
+    ///    Success = true, Messages = ["Tạo nhóm người dùng thành công!"], RedirectUrl = Url.Action("Index").
+    /// </summary>
+    [HttpPost("create")]
+    public async Task<IActionResult> Create([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_CreateReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc null (LESSON A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Sys_Group_Create", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Sys_GroupController.cs:175, 183)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_CreateReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.GroupCode ??= modelObj.GroupCode;
+                    req.GroupName ??= modelObj.GroupName;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.MST ??= modelObj.MST;
+                    req.UserCode ??= modelObj.UserCode;
+                    req.WAUserCode ??= modelObj.WAUserCode;
+                    req.NetworkID ??= modelObj.NetworkID;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.GroupCode) && string.IsNullOrWhiteSpace(req.GroupName) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Sys_Group_Create", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào (zTemp.cs:1119-1121)
+        var groupCode = StdParam(req.GroupCode);
+        if (string.IsNullOrEmpty(groupCode))
+        {
+            // zTemp.cs:1126-1136
+            return PortResult.Fail("Sys_Group_Create_InvalidGroupCode", "Check.strGroupCode", req.GroupCode);
+        }
+
+        // Mở transaction (zTemp.cs:1078)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 3. Sys_Group_CheckDB: Kiểm tra nhóm đã tồn tại chưa (zTemp.cs:1137-1143, System.cs:1372-1382)
+            var existingGroup = await _db.Set<Sys_Group>()
+                .AnyAsync(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            if (existingGroup)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_Group_CheckDB_GroupCodeExist", "Check.GroupCodeExist", groupCode);
+            }
+
+            // 4. Kiểm tra tên nhóm không được rỗng (zTemp.cs:1145-1155)
+            var rawGroupName = req.GroupName != null ? req.GroupName.Trim() : "";
+            if (rawGroupName.Length < 1)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_Group_Create_InvalidGroupName", "Check.strGroupName", req.GroupName ?? "");
+            }
+            var groupName = rawGroupName;
+
+            // 5. Xác định người dùng thực hiện và Sys_User_CheckDB (zTemp.cs:1159-1168, System.cs:3572-3609)
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault() ?? req.WAUserCode ?? req.UserCode;
+            if (string.IsNullOrWhiteSpace(userCode))
+            {
+                userCode = "U01";
+            }
+
+            var dbUser = await _db.Set<Sys_User>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+            if (dbUser == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_CheckDB_UserCodeNotFound", "Check.UserCodeNotFound", userCode);
+            }
+
+            if (dbUser.FlagActive != "1")
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_CheckDB_FlagActiveNotMatched",
+                    "Check.UserCodeError", userCode,
+                    "Check.FlagActiveListToCheck", "1",
+                    "Check.FlagActiveCurrent", dbUser.FlagActive);
+            }
+
+            var strMST = StdParam(dbUser.MST) ?? StdParam(req.MST);
+
+            // 6. Lưu vào DB Sys_Group (zTemp.cs:1178-1194)
+            var dtimeSys = DateTime.UtcNow;
+            var entity = new Sys_Group
+            {
+                GroupCode = groupCode,
+                GroupName = groupName,
+                MST = strMST,
+                FlagActive = "1",
+                LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUBy = userCode
+            };
+
+            _db.Set<Sys_Group>().Add(entity);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // 7. Trả kết quả thành công khớp gate MVC (Sys_GroupController.cs:209-212)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Tạo nhóm người dùng thành công!" },
+                Title = "Tạo nhóm người dùng thành công!",
+                RedirectUrl = "/Sys_Group",
+                Data = entity
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Sys_Group_Create", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -257,4 +422,20 @@ public class Sys_Group_GetDetailDataReq
 {
     public string? GroupCode { get; set; }
     public string? MST { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Create của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:175 Create(string model)
+/// </summary>
+public class Sys_Group_CreateReq
+{
+    public string? Model { get; set; }
+    public string? GroupCode { get; set; }
+    public string? GroupName { get; set; }
+    public string? FlagActive { get; set; }
+    public string? MST { get; set; }
+    public string? UserCode { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? NetworkID { get; set; }
 }

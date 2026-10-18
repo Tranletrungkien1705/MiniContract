@@ -290,6 +290,123 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_NullReq_ReturnsCheckStrJsonFail()
+    {
+        var result = await _controller.Create(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_EmptyReq_ReturnsCheckStrJsonFail()
+    {
+        var result = await _controller.Create(new Sys_Group_CreateReq());
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_EmptyGroupCode_ReturnsInvalidGroupCode()
+    {
+        var result = await _controller.Create(new Sys_Group_CreateReq { GroupCode = "", GroupName = "Nhóm mới" });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupCode", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ExistingGroupCode_ReturnsGroupCodeExist()
+    {
+        var result = await _controller.Create(new Sys_Group_CreateReq { GroupCode = "GRP_ADMIN", GroupName = "Nhóm Quản Trị Trùng" });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_EmptyGroupName_ReturnsInvalidGroupName()
+    {
+        var result = await _controller.Create(new Sys_Group_CreateReq { GroupCode = "GRP_NEW_01", GroupName = "   " });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupName", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_UserNotFound_ReturnsUserCodeNotFound()
+    {
+        var result = await _controller.Create(new Sys_Group_CreateReq
+        {
+            GroupCode = "GRP_NEW_01",
+            GroupName = "Nhóm hợp lệ",
+            WAUserCode = "USER_NOT_EXIST"
+        });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_UserInactive_ReturnsFlagActiveNotMatched()
+    {
+        _db.Set<Sys_User>().Add(new Sys_User
+        {
+            UserCode = "U_INACTIVE_TEST",
+            UserName = "Người dùng ngừng hoạt động",
+            FlagActive = "0",
+            MST = "0100000001"
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _controller.Create(new Sys_Group_CreateReq
+        {
+            GroupCode = "GRP_NEW_02",
+            GroupName = "Nhóm hợp lệ",
+            WAUserCode = "U_INACTIVE_TEST"
+        });
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ValidReq_SuccessAndRoundTrip()
+    {
+        var req = new Sys_Group_CreateReq
+        {
+            GroupCode = "grp_test_roundtrip",
+            GroupName = "Nhóm Kiểm Thử RoundTrip",
+            WAUserCode = "U01"
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("GRP_TEST_ROUNDTRIP", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("Nhóm Kiểm Thử RoundTrip", data.GetProperty("GroupName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+        Assert.Equal("U01", data.GetProperty("LogLUBy").GetString());
+
+        // Đọc lại từ DB (round-trip)
+        var saved = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_TEST_ROUNDTRIP");
+        Assert.NotNull(saved);
+        Assert.Equal("Nhóm Kiểm Thử RoundTrip", saved.GroupName);
+        Assert.Equal("1", saved.FlagActive);
+        Assert.Equal("0100000001", saved.MST);
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -432,6 +549,77 @@ public class Sys_GroupControllerPortTests : IDisposable
             Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
             var data9 = doc9.RootElement.GetProperty("Data");
             Assert.Equal(0, data9.GetArrayLength());
+
+            // 10. Ca Create body rỗng -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_Create
+            var req10 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/sys_group/create", req10);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res10.StatusCode);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            var doc10 = JsonDocument.Parse(body10);
+            Assert.False(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create", doc10.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 11. Ca Create GroupCode rỗng -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupCode
+            var req11 = new StringContent("{\"GroupCode\":\"\", \"GroupName\":\"Nhóm Test\"}", Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/sys_group/create", req11);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res11.StatusCode);
+            var body11 = await res11.Content.ReadAsStringAsync();
+            var doc11 = JsonDocument.Parse(body11);
+            Assert.False(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupCode", doc11.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 12. Ca Create GroupCode trùng -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist
+            var req12 = new StringContent("{\"GroupCode\":\"GRP_ADMIN\", \"GroupName\":\"Trùng Admin\"}", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/sys_group/create", req12);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res12.StatusCode);
+            var body12 = await res12.Content.ReadAsStringAsync();
+            var doc12 = JsonDocument.Parse(body12);
+            Assert.False(doc12.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_CheckDB_GroupCodeExist", doc12.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 13. Ca Create GroupName rỗng -> 400 Bad Request, Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupName
+            var req13 = new StringContent("{\"GroupCode\":\"GRP_NEW_SERVER_01\", \"GroupName\":\"\"}", Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/sys_group/create", req13);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res13.StatusCode);
+            var body13 = await res13.Content.ReadAsStringAsync();
+            var doc13 = JsonDocument.Parse(body13);
+            Assert.False(doc13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_Group_Create_InvalidGroupName", doc13.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 14. Ca Create User không tồn tại -> 400 Bad Request, Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound
+            var req14 = new StringContent("{\"GroupCode\":\"GRP_NEW_SERVER_02\", \"GroupName\":\"Tên hợp lệ\", \"WAUserCode\":\"USER_KHONG_TON_TAI\"}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/sys_group/create", req14);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res14.StatusCode);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            var doc14 = JsonDocument.Parse(body14);
+            Assert.False(doc14.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserCodeNotFound", doc14.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 15. Ca Create thành công round-trip: POST tạo mới -> 200 OK -> đọc lại thấy đúng
+            var req15 = new StringContent("{\"GroupCode\":\"GRP_REAL_CREATED\", \"GroupName\":\"Nhóm Tạo Mới Thật Sự\"}", Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/sys_group/create", req15);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15.StatusCode);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            var doc15 = JsonDocument.Parse(body15);
+            Assert.True(doc15.RootElement.GetProperty("Success").GetBoolean());
+            var createdData = doc15.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_REAL_CREATED", createdData.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Tạo Mới Thật Sự", createdData.GetProperty("GroupName").GetString());
+            Assert.Equal("1", createdData.GetProperty("FlagActive").GetString());
+
+            // Đọc lại qua /api/sys_group/index để xác minh round-trip
+            var req15Read = new StringContent("{\"GroupCode\":\"GRP_REAL_CREATED\"}", Encoding.UTF8, "application/json");
+            var res15Read = await http.PostAsync("/api/sys_group/index", req15Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15Read.StatusCode);
+            var body15Read = await res15Read.Content.ReadAsStringAsync();
+            var doc15Read = JsonDocument.Parse(body15Read);
+            Assert.True(doc15Read.RootElement.GetProperty("Success").GetBoolean());
+            var data15Read = doc15Read.RootElement.GetProperty("Data");
+            Assert.Equal(1, data15Read.GetProperty("ItemCount").GetInt32());
+            var itemCreated = data15Read.GetProperty("DataList")[0];
+            Assert.Equal("GRP_REAL_CREATED", itemCreated.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Tạo Mới Thật Sự", itemCreated.GetProperty("GroupName").GetString());
+            Assert.Equal("1", itemCreated.GetProperty("FlagActive").GetString());
         }
         finally
         {
