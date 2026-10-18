@@ -10,9 +10,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_DepartmentController.cs — Mst_Department
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36795-36931 (Mst_Department_CreateX), 12001-12070 (Mst_NNT_CheckDB)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36795-36931 (Mst_Department_CreateX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
 [ApiController]
 [Route("api/mst_department")]
 public class Mst_DepartmentControllerPort : ControllerBase
@@ -326,6 +326,87 @@ public class Mst_DepartmentControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Lấy thông tin phòng ban phục vụ màn hình cập nhật.
+    /// Gate: Mst_DepartmentController.cs:195-259 Update(string departmentcode)
+    /// API:  MstDepartmentController.cs:20-89 WA_Mst_Department_Get
+    /// BIZ:  Master.cs:35737-35835 (WAS_Mst_Department_Get), 35836-35980 (Mst_Department_Get), 36641-36794 (Mst_Department_GetX)
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Department_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào DepartmentCode (Gate: Mst_DepartmentController.cs:195, 203)
+            var deptCode = StdParam(req?.DepartmentCode);
+            if (string.IsNullOrEmpty(deptCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Department_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    deptCode = StdParam(modelObj?.DepartmentCode);
+                }
+                catch
+                {
+                    deptCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu DepartmentCode rỗng/null, gate trả về View(new Mst_Department()) (Mst_DepartmentController.cs:203, 258)
+            if (string.IsNullOrEmpty(deptCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Department_UpdateData?)null
+                });
+            }
+
+            // 3. Truy vấn phòng ban theo DepartmentCode (Gate: Mst_DepartmentController.cs:205-233; BIZ: Master.cs:36701, 36740)
+            var dept = await _db.Set<Mst_Department>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.DepartmentCode ?? "").ToLower(), PortQuery.Equal(deptCode), PortQuery.Esc))
+                .OrderBy(x => x.DepartmentCode)
+                .FirstOrDefaultAsync();
+
+            // Nếu không tìm thấy, gate trả về View(new Mst_Department()) (Mst_DepartmentController.cs:233, 258)
+            if (dept == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Department_UpdateData?)null
+                });
+            }
+
+            // 4. Lấy danh sách bộ phận phòng ban active (FlagActive = "1") (Gate: Mst_DepartmentController.cs:236-244: List_Mst_Department_Async)
+            var listMst_Department = await _db.Set<Mst_Department>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc))
+                .OrderBy(x => x.DepartmentCode)
+                .ToListAsync();
+
+            // 5. Lấy danh sách mã số thuế NNT active (FlagActive = "1") (Gate: Mst_DepartmentController.cs:246-254: List_Mst_NNT)
+            var listMst_NNT = await _db.Set<Mst_NNT>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc))
+                .OrderBy(x => x.MST)
+                .ToListAsync();
+
+            // 6. Trả về kết quả khớp gate MVC: Model là Mst_Department và ViewBag chứa ListMst_Department, ListMst_NNT (Mst_DepartmentController.cs:243, 253, 255)
+            var data = new Mst_Department_UpdateData(dept, listMst_Department, listMst_NNT);
+            return Ok(new
+            {
+                Success = true,
+                Data = data
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Department_Get", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU (Master.cs:35700-35736).
     /// </summary>
     private async Task UpdBUAsync()
@@ -437,4 +518,52 @@ public class Mst_Department_IndexReq
     public string? DepartmentCodeParent { get; set; }
     public string? DepartmentBUCode { get; set; }
     public string? DepartmentLevel { get; set; }
+}
+
+/// <summary>
+/// DTO tham số cho action Update của Mst_DepartmentController.
+/// </summary>
+public class Mst_Department_UpdateReq
+{
+    // Tham số DepartmentCode từ gate Mst_DepartmentController.cs:195 Update(string departmentcode)
+    public string? DepartmentCode { get; set; }
+
+    // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// Dữ liệu trả về cho action Update của Mst_DepartmentController.
+/// Bao gồm thông tin chi tiết phòng ban (model View), kèm danh sách phòng ban active (ViewBag.ListMst_Department)
+/// và danh sách NNT active (ViewBag.ListMst_NNT) theo gate Mst_DepartmentController.cs:243, 253, 255.
+/// </summary>
+public class Mst_Department_UpdateData : Mst_Department
+{
+    public Mst_Department? Mst_Department { get; set; }
+    public List<Mst_Department>? ListMst_Department { get; set; }
+    public List<Mst_Department>? List_Mst_Department { get; set; }
+    public List<Mst_NNT>? ListMst_NNT { get; set; }
+    public List<Mst_NNT>? List_Mst_NNT { get; set; }
+
+    public Mst_Department_UpdateData() { }
+
+    public Mst_Department_UpdateData(Mst_Department src, List<Mst_Department>? listDept = null, List<Mst_NNT>? listNNT = null)
+    {
+        DepartmentCode = src.DepartmentCode;
+        NetworkID = src.NetworkID;
+        DepartmentCodeParent = src.DepartmentCodeParent;
+        DepartmentBUCode = src.DepartmentBUCode;
+        DepartmentBUPattern = src.DepartmentBUPattern;
+        DepartmentLevel = src.DepartmentLevel;
+        MST = src.MST;
+        DepartmentName = src.DepartmentName;
+        FlagActive = src.FlagActive;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+        Mst_Department = src;
+        ListMst_Department = listDept;
+        List_Mst_Department = listDept;
+        ListMst_NNT = listNNT;
+        List_Mst_NNT = listNNT;
+    }
 }

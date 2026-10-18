@@ -408,5 +408,121 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         Assert.Equal(1, indexData.GetProperty("ItemCount").GetInt32());
         Assert.Equal("DEPT_HR", indexData.GetProperty("DataList")[0].GetProperty("DepartmentCode").GetString());
     }
+
+    [Fact]
+    public async Task Update_WithNullOrEmptyBody_ReturnsNullData()
+    {
+        // Body null
+        var resNull = await _controller.Update(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        // Body rỗng
+        var resEmpty = await _controller.Update(new Mst_Department_UpdateReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+
+        // DepartmentCode chuỗi trắng
+        var resWhite = await _controller.Update(new Mst_Department_UpdateReq { DepartmentCode = "   " });
+        var okWhite = Assert.IsType<OkObjectResult>(resWhite);
+        var docWhite = JsonDocument.Parse(JsonSerializer.Serialize(okWhite.Value));
+        Assert.True(docWhite.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docWhite.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_WithNonExistentDepartmentCode_ReturnsNullData()
+    {
+        var res = await _controller.Update(new Mst_Department_UpdateReq { DepartmentCode = "DEPT_NOT_FOUND" });
+        var okRes = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_WithValidDepartmentCode_ReturnsDetailAndActiveLookups()
+    {
+        var req = new Mst_Department_UpdateReq { DepartmentCode = "DEPT_BGD" };
+        var res = await _controller.Update(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Ban Giám Đốc", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        // Kiểm tra danh sách phòng ban active (ViewBag.ListMst_Department): chỉ có 2 bản ghi active (DEPT_BGD, DEPT_KT)
+        var listDept = data.GetProperty("ListMst_Department");
+        Assert.Equal(2, listDept.GetArrayLength());
+        Assert.Equal("DEPT_BGD", listDept[0].GetProperty("DepartmentCode").GetString());
+        Assert.Equal("DEPT_KT", listDept[1].GetProperty("DepartmentCode").GetString());
+
+        // Kiểm tra danh sách NNT active (ViewBag.ListMst_NNT): chỉ có 2 bản ghi active (0100000001, 0100000002)
+        var listNNT = data.GetProperty("ListMst_NNT");
+        Assert.Equal(2, listNNT.GetArrayLength());
+        Assert.Equal("0100000001", listNNT[0].GetProperty("MST").GetString());
+        Assert.Equal("0100000002", listNNT[1].GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithModelJson_ReturnsCorrectDetail()
+    {
+        var modelJson = JsonSerializer.Serialize(new { DepartmentCode = "DEPT_KT" });
+        var req = new Mst_Department_UpdateReq { Model = modelJson };
+        var res = await _controller.Update(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_KT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Phòng Kế Toán", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCodeParent").GetString());
+    }
+
+    [Fact]
+    public async Task Update_CaseInsensitiveDepartmentCode_ReturnsDetail()
+    {
+        var req = new Mst_Department_UpdateReq { DepartmentCode = "dept_bgd" };
+        var res = await _controller.Update(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Ban Giám Đốc", data.GetProperty("DepartmentName").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WhenInactiveDepartment_StillReturnsItselfWithActiveLookups()
+    {
+        // Khi departmentcode là phòng ban không active (DEPT_KD_INACT), bản ghi vẫn được trả về để hiển thị
+        // Nhưng danh sách ListMst_Department và ListMst_NNT vẫn chỉ gồm các bản ghi active
+        var req = new Mst_Department_UpdateReq { DepartmentCode = "DEPT_KD_INACT" };
+        var res = await _controller.Update(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_KD_INACT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+
+        var listDept = data.GetProperty("ListMst_Department");
+        Assert.Equal(2, listDept.GetArrayLength());
+        var listNNT = data.GetProperty("ListMst_NNT");
+        Assert.Equal(2, listNNT.GetArrayLength());
+    }
 }
 
