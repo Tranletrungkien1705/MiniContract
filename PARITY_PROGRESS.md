@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 0/295 (0%)
+**Tiến độ hiện tại**: 1/295 (0.34%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -135,7 +135,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 123 | Map_UserInNotifyTypeController/DoSearch | Chưa làm | - |
 | 124 | Map_UserInNotifyTypeController/SaveData | Chưa làm | - |
 | 125 | Mst_AreaController/Index | Chưa làm | - |
-| 126 | Mst_AreaController/Export | Chưa làm | - |
+| 126 | Mst_AreaController/Export | Đã làm | 17e5ca5 |
 | 127 | Mst_AreaController/Create | Chưa làm | - |
 | 128 | Mst_AreaController/Detail | Chưa làm | - |
 | 129 | Mst_AreaController/Update | Chưa làm | - |
