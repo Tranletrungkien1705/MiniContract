@@ -185,6 +185,131 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_NullReq_ReturnsEmptyConfigListMessage()
+    {
+        var result = await _controller.Update(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Danh sách cấu hình trống!", messages[0].GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_EmptyReq_ReturnsEmptyConfigListMessage()
+    {
+        var req = new Mst_Sys_Config_UpdateReq();
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Danh sách cấu hình trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Update_NonExistentOrgID_ReturnsOrganNotFoundFail()
+    {
+        var req = new Mst_Sys_Config_UpdateReq { OrgID = "9999999999", FlagCurrency = "1" };
+        var result = await _controller.Update(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Sys_Config_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("9999999999", p.GetProperty("Check.OrgID").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ValidReq_RoundTrip_Success()
+    {
+        // Ban đầu trên OrgID 7200000001: FlagCurrency="0", FlagColmnConfig="0", FlagOTP="1"
+        var req = new Mst_Sys_Config_UpdateReq
+        {
+            OrgID = "7200000001",
+            FlagCurrency = "1",
+            FlagColmnConfig = "1",
+            FlagOTP = "0"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal("Sửa cấu hình thành công!", messages[0].GetString());
+
+        // Kiểm tra round-trip đọc lại từ DB
+        var updated = await _db.Set<Mst_Sys_Config>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(updated);
+        Assert.Equal("1", updated.FlagCurrency);
+        Assert.Equal("1", updated.FlagColmnConfig);
+        Assert.Equal("0", updated.FlagOTP);
+        Assert.False(string.IsNullOrEmpty(updated.LogLUDTimeUTC));
+        Assert.Equal("port", updated.LogLUBy);
+    }
+
+    [Fact]
+    public async Task Update_JsonModelString_Success()
+    {
+        var req = new Mst_Sys_Config_UpdateReq
+        {
+            Model = "{\"Mst_Sys_Config\":{\"OrgID\":\"7200000001\",\"FlagCurrency\":\"0\",\"FlagColmnConfig\":\"0\",\"FlagOTP\":\"1\"}}"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var updated = await _db.Set<Mst_Sys_Config>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(updated);
+        Assert.Equal("0", updated.FlagCurrency);
+        Assert.Equal("0", updated.FlagColmnConfig);
+        Assert.Equal("1", updated.FlagOTP);
+    }
+
+    [Fact]
+    public async Task Update_WithFtColsUpd_OnlyUpdatesSpecifiedColumns()
+    {
+        // OrgID 7200000002 ban đầu có: FlagCurrency="1", FlagColmnConfig="1", FlagOTP="0"
+        var req = new Mst_Sys_Config_UpdateReq
+        {
+            OrgID = "7200000002",
+            FlagOTP = "1",
+            FlagCurrency = "0", // Không cập nhật vì Ft_Cols_Upd chỉ định FlagOTP
+            Ft_Cols_Upd = "Mst_Sys_Config.FlagOTP"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var updated = await _db.Set<Mst_Sys_Config>().FirstOrDefaultAsync(x => x.OrgID == "7200000002");
+        Assert.NotNull(updated);
+        Assert.Equal("1", updated.FlagOTP); // Cột được chỉ định đã đổi từ 0 thành 1
+        Assert.Equal("1", updated.FlagCurrency); // Cột không chỉ định giữ nguyên giá trị ban đầu là 1
+        Assert.Equal("1", updated.FlagColmnConfig); // Giữ nguyên
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8544()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_sys_config_{Guid.NewGuid():N}.db");
@@ -275,6 +400,45 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
             var data4 = doc4.RootElement.GetProperty("Data");
             Assert.Equal(2, data4.GetProperty("ItemCount").GetInt32());
             Assert.Equal(2, data4.GetProperty("Lst_Mst_Sys_Config").GetArrayLength());
+
+            // 5. Ca Update body rỗng: POST {} -> 200 OK, Danh sách cấu hình trống! (Gate guard)
+            var req5 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res5 = await http.PostAsync("/api/mst_sys_config/update", req5);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res5.StatusCode);
+            var body5 = await res5.Content.ReadAsStringAsync();
+            var doc5 = JsonDocument.Parse(body5);
+            Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Danh sách cấu hình trống!", doc5.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 6. Ca Update guard OrgID không tồn tại -> 400 Bad Request, mã lỗi Mst_Sys_Config_CheckDB_OrganNotFound (Biz guard)
+            var req6 = new StringContent("{\"OrgID\":\"9999999999\",\"FlagCurrency\":\"1\"}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_sys_config/update", req6);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res6.StatusCode);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.False(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Sys_Config_CheckDB_OrganNotFound", doc6.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("9999999999", doc6.RootElement.GetProperty("Params").GetProperty("Check.OrgID").GetString());
+
+            // 7. Ca Update round-trip thành công trên OrgID="7200000001"
+            var req7 = new StringContent("{\"OrgID\":\"7200000001\",\"FlagCurrency\":\"1\",\"FlagColmnConfig\":\"1\",\"FlagOTP\":\"0\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_sys_config/update", req7);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res7.StatusCode);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa cấu hình thành công!", doc7.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 8. Đọc lại qua Index để xác nhận giá trị round-trip thật trong DB
+            var req8 = new StringContent("{\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_sys_config/index", req8);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res8.StatusCode);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            var doc8 = JsonDocument.Parse(body8);
+            var updatedConfig = doc8.RootElement.GetProperty("Data").GetProperty("Lst_Mst_Sys_Config")[0];
+            Assert.Equal("1", updatedConfig.GetProperty("FlagCurrency").GetString());
+            Assert.Equal("1", updatedConfig.GetProperty("FlagColmnConfig").GetString());
+            Assert.Equal("0", updatedConfig.GetProperty("FlagOTP").GetString());
         }
         finally
         {

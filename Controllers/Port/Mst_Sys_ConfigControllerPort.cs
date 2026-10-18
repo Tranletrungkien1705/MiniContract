@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -98,6 +99,180 @@ public class Mst_Sys_ConfigControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Update từ gate Mst_Sys_ConfigController.cs:94-167.
+    /// Chuỗi gọi:
+    /// 1. Gate deserialize model -> RQ_Mst_Sys_Config (gate dòng 103).
+    ///    Nếu null hoặc rỗng -> trả về JsonResultEntry(Success=true, "Danh sách cấu hình trống!").
+    /// 2. Gate gọi WA_Mst_Sys_Config_Get lấy cấu hình hiện có theo OrgID (gate dòng 130).
+    ///    Nếu danh sách cấu hình rỗng -> trả về JsonResultEntry(Success=true, "Danh sách cấu hình trống!").
+    /// 3. Gate gán các cờ FlagColmnConfig, FlagCurrency, FlagOTP và gọi WA_Mst_Sys_Config_Update (gate dòng 140-148).
+    /// 4. API WA_Mst_Sys_Config_Update (MstSysConfigController.cs:91-159)
+    ///    -> BIZ WAS_Mst_Sys_Config_Update (QContract.cs:7599-7678)
+    ///    -> Mst_Sys_Config_Update (QContract.cs:7679-7810, mở transaction dòng 7720)
+    ///    -> Mst_Sys_Config_UpdateX (QContract.cs:7812-7904):
+    ///       - Mst_Sys_Config_CheckDB (QContract.cs:7158-7222): nếu OrgID không tồn tại trong DB -> ném Mst_Sys_Config_CheckDB_OrganNotFound (dòng 7190).
+    ///       - Cập nhật các cột hiệu lực: FlagCurrency, FlagColmnConfig, FlagOTP, LogLUDTimeUTC, LogLUBy (dòng 7887-7895).
+    ///       - Lưu DB và commit transaction.
+    /// 5. Gate trả về JsonResultEntry(Success=true, "Sửa cấu hình thành công!", RedirectUrl="Index").
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Sys_Config_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Hỗ trợ nhận model dạng chuỗi JSON thô như gate MVC (Mst_Sys_ConfigController.cs:94, 103)
+            if (req != null && !string.IsNullOrWhiteSpace(req.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Sys_Config_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                        req.FlagCurrency ??= modelObj.FlagCurrency;
+                        req.FlagColmnConfig ??= modelObj.FlagColmnConfig;
+                        req.FlagOTP ??= modelObj.FlagOTP;
+                        req.Ft_Cols_Upd ??= modelObj.Ft_Cols_Upd;
+                        req.Mst_Sys_Config ??= modelObj.Mst_Sys_Config;
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            // Gán thông tin từ Mst_Sys_Config lồng (nếu có)
+            if (req?.Mst_Sys_Config != null)
+            {
+                req.OrgID ??= req.Mst_Sys_Config.OrgID;
+                req.NetworkID ??= req.Mst_Sys_Config.NetworkID;
+                req.FlagCurrency ??= req.Mst_Sys_Config.FlagCurrency;
+                req.FlagColmnConfig ??= req.Mst_Sys_Config.FlagColmnConfig;
+                req.FlagOTP ??= req.Mst_Sys_Config.FlagOTP;
+            }
+
+            // 2. Gate guard 1: Kiểm tra body/model rỗng (Gate: Mst_Sys_ConfigController.cs:105, 160-164)
+            if (req == null || (string.IsNullOrWhiteSpace(req.Model) && req.Mst_Sys_Config == null && string.IsNullOrWhiteSpace(req.OrgID) && string.IsNullOrWhiteSpace(req.FlagCurrency) && string.IsNullOrWhiteSpace(req.FlagColmnConfig) && string.IsNullOrWhiteSpace(req.FlagOTP)))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Danh sách cấu hình trống!" },
+                    Title = "Danh sách cấu hình trống!",
+                    Data = (Mst_Sys_Config?)null
+                });
+            }
+
+            // 3. Chuẩn hoá tham số đầu vào (QContract.cs:7850-7857)
+            var orgId = StdParam(req.OrgID);
+            var networkId = StdParam(req.NetworkID);
+
+            // 4. Tìm kiếm bản ghi hiện có theo OrgID hoặc bản ghi đầu tiên trong hệ thống (Gate dòng 122, 130-131; BIZ QContract.cs:7168-7174)
+            Mst_Sys_Config? existing = null;
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                existing = await _db.Set<Mst_Sys_Config>()
+                    .FirstOrDefaultAsync(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+
+                // Biz guard 1: Mst_Sys_Config_CheckDB kiểm tra OrgID không tồn tại (QContract.cs:7184-7194)
+                if (existing == null)
+                {
+                    return PortResult.Fail("Mst_Sys_Config_CheckDB_OrganNotFound", "Check.OrgID", orgId);
+                }
+            }
+            else
+            {
+                var query = _db.Set<Mst_Sys_Config>().AsQueryable();
+                if (!string.IsNullOrEmpty(networkId))
+                {
+                    query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+                }
+                existing = await query.OrderBy(x => x.NetworkID).FirstOrDefaultAsync();
+
+                // Gate guard 2: Danh sách cấu hình trống (Gate: Mst_Sys_ConfigController.cs:131, 154-158)
+                if (existing == null)
+                {
+                    return Ok(new
+                    {
+                        Success = true,
+                        Messages = new[] { "Danh sách cấu hình trống!" },
+                        Title = "Danh sách cấu hình trống!",
+                        Data = (Mst_Sys_Config?)null
+                    });
+                }
+            }
+
+            // 5. Xác định các cột cập nhật theo Ft_Cols_Upd (Gate dòng 134-138; BIZ QContract.cs:7860-7864)
+            var ftColsUpd = StdParam(req.Ft_Cols_Upd);
+            bool updAll = string.IsNullOrEmpty(ftColsUpd);
+
+            bool bUpd_FlagColmnConfig = updAll || ftColsUpd!.Contains("FLAGCOLMNCONFIG");
+            bool bUpd_FlagCurrency = updAll || ftColsUpd!.Contains("FLAGCURRENCY");
+            bool bUpd_FlagOTP = updAll || ftColsUpd!.Contains("FLAGOTP");
+            bool bUpd_NetworkID = !updAll && ftColsUpd!.Contains("NETWORKID");
+
+            // 6. Mở transaction và cập nhật dữ liệu (QContract.cs:7720, 7886-7901)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                if (bUpd_FlagColmnConfig)
+                {
+                    var val = req.FlagColmnConfig ?? req.Mst_Sys_Config?.FlagColmnConfig;
+                    existing.FlagColmnConfig = StdFlag(val);
+                }
+
+                if (bUpd_FlagCurrency)
+                {
+                    var val = req.FlagCurrency ?? req.Mst_Sys_Config?.FlagCurrency;
+                    existing.FlagCurrency = StdFlag(val);
+                }
+
+                if (bUpd_FlagOTP)
+                {
+                    var val = req.FlagOTP ?? req.Mst_Sys_Config?.FlagOTP;
+                    existing.FlagOTP = StdFlag(val);
+                }
+
+                if (bUpd_NetworkID && !string.IsNullOrEmpty(networkId))
+                {
+                    existing.NetworkID = networkId;
+                }
+
+                var dtimeSys = DateTime.UtcNow;
+                var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+                existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+                existing.LogLUBy = userCode;
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // 7. Trả về kết quả thành công khớp gate MVC (Mst_Sys_ConfigController.cs:150-152)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Sửa cấu hình thành công!" },
+                    Title = "Sửa cấu hình thành công!",
+                    RedirectUrl = "/Mst_Sys_Config",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Sys_Config_Update", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Sys_Config_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -130,4 +305,28 @@ public class Mst_Sys_Config_IndexData
     public List<Mst_Attribute_Contract> ListMst_Attribute_Contract { get; set; } = new();
     public List<Mst_Attribute_Contract> Lst_Mst_Attribute_Contract { get; set; } = new();
     public int ItemCount { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Update của Mst_Sys_ConfigController.
+/// </summary>
+public class Mst_Sys_Config_UpdateReq
+{
+    public string? Model { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagCurrency { get; set; }
+    public string? FlagColmnConfig { get; set; }
+    public string? FlagOTP { get; set; }
+    public string? Ft_Cols_Upd { get; set; }
+    public Mst_Sys_Config_UpdateItem? Mst_Sys_Config { get; set; }
+}
+
+public class Mst_Sys_Config_UpdateItem
+{
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagCurrency { get; set; }
+    public string? FlagColmnConfig { get; set; }
+    public string? FlagOTP { get; set; }
 }
