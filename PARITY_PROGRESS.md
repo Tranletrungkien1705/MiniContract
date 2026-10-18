@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 135/295 (45.76%)
+**Tiến độ hiện tại**: 136/295 (46.1%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -182,7 +182,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 170 | Mst_CustomerController/AddCustomerSource | Chưa làm | - |
 | 171 | Mst_CustomerController/AddArea | Chưa làm | - |
 | 172 | Mst_CustomerController/CreateInOrder | Đã làm | dfc5529 |
-| 173 | Mst_CustomerController/GetAllCustomerGroup | Chưa làm | - |
+| 173 | Mst_CustomerController/GetAllCustomerGroup | Đã làm | 62b8a8b |
 | 174 | Mst_CustomerController/SearchZaloCustomer | Chưa làm | - |
 | 175 | Mst_DepartmentController/Index | Đã làm | 8e7218d |
 | 176 | Mst_DepartmentController/Create | Đã làm | 7f88b9d |
