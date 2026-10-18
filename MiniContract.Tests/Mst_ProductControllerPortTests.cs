@@ -26,9 +26,11 @@ public class Mst_ProductControllerPortTests : IDisposable
         _db = new AppDbContext(opt, new TenantContext { OrgId = TenantContext.DefaultOrgId });
         _db.Database.EnsureCreated();
 
-        // Chạy seeder Mst_Product
+        // Chạy seeder Mst_Product và Mst_ProductGroup
         var seeder = new Mst_ProductSeeder();
         seeder.SeedAsync(_db).GetAwaiter().GetResult();
+        var groupSeeder = new Mst_ProductGroupSeeder();
+        groupSeeder.SeedAsync(_db).GetAwaiter().GetResult();
 
         _controller = new Mst_ProductControllerPort(_db);
     }
@@ -1138,6 +1140,138 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task ProductIngredient_WithNullOrEmptyReq_ReturnsAllRootProductsAndProductGroups()
+    {
+        // Body rỗng -> Success = true, Data trả về toàn bộ sản phẩm ROOTPRD, ListMstProductGroup trả về các nhóm
+        var resNull = await _controller.ProductIngredient(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        var dataNull = docNull.RootElement.GetProperty("Data");
+        Assert.Equal(4, dataNull.GetArrayLength());
+        Assert.Equal(4, docNull.RootElement.GetProperty("ItemCount").GetInt32());
+        var groupsNull = docNull.RootElement.GetProperty("ListMstProductGroup");
+        Assert.Equal(3, groupsNull.GetArrayLength());
+
+        var resEmpty = await _controller.ProductIngredient(new Mst_Product_ProductIngredientReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(4, docEmpty.RootElement.GetProperty("Data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ProductIngredient_FilterByOrgId_ReturnsOrgRootProductsAndGroups()
+    {
+        // OrgID = "1001" -> 3 sản phẩm ROOTPRD thuộc Org 1001, 2 nhóm thuộc Org 1001
+        var req = new Mst_Product_ProductIngredientReq { OrgID = "1001" };
+        var res = await _controller.ProductIngredient(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var list = doc.RootElement.GetProperty("Data");
+        Assert.Equal(3, list.GetArrayLength());
+        Assert.Equal(3, doc.RootElement.GetProperty("ItemCount").GetInt32());
+
+        var groups = doc.RootElement.GetProperty("ListMstProductGroup");
+        Assert.Equal(2, groups.GetArrayLength());
+        Assert.Equal("GRP01", groups[0].GetProperty("ProductGrpCode").GetString());
+        Assert.Equal("GRP02", groups[1].GetProperty("ProductGrpCode").GetString());
+    }
+
+    [Fact]
+    public async Task ProductIngredient_FilterByProductCodeUserName_MatchesProductCodeUser()
+    {
+        // Khớp theo ProductCodeUser = SP001
+        var req = new Mst_Product_ProductIngredientReq { OrgID = "1001", ProductCodeUserName = "SP001" };
+        var res = await _controller.ProductIngredient(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var list = doc.RootElement.GetProperty("Data");
+        Assert.Equal(1, list.GetArrayLength());
+        Assert.Equal("PRD_ROOT_01", list[0].GetProperty("ProductCode").GetString());
+        Assert.Equal("SP001", list[0].GetProperty("ProductCodeUser").GetString());
+    }
+
+    [Fact]
+    public async Task ProductIngredient_FilterByProductCodeUserName_NotFound_ReturnsZeroRecords()
+    {
+        var req = new Mst_Product_ProductIngredientReq { OrgID = "1001", ProductCodeUserName = "KHONG_TON_TAI_XYZ" };
+        var res = await _controller.ProductIngredient(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var list = doc.RootElement.GetProperty("Data");
+        Assert.Equal(0, list.GetArrayLength());
+        Assert.Equal(0, doc.RootElement.GetProperty("ItemCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task ProductIngredient_TwoFilters_ReturnDifferentCounts()
+    {
+        // Bộ lọc 1: OrgID = "1001" -> 3 sản phẩm ROOTPRD
+        var req1 = new Mst_Product_ProductIngredientReq { OrgID = "1001" };
+        var res1 = await _controller.ProductIngredient(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var count1 = doc1.RootElement.GetProperty("Data").GetArrayLength();
+        Assert.Equal(3, count1);
+
+        // Bộ lọc 2: ProductCodeUserName = "SP001", OrgID = "1001" -> 1 sản phẩm ROOTPRD
+        var req2 = new Mst_Product_ProductIngredientReq { OrgID = "1001", ProductCodeUserName = "SP001" };
+        var res2 = await _controller.ProductIngredient(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        var count2 = doc2.RootElement.GetProperty("Data").GetArrayLength();
+        Assert.Equal(1, count2);
+
+        // 2 bộ lọc cho số dòng khác nhau (3 != 1)
+        Assert.NotEqual(count1, count2);
+    }
+
+    [Fact]
+    public async Task ProductIngredient_Pagination_ReturnsCorrectPageAndCounts()
+    {
+        // Trang 0, cỡ trang 2 cho OrgID 1001 (tổng 3 bản ghi ROOTPRD)
+        var reqPage0 = new Mst_Product_ProductIngredientReq { OrgID = "1001", Page = 0, PageCount = 2 };
+        var resPage0 = await _controller.ProductIngredient(reqPage0);
+        var okPage0 = Assert.IsType<OkObjectResult>(resPage0);
+        var docPage0 = JsonDocument.Parse(JsonSerializer.Serialize(okPage0.Value));
+
+        Assert.Equal(3, docPage0.RootElement.GetProperty("ItemCount").GetInt32());
+        Assert.Equal(2, docPage0.RootElement.GetProperty("PageCount").GetInt32());
+        Assert.Equal(0, docPage0.RootElement.GetProperty("PageCur").GetInt32());
+        Assert.Equal(2, docPage0.RootElement.GetProperty("PageSize").GetInt32());
+        Assert.Equal(2, docPage0.RootElement.GetProperty("Data").GetArrayLength());
+
+        // Trang 1, cỡ trang 2 cho OrgID 1001 (1 bản ghi cuối)
+        var reqPage1 = new Mst_Product_ProductIngredientReq { OrgID = "1001", Page = 1, PageCount = 2 };
+        var resPage1 = await _controller.ProductIngredient(reqPage1);
+        var okPage1 = Assert.IsType<OkObjectResult>(resPage1);
+        var docPage1 = JsonDocument.Parse(JsonSerializer.Serialize(okPage1.Value));
+
+        Assert.Equal(3, docPage1.RootElement.GetProperty("ItemCount").GetInt32());
+        Assert.Equal(2, docPage1.RootElement.GetProperty("PageCount").GetInt32());
+        Assert.Equal(1, docPage1.RootElement.GetProperty("PageCur").GetInt32());
+        Assert.Equal(2, docPage1.RootElement.GetProperty("PageSize").GetInt32());
+        Assert.Equal(1, docPage1.RootElement.GetProperty("Data").GetArrayLength());
+
+        // Cỡ trang 0
+        var reqPage0Size = new Mst_Product_ProductIngredientReq { OrgID = "1001", PageSize = 0 };
+        var resPage0Size = await _controller.ProductIngredient(reqPage0Size);
+        var okPage0Size = Assert.IsType<OkObjectResult>(resPage0Size);
+        var docPage0Size = JsonDocument.Parse(JsonSerializer.Serialize(okPage0Size.Value));
+
+        Assert.Equal(3, docPage0Size.RootElement.GetProperty("ItemCount").GetInt32());
+        Assert.Equal(0, docPage0Size.RootElement.GetProperty("PageCount").GetInt32());
+        Assert.Equal(0, docPage0Size.RootElement.GetProperty("Data").GetArrayLength());
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -1501,6 +1635,44 @@ public class Mst_ProductControllerPortTests : IDisposable
 
             // Ca 34: 2 bộ lọc cho ra số dòng khác nhau (ckbproduct có 5 dòng != ckbservices có 1 dòng)
             Assert.NotEqual(list31.GetArrayLength(), list32.GetArrayLength());
+
+            // Ca 35: POST /api/mst_product/productingredient với body rỗng -> 200 OK, Data = 5 items ROOTPRD (4 ban đầu + 1 tạo mới ở Ca 15), ListMstProductGroup = 3 items
+            var req35 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res35 = await http.PostAsync("/api/mst_product/productingredient", req35);
+            var body35 = await res35.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res35.StatusCode);
+            var doc35 = JsonDocument.Parse(body35);
+            Assert.True(doc35.RootElement.GetProperty("Success").GetBoolean());
+            var data35 = doc35.RootElement.GetProperty("Data");
+            Assert.Equal(5, data35.GetArrayLength());
+            Assert.Equal(3, doc35.RootElement.GetProperty("ListMstProductGroup").GetArrayLength());
+
+            // Ca 36: POST /api/mst_product/productingredient với OrgID = 1001, ProductCodeUserName = SP001 -> 200 OK, Data = 1 item, ListMstProductGroup = 2 items
+            var req36 = new StringContent("{\"OrgID\":\"1001\",\"ProductCodeUserName\":\"SP001\"}", Encoding.UTF8, "application/json");
+            var res36 = await http.PostAsync("/api/mst_product/productingredient", req36);
+            var body36 = await res36.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res36.StatusCode);
+            var doc36 = JsonDocument.Parse(body36);
+            Assert.True(doc36.RootElement.GetProperty("Success").GetBoolean());
+            var data36 = doc36.RootElement.GetProperty("Data");
+            Assert.Equal(1, data36.GetArrayLength());
+            Assert.Equal("PRD_ROOT_01", data36[0].GetProperty("ProductCode").GetString());
+            Assert.Equal(2, doc36.RootElement.GetProperty("ListMstProductGroup").GetArrayLength());
+
+            // Ca 37: 2 bộ lọc ProductIngredient cho ra số dòng khác nhau (OrgID 1001 có 4 ROOTPRD != OrgID 9999 có 1 ROOTPRD)
+            var req37a = new StringContent("{\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res37a = await http.PostAsync("/api/mst_product/productingredient", req37a);
+            var doc37a = JsonDocument.Parse(await res37a.Content.ReadAsStringAsync());
+            var len37a = doc37a.RootElement.GetProperty("Data").GetArrayLength();
+
+            var req37b = new StringContent("{\"OrgID\":\"9999\"}", Encoding.UTF8, "application/json");
+            var res37b = await http.PostAsync("/api/mst_product/productingredient", req37b);
+            var doc37b = JsonDocument.Parse(await res37b.Content.ReadAsStringAsync());
+            var len37b = doc37b.RootElement.GetProperty("Data").GetArrayLength();
+
+            Assert.Equal(4, len37a);
+            Assert.Equal(1, len37b);
+            Assert.NotEqual(len37a, len37b);
         }
         finally
         {
