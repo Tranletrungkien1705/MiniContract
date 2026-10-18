@@ -23,6 +23,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:968-982 (ShowPopupChangePasswordCheckOld)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:986-1093 (ChangePassword)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1097-1258 (ChangePasswordCheckOld)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1264-1413 (ChangeInfo)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203 (GetEncodedHash)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
@@ -2041,6 +2042,233 @@ public class Sys_UserControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action ChangeInfo từ gate Sys_UserController.cs:1264-1413.
+    /// Chuỗi gọi:
+    /// 1. Khởi tạo JsonResultEntry() { Success = false } (Sys_UserController.cs:1266).
+    /// 2. Bọc trong try block, deserialize modelSys_User -> Sys_User và model -> InosEditProfileModel (Sys_UserController.cs:1291-1292).
+    ///    Nếu modelSys_User null/rỗng và không có thông tin người dùng: bắt ngoại lệ trong catch (Sys_UserController.cs:1405-1410),
+    ///    trả về Success = false, Messages = ["Tên đăng nhập hoặc mật khẩu không hợp lệ!"].
+    /// 3. Bỏ qua cập nhật iNOS AccountService (Sys_UserController.cs:1296-1345) -> GAP (dịch vụ ngoài iNOS).
+    /// 4. Dựng điều kiện tìm kiếm strWhereClause = strWhereClause_SysUser(objSys_User.EMail) (Sys_UserController.cs:1349, 1936-1947).
+    /// 5. Đóng gói objRQ_Sys_User và gọi Sys_UserService.Instance.WA_Sys_User_Get (Sys_UserController.cs:1350-1372)
+    ///    -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///    -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///    -> BIZ Sys_User_Get_New20191104 (System.cs:6635-7009).
+    /// 6. Kiểm tra kết quả:
+    ///    - Nếu không tìm thấy: gán resultEntry.Success = true, resultEntry.AddMessage("Mã người dùng '" + objSys_User.UserCode + "' không có trong hệ thống!") (Sys_UserController.cs:1395-1396).
+    ///    - Nếu tìm thấy:
+    ///      + Cập nhật Lst_Sys_User[0].UserName = objSys_User.UserName (Sys_UserController.cs:1376).
+    ///      + Cập nhật Lst_Sys_User[0].PhoneNo = objSys_User.PhoneNo (Sys_UserController.cs:1377).
+    ///      + Dựng strFt_Cols_Upd = "Sys_User.UserName,Sys_User.PhoneNo," (Sys_UserController.cs:1379-1383).
+    ///      + Đóng gói objRQ_Sys_User và gọi Sys_UserService.Instance.WA_Sys_User_Update (Sys_UserController.cs:1384-1390)
+    ///        -> API WA_Sys_User_Update (SysUserController.cs:569-640)
+    ///        -> BIZ WAS_Sys_User_Update (System.cs:11620-11715)
+    ///        -> BIZ Sys_User_Update_New20231115 (System.cs:11201-11618).
+    ///      + BIZ Sys_User_Update_New20231115:
+    ///        * Mở transaction (System.cs:11269).
+    ///        * Biz Guard: if (bUpd_UserName && strUserName.Length < 1) -> throw TError.ErridQContract.Sys_User_Update_InvalidUserName (System.cs:11356-11365).
+    ///        * Cập nhật UserName, PhoneNo, LogLUDTimeUTC = dtimeSys, LogLUBy = strWAUserCode vào DB (System.cs:11394, 11396, 11406-11414).
+    ///        * Bỏ qua dịch vụ ngoài Inos_AccountService_EditProfileX và VelocaPortal (System.cs:11423, 11549) -> GAP.
+    ///        * Commit transaction, gán resultEntry.Success = true (Sys_UserController.cs:1391).
+    /// 7. Bỏ qua dịch vụ ngoài objAccountService.EditProfile(inosEditProfileModel) (Sys_UserController.cs:1400) -> GAP (dịch vụ ngoài iNOS).
+    /// 8. Gán resultEntry.Success = true, resultEntry.AddMessage("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!") (Sys_UserController.cs:1401-1402).
+    /// 9. Trả về Json(resultEntry) (Sys_UserController.cs:1412).
+    /// </summary>
+    [HttpGet("changeinfo")]
+    [HttpPost("changeinfo")]
+    [HttpPost("change_info")]
+    public async Task<IActionResult> ChangeInfo([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_ChangeInfoReq? req = null)
+    {
+        try
+        {
+            string? rawModel = req?.Model;
+            string? rawModelSysUser = req?.ModelSys_User;
+
+            string? rawUserCode = req?.UserCode;
+            string? rawUserName = req?.UserName;
+            string? rawPhoneNo = req?.PhoneNo;
+            string? rawEMail = req?.EMail;
+
+            // Xử lý query string nếu gọi qua GET hoặc có query params (khớp MVC model binding)
+            if (HttpContext?.Request?.Query != null)
+            {
+                if (string.IsNullOrEmpty(rawModel) && HttpContext.Request.Query.TryGetValue("model", out var qModel))
+                    rawModel = qModel.ToString();
+                if (string.IsNullOrEmpty(rawModelSysUser) && HttpContext.Request.Query.TryGetValue("modelsys_user", out var qModelSysUser))
+                    rawModelSysUser = qModelSysUser.ToString();
+                if (string.IsNullOrEmpty(rawUserCode) && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+                    rawUserCode = qUserCode.ToString();
+                if (string.IsNullOrEmpty(rawUserName) && HttpContext.Request.Query.TryGetValue("username", out var qUserName))
+                    rawUserName = qUserName.ToString();
+                if (string.IsNullOrEmpty(rawPhoneNo) && HttpContext.Request.Query.TryGetValue("phoneno", out var qPhoneNo))
+                    rawPhoneNo = qPhoneNo.ToString();
+                if (string.IsNullOrEmpty(rawEMail) && HttpContext.Request.Query.TryGetValue("email", out var qEMail))
+                    rawEMail = qEMail.ToString();
+            }
+
+            // Deserialize modelSys_User nếu có truyền chuỗi JSON (gate Sys_UserController.cs:1291)
+            if (!string.IsNullOrWhiteSpace(rawModelSysUser))
+            {
+                try
+                {
+                    using var docUser = JsonDocument.Parse(rawModelSysUser);
+                    var root = docUser.RootElement;
+                    if (string.IsNullOrEmpty(rawUserCode) && root.TryGetProperty("UserCode", out var pUserCode))
+                        rawUserCode = pUserCode.GetString();
+                    if (string.IsNullOrEmpty(rawUserName) && root.TryGetProperty("UserName", out var pUserName))
+                        rawUserName = pUserName.GetString();
+                    if (string.IsNullOrEmpty(rawPhoneNo) && root.TryGetProperty("PhoneNo", out var pPhoneNo))
+                        rawPhoneNo = pPhoneNo.GetString();
+                    if (string.IsNullOrEmpty(rawEMail) && root.TryGetProperty("EMail", out var pEMail))
+                        rawEMail = pEMail.GetString();
+                }
+                catch
+                {
+                    // Lỗi JSON modelSys_User -> bắt ngoại lệ ở catch chung
+                    throw new Exception("Invalid modelSys_User JSON");
+                }
+            }
+
+            // Deserialize model (InosEditProfileModel) nếu có (gate Sys_UserController.cs:1292)
+            if (!string.IsNullOrWhiteSpace(rawModel))
+            {
+                try
+                {
+                    using var docInos = JsonDocument.Parse(rawModel);
+                    var root = docInos.RootElement;
+                    if (string.IsNullOrEmpty(rawUserName) && root.TryGetProperty("Name", out var pName))
+                        rawUserName = pName.GetString();
+                    if (string.IsNullOrEmpty(rawPhoneNo) && root.TryGetProperty("Phone", out var pPhone))
+                        rawPhoneNo = pPhone.GetString();
+                }
+                catch
+                {
+                    // Bỏ qua lỗi deserialize model Inos
+                }
+            }
+
+            // Nếu không có thông tin người dùng nào (body hoàn toàn rỗng):
+            // Trong gate, objSys_User = Deserialize(modelSys_User) -> null -> objSys_User.EMail ném NullReferenceException
+            // -> catch (Exception ex) -> gán Messages = ["Tên đăng nhập hoặc mật khẩu không hợp lệ!"], Success = false (Sys_UserController.cs:1408-1410).
+            if (string.IsNullOrWhiteSpace(rawUserCode) && string.IsNullOrWhiteSpace(rawEMail) && string.IsNullOrWhiteSpace(rawUserName))
+            {
+                return Ok(new
+                {
+                    Success = false,
+                    Messages = new[] { "Tên đăng nhập hoặc mật khẩu không hợp lệ!" },
+                    Title = "Tên đăng nhập hoặc mật khẩu không hợp lệ!"
+                });
+            }
+
+            var emailSearch = !string.IsNullOrWhiteSpace(rawEMail) ? rawEMail.Trim() : null;
+            var userCodeSearch = !string.IsNullOrWhiteSpace(rawUserCode) ? StdParam(rawUserCode) : null;
+            var waUserCode = StdParam(req?.WAUserCode)
+                ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault())
+                ?? "port";
+
+            // Dựng điều kiện tìm kiếm người dùng qua strWhereClause_SysUser (Sys_UserController.cs:1349, 1936-1947)
+            // Trong nguồn: strWhereClause_SysUser(objSys_User.EMail) lọc su.UserCode = email (hoặc su.UserCode = usercode)
+            Sys_User? existing = null;
+            if (!string.IsNullOrEmpty(emailSearch))
+            {
+                existing = await _db.Set<Sys_User>()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(emailSearch), PortQuery.Esc));
+            }
+            if (existing == null && !string.IsNullOrEmpty(userCodeSearch))
+            {
+                existing = await _db.Set<Sys_User>()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(userCodeSearch), PortQuery.Esc));
+            }
+            if (existing == null && !string.IsNullOrEmpty(emailSearch))
+            {
+                existing = await _db.Set<Sys_User>()
+                    .FirstOrDefaultAsync(u => EF.Functions.Like((u.EMail ?? "").ToLower(), PortQuery.Equal(emailSearch), PortQuery.Esc));
+            }
+
+            // Gate kiểm tra: if (objRT_Sys_UserCur.Lst_Sys_User != null && objRT_Sys_UserCur.Lst_Sys_User.Count > 0) (Sys_UserController.cs:1374)
+            if (existing == null)
+            {
+                // Nhánh else: Không tìm thấy người dùng trong hệ thống (Sys_UserController.cs:1393-1397, 1401-1402)
+                var displayCode = rawUserCode ?? rawEMail ?? "";
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[]
+                    {
+                        $"Mã người dùng '{displayCode}' không có trong hệ thống!",
+                        "Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!"
+                    },
+                    Title = $"Mã người dùng '{displayCode}' không có trong hệ thống!",
+                    Data = (object?)null
+                });
+            }
+
+            // Nhánh tìm thấy người dùng: Cập nhật UserName và PhoneNo (Sys_UserController.cs:1376-1392)
+            // Chuẩn hoá dữ liệu theo BIZ System.cs:11314, 11316
+            var strUserName = rawUserName != null ? rawUserName.Trim() : (existing.UserName ?? "");
+            var strPhoneNo = rawPhoneNo != null ? rawPhoneNo.Trim() : (existing.PhoneNo ?? "");
+
+            // BIZ Guard: if (bUpd_UserName && strUserName.Length < 1) -> ném Sys_User_Update_InvalidUserName (System.cs:11356-11365)
+            if (rawUserName != null && strUserName.Length < 1)
+            {
+                return PortResult.Fail("Sys_User_Update_InvalidUserName", "Check.strUserName", rawUserName);
+            }
+
+            // Mở transaction cập nhật DB (System.cs:11269)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                if (rawUserName != null)
+                {
+                    existing.UserName = strUserName;
+                    existing.ACName = strUserName;
+                }
+                if (rawPhoneNo != null)
+                {
+                    existing.PhoneNo = strPhoneNo;
+                    existing.ACPhone = strPhoneNo;
+                }
+
+                var dtimeSys = DateTime.UtcNow;
+                existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+                existing.LogLUBy = waUserCode;
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                _db.Entry(existing).State = EntityState.Detached;
+
+                // Che mật khẩu trước khi trả về
+                existing.UserPassword = Default_PasswordMask;
+
+                // Gate gán thành công và thông báo (Sys_UserController.cs:1401-1402)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!" },
+                    Title = "Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_ChangeInfo", "Exception", ex.Message);
+            }
+        }
+        catch (Exception)
+        {
+            // Gate catch block (Sys_UserController.cs:1405-1410)
+            return Ok(new
+            {
+                Success = false,
+                Messages = new[] { "Tên đăng nhập hoặc mật khẩu không hợp lệ!" },
+                Title = "Tên đăng nhập hoặc mật khẩu không hợp lệ!"
+            });
+        }
+    }
+
+    /// <summary>
     /// Mã hoá mật khẩu bằng thuật toán chuẩn idocNet: Base64(MD5(password + "idocNet")) bỏ 2 ký tự cuối ("==").
     /// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203.
     /// </summary>
@@ -2369,6 +2597,37 @@ public class Sys_User_ChangePasswordCheckOldReq
     public string? Model { get; set; }
     public string? WAUserCode { get; set; }
     public string? WAUserPassword { get; set; }
+}
+
+/// <summary>
+/// Model nhận tham số cho action ChangeInfo của Sys_UserController.
+/// Gate: Sys_UserController.cs:1264 ChangeInfo(string model, string modelSys_User)
+/// </summary>
+public class Sys_User_ChangeInfoReq
+{
+    // Hỗ trợ truyền qua 2 chuỗi JSON chuẩn MVC gate:
+    public string? Model { get; set; }
+    public string? ModelSys_User { get; set; }
+
+    // Thông tin người dùng (Sys_User)
+    public string? UserCode { get; set; }
+    public string? UserName { get; set; }
+    public string? PhoneNo { get; set; }
+    public string? EMail { get; set; }
+
+    // Thông tin hồ sơ iNOS (InosEditProfileModel)
+    public string? Name { get; set; }
+    public string? Phone { get; set; }
+    public string? Language { get; set; }
+    public string? TimeZone { get; set; }
+    public bool? ChangeAvatar { get; set; }
+    public string? AvatarBase64 { get; set; }
+    public bool? ChangePassword { get; set; }
+    public string? OldPassword { get; set; }
+    public string? NewPassword { get; set; }
+
+    // Ngữ cảnh người gọi
+    public string? WAUserCode { get; set; }
 }
 
 

@@ -1792,6 +1792,166 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangeInfo_NullReq_ReturnsInvalidLoginOrPassword()
+    {
+        // Khi req null (body hoàn toàn rỗng): gate bắt lỗi và trả về Success = false, Messages = ["Tên đăng nhập hoặc mật khẩu không hợp lệ!"]
+        var result = await _controller.ChangeInfo(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tên đăng nhập hoặc mật khẩu không hợp lệ!", root.GetProperty("Title").GetString());
+        Assert.Equal("Tên đăng nhập hoặc mật khẩu không hợp lệ!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task ChangeInfo_EmptyReq_ReturnsInvalidLoginOrPassword()
+    {
+        // Khi req rỗng (không có UserCode, EMail, UserName): trả về Success = false
+        var req = new Sys_User_ChangeInfoReq();
+        var result = await _controller.ChangeInfo(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tên đăng nhập hoặc mật khẩu không hợp lệ!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangeInfo_NonExistentUser_ReturnsNotFoundMessage()
+    {
+        // Khi người dùng không tồn tại trong hệ thống (gate Sys_UserController.cs:1395-1396):
+        // Success = true, AddMessage("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!"), Data = null
+        var req = new Sys_User_ChangeInfoReq
+        {
+            UserCode = "NON_EXISTENT",
+            UserName = "New Name",
+            PhoneNo = "0912345678"
+        };
+        var result = await _controller.ChangeInfo(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Title").GetString());
+        Assert.Equal(2, root.GetProperty("Messages").GetArrayLength());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", root.GetProperty("Messages")[1].GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task ChangeInfo_Guard_EmptyUserName_ReturnsSys_User_Update_InvalidUserName()
+    {
+        // Biz guard: Khi UserName rỗng ("   ") -> ném TError.ErridQContract.Sys_User_Update_InvalidUserName (System.cs:11356-11365)
+        var req = new Sys_User_ChangeInfoReq
+        {
+            UserCode = "U01",
+            UserName = "   ",
+            PhoneNo = "0901234567"
+        };
+        var result = await _controller.ChangeInfo(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Update_InvalidUserName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task ChangeInfo_ValidUser_RoundTripSuccess()
+    {
+        // Cập nhật thông tin thành công cho U02: đổi UserName và PhoneNo (Sys_UserController.cs:1376-1392)
+        var req = new Sys_User_ChangeInfoReq
+        {
+            UserCode = "u02",
+            UserName = "Tester Solution Updated",
+            PhoneNo = "0988776655",
+            WAUserCode = "U01"
+        };
+        var result = await _controller.ChangeInfo(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", root.GetProperty("Title").GetString());
+        Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", root.GetProperty("Messages")[0].GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("U02", data.GetProperty("UserCode").GetString());
+        Assert.Equal("Tester Solution Updated", data.GetProperty("UserName").GetString());
+        Assert.Equal("0988776655", data.GetProperty("PhoneNo").GetString());
+        Assert.Equal("*********", data.GetProperty("UserPassword").GetString());
+
+        // Kiểm tra cơ sở dữ liệu: đã lưu đúng UserName, PhoneNo, LogLUBy, ACName, ACPhone
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U02");
+        Assert.NotNull(userInDb);
+        Assert.Equal("Tester Solution Updated", userInDb.UserName);
+        Assert.Equal("0988776655", userInDb.PhoneNo);
+        Assert.Equal("U01", userInDb.LogLUBy);
+        Assert.Equal("Tester Solution Updated", userInDb.ACName);
+        Assert.Equal("0988776655", userInDb.ACPhone);
+    }
+
+    [Fact]
+    public async Task ChangeInfo_ViaModelJson_Success()
+    {
+        // Hỗ trợ truyền qua 2 chuỗi JSON Model và ModelSys_User khớp MVC gate (Sys_UserController.cs:1264, 1291-1292)
+        var modelSysUserJson = JsonSerializer.Serialize(new
+        {
+            UserCode = "u03",
+            UserName = "Dev JSON Updated",
+            PhoneNo = "0911223344",
+            EMail = "dev@solution.hn"
+        });
+        var modelInosJson = JsonSerializer.Serialize(new
+        {
+            Name = "Dev JSON Updated",
+            Phone = "0911223344"
+        });
+        var req = new Sys_User_ChangeInfoReq
+        {
+            ModelSys_User = modelSysUserJson,
+            Model = modelInosJson,
+            WAUserCode = "U01"
+        };
+        var result = await _controller.ChangeInfo(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", root.GetProperty("Title").GetString());
+
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U03");
+        Assert.NotNull(userInDb);
+        Assert.Equal("Dev JSON Updated", userInDb.UserName);
+        Assert.Equal("0911223344", userInDb.PhoneNo);
+    }
+
+    [Fact]
+    public async Task ChangeInfo_SearchByEmail_Success()
+    {
+        // Dựng strWhereClause_SysUser(objSys_User.EMail): tìm kiếm người dùng theo email (Sys_UserController.cs:1349)
+        var req = new Sys_User_ChangeInfoReq
+        {
+            EMail = "admin@solution.hn",
+            UserName = "Admin Email Updated",
+            PhoneNo = "0909999888",
+            WAUserCode = "U01"
+        };
+        var result = await _controller.ChangeInfo(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U01");
+        Assert.NotNull(userInDb);
+        Assert.Equal("Admin Email Updated", userInDb.UserName);
+        Assert.Equal("0909999888", userInDb.PhoneNo);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -2602,6 +2762,109 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc75 = JsonDocument.Parse(await res75.Content.ReadAsStringAsync());
             Assert.True(doc75.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Thay đổi mật khẩu thành công!", doc75.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 76. Action ChangeInfo: body rỗng -> 200 OK, Success = false, Messages = ["Tên đăng nhập hoặc mật khẩu không hợp lệ!"]
+            var req76 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res76 = await http.PostAsync("/api/sys_user/changeinfo", req76);
+            Assert.True(res76.IsSuccessStatusCode);
+            var doc76 = JsonDocument.Parse(await res76.Content.ReadAsStringAsync());
+            Assert.False(doc76.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Tên đăng nhập hoặc mật khẩu không hợp lệ!", doc76.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 77. Action ChangeInfo: người dùng không tồn tại -> 200 OK, Success = true, Messages = ["Mã người dùng 'NON_EXIST' không có trong hệ thống!", ...]
+            var req77 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "NON_EXIST",
+                UserName = "AnyName",
+                PhoneNo = "0900000000"
+            }), Encoding.UTF8, "application/json");
+            var res77 = await http.PostAsync("/api/sys_user/changeinfo", req77);
+            Assert.True(res77.IsSuccessStatusCode);
+            var doc77 = JsonDocument.Parse(await res77.Content.ReadAsStringAsync());
+            Assert.True(doc77.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng 'NON_EXIST' không có trong hệ thống!", doc77.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 78. Action ChangeInfo: guard UserName rỗng -> 400 BadRequest (Sys_User_Update_InvalidUserName)
+            var req78 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "U01",
+                UserName = "   ",
+                PhoneNo = "0901234567"
+            }), Encoding.UTF8, "application/json");
+            var res78 = await http.PostAsync("/api/sys_user/changeinfo", req78);
+            Assert.False(res78.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res78.StatusCode);
+            var doc78 = JsonDocument.Parse(await res78.Content.ReadAsStringAsync());
+            Assert.False(doc78.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_Update_InvalidUserName", doc78.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 79. Action ChangeInfo: cập nhật thành công round-trip cho U02 -> 200 OK, Success = true
+            var req79 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "u02",
+                UserName = "Server Tester Updated",
+                PhoneNo = "0988665544",
+                WAUserCode = "U01"
+            }), Encoding.UTF8, "application/json");
+            var res79 = await http.PostAsync("/api/sys_user/changeinfo", req79);
+            Assert.True(res79.IsSuccessStatusCode);
+            var doc79 = JsonDocument.Parse(await res79.Content.ReadAsStringAsync());
+            Assert.True(doc79.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", doc79.RootElement.GetProperty("Messages")[0].GetString());
+            var data79 = doc79.RootElement.GetProperty("Data");
+            Assert.Equal("U02", data79.GetProperty("UserCode").GetString());
+            Assert.Equal("Server Tester Updated", data79.GetProperty("UserName").GetString());
+            Assert.Equal("0988665544", data79.GetProperty("PhoneNo").GetString());
+            Assert.Equal("*********", data79.GetProperty("UserPassword").GetString());
+
+            // 80. Action ChangeInfo: gọi alias /api/sys_user/change_info qua chuỗi JSON Model & ModelSys_User
+            var modelSysUser80 = JsonSerializer.Serialize(new
+            {
+                UserCode = "u03",
+                UserName = "Server Dev JSON Updated",
+                PhoneNo = "0911556677",
+                EMail = "dev@solution.hn"
+            });
+            var modelInos80 = JsonSerializer.Serialize(new
+            {
+                Name = "Server Dev JSON Updated",
+                Phone = "0911556677"
+            });
+            var req80 = new StringContent(JsonSerializer.Serialize(new
+            {
+                ModelSys_User = modelSysUser80,
+                Model = modelInos80,
+                WAUserCode = "U01"
+            }), Encoding.UTF8, "application/json");
+            var res80 = await http.PostAsync("/api/sys_user/change_info", req80);
+            Assert.True(res80.IsSuccessStatusCode);
+            var doc80 = JsonDocument.Parse(await res80.Content.ReadAsStringAsync());
+            Assert.True(doc80.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", doc80.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 81. Action ChangeInfo: gọi GET /api/sys_user/changeinfo với query string
+            var res81 = await http.GetAsync("/api/sys_user/changeinfo?usercode=u03&username=DevGetChangeInfo&phoneno=0933778899");
+            Assert.True(res81.IsSuccessStatusCode);
+            var doc81 = JsonDocument.Parse(await res81.Content.ReadAsStringAsync());
+            Assert.True(doc81.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", doc81.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 82. Action ChangeInfo: tra cứu qua email admin@solution.hn và cập nhật thành công cho U01
+            var req82 = new StringContent(JsonSerializer.Serialize(new
+            {
+                EMail = "admin@solution.hn",
+                UserName = "Server Admin Email Updated",
+                PhoneNo = "0909888777",
+                WAUserCode = "U01"
+            }), Encoding.UTF8, "application/json");
+            var res82 = await http.PostAsync("/api/sys_user/changeinfo", req82);
+            Assert.True(res82.IsSuccessStatusCode);
+            var doc82 = JsonDocument.Parse(await res82.Content.ReadAsStringAsync());
+            Assert.True(doc82.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Cập nhật thành công! Vui lòng đăng nhập lại để thay đổi có hiệu lực!", doc82.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("U01", doc82.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+            Assert.Equal("Server Admin Email Updated", doc82.RootElement.GetProperty("Data").GetProperty("UserName").GetString());
+            Assert.Equal("0909888777", doc82.RootElement.GetProperty("Data").GetProperty("PhoneNo").GetString());
         }
         finally
         {
