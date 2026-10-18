@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save), MstProductGroupController.cs:19-89 (WA_Mst_ProductGroup_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX), 30-146 (WAS_Mst_ProductGroup_Get), 147-293 (Mst_ProductGroup_Get), 295-459 (Mst_ProductGroup_GetX)
 [ApiController]
@@ -1945,6 +1945,93 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa đơn vị hàng hóa/dịch vụ (sản phẩm cấp 2 L2PRD hoặc sản phẩm liên quan).
+    /// Gate: Mst_ProductController.cs:2880-2943 DeleteUnit(string prdCode, string prdBase, string prdRoot, string prdlvs)
+    ///       Mst_ProductController.cs:5224-5249 strWhereClause_Mst_Product_Update(Mst_Product model)
+    /// API:  MstProductController.cs:19-87 WA_Mst_Product_Get
+    /// BIZ:  Product.cs:4230-4643 Mst_Product_Get, 4644-4802 WAS_Mst_Product_Get
+    /// </summary>
+    [HttpPost("deleteunit")]
+    public async Task<IActionResult> DeleteUnit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_DeleteUnitReq? req)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 1. Kiểm tra mã sản phẩm trống (Gate Mst_ProductController.cs:2884, 2936-2940)
+            var rawPrdCode = req?.prdCode ?? req?.ProductCode;
+            if (string.IsNullOrWhiteSpace(rawPrdCode))
+            {
+                await tx.RollbackAsync();
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã sản phẩm trống!" },
+                    Title = "Mã sản phẩm trống!"
+                });
+            }
+
+            var prdCode = StdParam(rawPrdCode);
+            if (string.IsNullOrEmpty(prdCode))
+            {
+                await tx.RollbackAsync();
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã sản phẩm trống!" },
+                    Title = "Mã sản phẩm trống!"
+                });
+            }
+
+            // 2. Tra cứu sản phẩm trong hệ thống qua WA_Mst_Product_Get (Gate Mst_ProductController.cs:2886-2915, BIZ Product.cs:4230-4643)
+            var query = _db.Set<Mst_Product>().AsQueryable();
+
+            var orgId = StdParam(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            query = query.Where(x => EF.Functions.Like((x.ProductCode ?? "").ToLower(), PortQuery.Equal(prdCode), PortQuery.Esc));
+
+            var existingPrd = await query.FirstOrDefaultAsync();
+
+            // 3. Nếu không tìm thấy sản phẩm trong hệ thống (Gate Mst_ProductController.cs:2930-2934)
+            if (existingPrd == null)
+            {
+                await tx.RollbackAsync();
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Mã sản phẩm '{rawPrdCode}' không có trong hệ thống!" },
+                    Title = $"Mã sản phẩm '{rawPrdCode}' không có trong hệ thống!"
+                });
+            }
+
+            // 4. Xóa bản ghi sản phẩm khỏi cơ sở dữ liệu (Gate Mst_ProductController.cs:2918-2924)
+            _db.Set<Mst_Product>().Remove(existingPrd);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // GAP: Mst_ProductService.Instance.WA_Mst_Product_Delete gọi sang hệ thống ngoài Product Center bỏ qua theo Rule P3 (Mst_ProductController.cs:2924)
+
+            // 5. Trả về thông báo thành công và chuyển hướng về Index (Gate Mst_ProductController.cs:2926-2928)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Xóa đơn vị thành công!" },
+                Title = "Xóa đơn vị thành công!",
+                RedirectUrl = "/api/mst_product/index"
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            // BIZ Product.cs:4257, 4620: strErrorCodeDefault = TError.ErridQContract.Mst_Product_Get
+            return PortResult.Fail("Mst_Product_DeleteUnit", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -2608,4 +2695,27 @@ public class Mst_Unit_EditItem
     public double? ValConvert { get; set; }
     public string? FlagBuy { get; set; }
     public string? FlagSell { get; set; }
+}
+
+/// <summary>
+/// Tham số đầu vào cho action DeleteUnit của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:2880-2881 DeleteUnit(string prdCode, string prdBase, string prdRoot, string prdlvs)
+/// </summary>
+public class Mst_Product_DeleteUnitReq
+{
+    // Gate Mst_ProductController.cs:2880
+    public string? prdCode { get; set; }
+    public string? prdBase { get; set; }
+    public string? prdRoot { get; set; }
+    public string? prdlvs { get; set; }
+
+    // Hỗ trợ alias tên trường chuẩn
+    public string? ProductCode { get; set; }
+    public string? ProductCodeBase { get; set; }
+    public string? ProductCodeRoot { get; set; }
+    public string? ProductLevelSys { get; set; }
+
+    // Các tham số lọc bổ sung (LESSON A.14)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
 }

@@ -1617,6 +1617,121 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteUnit_WithEmptyBody_ReturnsEmptyCodeMessage()
+    {
+        var res = await _controller.DeleteUnit(null);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msgs = doc.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã sản phẩm trống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_WithEmptyCodeString_ReturnsEmptyCodeMessage()
+    {
+        var req = new Mst_Product_DeleteUnitReq { prdCode = "   " };
+        var res = await _controller.DeleteUnit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msgs = doc.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã sản phẩm trống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_WithNonExistentProduct_ReturnsNotFoundMessage()
+    {
+        var req = new Mst_Product_DeleteUnitReq { prdCode = "PRD_NON_EXISTENT_999", OrgID = "1001" };
+        var res = await _controller.DeleteUnit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msgs = doc.RootElement.GetProperty("Messages");
+        Assert.Equal("Mã sản phẩm 'PRD_NON_EXISTENT_999' không có trong hệ thống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_WithExistingProduct_DeletesProductAndReturnsSuccess_RoundTrip()
+    {
+        var unitCode = "PRD_UNIT_TEMP_DEL_01";
+        var newUnit = new Mst_Product
+        {
+            OrgID = "1001",
+            ProductCode = unitCode,
+            NetworkID = "1001",
+            ProductLevelSys = "L2PRD",
+            ProductCodeUser = "SP001_DEL_TEMP",
+            ProductName = "Sản phẩm tạm để xóa",
+            ProductCodeRoot = "PRD_ROOT_01",
+            ProductCodeBase = "PRD_ROOT_01",
+            UnitCode = "THUNG",
+            FlagActive = "1"
+        };
+        _db.Set<Mst_Product>().Add(newUnit);
+        await _db.SaveChangesAsync();
+
+        // Kiểm tra sản phẩm đã tồn tại trong DB trước khi xóa
+        var before = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == unitCode);
+        Assert.NotNull(before);
+
+        // Gọi action DeleteUnit
+        var req = new Mst_Product_DeleteUnitReq { prdCode = unitCode, OrgID = "1001" };
+        var res = await _controller.DeleteUnit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msgs = doc.RootElement.GetProperty("Messages");
+        Assert.Equal("Xóa đơn vị thành công!", msgs[0].GetString());
+        Assert.Equal("/api/mst_product/index", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        // Round-trip: Kiểm tra sản phẩm đã bị xóa khỏi DB
+        var after = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == unitCode);
+        Assert.Null(after);
+
+        // Gọi lại DeleteUnit với cùng mã sản phẩm -> thông báo không có trong hệ thống
+        var resAgain = await _controller.DeleteUnit(req);
+        var okAgain = Assert.IsType<OkObjectResult>(resAgain);
+        var docAgain = JsonDocument.Parse(JsonSerializer.Serialize(okAgain.Value));
+        Assert.True(docAgain.RootElement.GetProperty("Success").GetBoolean());
+        var msgsAgain = docAgain.RootElement.GetProperty("Messages");
+        Assert.Equal($"Mã sản phẩm '{unitCode}' không có trong hệ thống!", msgsAgain[0].GetString());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_WithProductCodeAlias_DeletesProduct()
+    {
+        var unitCode = "PRD_UNIT_TEMP_DEL_02";
+        var newUnit = new Mst_Product
+        {
+            OrgID = "1001",
+            ProductCode = unitCode,
+            NetworkID = "1001",
+            ProductLevelSys = "L2PRD",
+            ProductCodeUser = "SP001_DEL_ALIAS",
+            ProductName = "Sản phẩm xóa bằng alias ProductCode",
+            ProductCodeRoot = "PRD_ROOT_01",
+            ProductCodeBase = "PRD_ROOT_01",
+            UnitCode = "HOP",
+            FlagActive = "1"
+        };
+        _db.Set<Mst_Product>().Add(newUnit);
+        await _db.SaveChangesAsync();
+
+        // Dùng ProductCode thay vì prdCode
+        var req = new Mst_Product_DeleteUnitReq { ProductCode = unitCode, OrgID = "1001" };
+        var res = await _controller.DeleteUnit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msgs = doc.RootElement.GetProperty("Messages");
+        Assert.Equal("Xóa đơn vị thành công!", msgs[0].GetString());
+
+        var after = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == unitCode);
+        Assert.Null(after);
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -2123,6 +2238,58 @@ public class Mst_ProductControllerPortTests : IDisposable
             var doc47 = JsonDocument.Parse(body47);
             Assert.True(doc47.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("/api/mst_product/index", doc47.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // Ca 48: POST /api/mst_product/deleteunit với body rỗng hoàn toàn -> 200 OK, Messages = ["Mã sản phẩm trống!"]
+            var req48 = new StringContent("", Encoding.UTF8, "application/json");
+            var res48 = await http.PostAsync("/api/mst_product/deleteunit", req48);
+            var body48 = await res48.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res48.StatusCode);
+            var doc48 = JsonDocument.Parse(body48);
+            Assert.True(doc48.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã sản phẩm trống!", doc48.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 49: POST /api/mst_product/deleteunit với body JSON {} -> 200 OK, Messages = ["Mã sản phẩm trống!"]
+            var req49 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res49 = await http.PostAsync("/api/mst_product/deleteunit", req49);
+            var body49 = await res49.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res49.StatusCode);
+            var doc49 = JsonDocument.Parse(body49);
+            Assert.True(doc49.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã sản phẩm trống!", doc49.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 50: POST /api/mst_product/deleteunit với prdCode không tồn tại -> 200 OK, Messages = ["Mã sản phẩm 'PRD_UNKNOWN_XYZ' không có trong hệ thống!"]
+            var req50 = new StringContent("{\"OrgID\":\"1001\",\"prdCode\":\"PRD_UNKNOWN_XYZ\"}", Encoding.UTF8, "application/json");
+            var res50 = await http.PostAsync("/api/mst_product/deleteunit", req50);
+            var body50 = await res50.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res50.StatusCode);
+            var doc50 = JsonDocument.Parse(body50);
+            Assert.True(doc50.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã sản phẩm 'PRD_UNKNOWN_XYZ' không có trong hệ thống!", doc50.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 51: POST /api/mst_product/create tạo sản phẩm mới PRD_UNIT_DELETE_LIVE -> 200 OK
+            var req51Json = "{\"Lst_Mst_ProductUI_Create\":[{\"OrgID\":\"1001\",\"ProductCode\":\"PRD_UNIT_DELETE_LIVE\",\"ProductLevelSys\":\"L2PRD\",\"ProductCodeUser\":\"SP_UNIT_DEL_LIVE\",\"ProductName\":\"Sản phẩm Live để xóa\",\"BrandCode\":\"BRAND01\",\"ProductType\":\"PRODUCT\",\"ProductGrpCode\":\"GRP01\",\"UnitCode\":\"CAI\",\"FlagActive\":\"1\",\"FlagBuy\":\"1\",\"FlagSell\":\"1\"}]}";
+            var req51 = new StringContent(req51Json, Encoding.UTF8, "application/json");
+            var res51 = await http.PostAsync("/api/mst_product/create", req51);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res51.StatusCode);
+
+            // Ca 52: POST /api/mst_product/deleteunit xoá PRD_UNIT_DELETE_LIVE -> 200 OK, Xóa đơn vị thành công!
+            var req52 = new StringContent("{\"OrgID\":\"1001\",\"prdCode\":\"PRD_UNIT_DELETE_LIVE\"}", Encoding.UTF8, "application/json");
+            var res52 = await http.PostAsync("/api/mst_product/deleteunit", req52);
+            var body52 = await res52.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res52.StatusCode);
+            var doc52 = JsonDocument.Parse(body52);
+            Assert.True(doc52.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa đơn vị thành công!", doc52.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/api/mst_product/index", doc52.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // Ca 53: POST /api/mst_product/deleteunit xoá lại PRD_UNIT_DELETE_LIVE (round-trip check) -> 200 OK, không có trong hệ thống
+            var req53 = new StringContent("{\"OrgID\":\"1001\",\"prdCode\":\"PRD_UNIT_DELETE_LIVE\"}", Encoding.UTF8, "application/json");
+            var res53 = await http.PostAsync("/api/mst_product/deleteunit", req53);
+            var body53 = await res53.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res53.StatusCode);
+            var doc53 = JsonDocument.Parse(body53);
+            Assert.True(doc53.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã sản phẩm 'PRD_UNIT_DELETE_LIVE' không có trong hệ thống!", doc53.RootElement.GetProperty("Messages")[0].GetString());
         }
         finally
         {
