@@ -566,6 +566,158 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_WithNullReq_ReturnsFailCheckStrJson()
+    {
+        var res = await _controller.Create(null);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Create", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(doc.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Create_WithEmptyReq_ReturnsFailMstProductTblNotFound()
+    {
+        var res = await _controller.Create(new Mst_Product_CreateReq());
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Create_Input_Mst_ProductTblNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_WithMissingOrgId_ReturnsFailInvalidOrgID()
+    {
+        var req = new Mst_Product_CreateReq
+        {
+            OrgID = "",
+            Lst_Mst_ProductUI_Create = new List<Mst_Product_CreateItem>
+            {
+                new() { OrgID = "", ProductName = "Sản phẩm A" }
+            }
+        };
+        var res = await _controller.Create(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Create_InvalidOrgID", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_WithEmptyProductName_ReturnsFailInvalidProductName()
+    {
+        var req = new Mst_Product_CreateReq
+        {
+            OrgID = "1001",
+            Lst_Mst_ProductUI_Create = new List<Mst_Product_CreateItem>
+            {
+                new() { OrgID = "1001", ProductName = "" }
+            }
+        };
+        var res = await _controller.Create(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Create_InvalidProductName", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_WithIsInitTrue_ReturnsScreenInitMasterData()
+    {
+        var req = new Mst_Product_CreateReq { IsInit = true, OrgID = "1001" };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("1001", data.GetProperty("OrgID").GetString());
+        Assert.True(data.TryGetProperty("List_Mst_ProductType", out _));
+        Assert.True(data.TryGetProperty("List_Mst_ProductGroup", out _));
+        Assert.True(data.TryGetProperty("List_Mst_Brand", out _));
+    }
+
+    [Fact]
+    public async Task Create_SingleProduct_SuccessRoundTrip()
+    {
+        var prdCode = "PRD_CREATE_TEST_01";
+        var req = new Mst_Product_CreateReq
+        {
+            OrgID = "1001",
+            ProductCode = prdCode,
+            ProductName = "Sản phẩm kiểm tra Create 1",
+            ProductCodeUser = "SP_TEST_01",
+            ProductLevelSys = "ROOTPRD",
+            BrandCode = "BRAND_01",
+            ProductType = "PRODUCT",
+            UnitCode = "CAI",
+            UPBuy = 100000,
+            UPSell = 150000,
+            FlagActive = "1"
+        };
+
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        // Đọc lại từ database kiểm tra round-trip
+        var saved = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == prdCode);
+        Assert.NotNull(saved);
+        Assert.Equal("Sản phẩm kiểm tra Create 1", saved.ProductName);
+        Assert.Equal("SP_TEST_01", saved.ProductCodeUser);
+        Assert.Equal("ROOTPRD", saved.ProductLevelSys);
+        Assert.Equal(prdCode, saved.ProductCodeRoot);
+        Assert.Equal(prdCode, saved.ProductCodeBase);
+        Assert.Equal(100000, saved.UPBuy);
+        Assert.Equal(150000, saved.UPSell);
+        Assert.Equal("1", saved.FlagActive);
+    }
+
+    [Fact]
+    public async Task Create_MultiProducts_ViaModelJson_SuccessRoundTrip()
+    {
+        var jsonModel = JsonSerializer.Serialize(new
+        {
+            OrgID = "1001",
+            Lst_Mst_ProductUI_Create = new[]
+            {
+                new
+                {
+                    OrgID = "1001",
+                    ProductCode = "PRD_ROOT_MULTI_01",
+                    ProductCodeUser = "SP_MULTI_01",
+                    ProductName = "Sản phẩm gốc Multi",
+                    ProductLevelSys = "ROOTPRD"
+                },
+                new
+                {
+                    OrgID = "1001",
+                    ProductCode = "PRD_BASE_MULTI_01_1",
+                    ProductCodeUser = "SP_MULTI_01_1",
+                    ProductName = "Sản phẩm quy cách 1",
+                    ProductLevelSys = "BASEPRD"
+                }
+            }
+        });
+
+        var req = new Mst_Product_CreateReq { Model = jsonModel };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var rootPrd = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == "PRD_ROOT_MULTI_01");
+        var basePrd = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == "PRD_BASE_MULTI_01_1");
+
+        Assert.NotNull(rootPrd);
+        Assert.NotNull(basePrd);
+        Assert.Equal("PRD_ROOT_MULTI_01", rootPrd.ProductCodeRoot);
+        Assert.Equal("PRD_ROOT_MULTI_01", basePrd.ProductCodeRoot);
+        Assert.Equal("PRD_BASE_MULTI_01_1", basePrd.ProductCodeBase);
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -732,6 +884,45 @@ public class Mst_ProductControllerPortTests : IDisposable
 
             // 2 bộ lọc cho số dòng khác nhau (4 != 1)
             Assert.NotEqual(count11, count12);
+
+            // Ca 13: POST /api/mst_product/create với body rỗng -> 400 Bad Request, Success = false
+            var req13 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/mst_product/create", req13);
+            var body13 = await res13.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res13.StatusCode);
+            var doc13 = JsonDocument.Parse(body13);
+            Assert.False(doc13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mst_Product_Create_Input_Mst_ProductTblNotFound", doc13.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 14: POST /api/mst_product/create với IsInit = true -> 200 OK, Success = true
+            var req14 = new StringContent("{\"IsInit\":true,\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/mst_product/create", req14);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res14.StatusCode);
+            var doc14 = JsonDocument.Parse(body14);
+            Assert.True(doc14.RootElement.GetProperty("Success").GetBoolean());
+            Assert.True(doc14.RootElement.GetProperty("Data").TryGetProperty("List_Mst_ProductType", out _));
+
+            // Ca 15: POST /api/mst_product/create tạo sản phẩm mới PRD_LIVE_NEW_01 -> 200 OK, Success = true
+            var createJson = "{\"OrgID\":\"1001\",\"ProductCode\":\"PRD_LIVE_NEW_01\",\"ProductName\":\"Hang Hoa Live Test 01\",\"ProductCodeUser\":\"HH_LIVE_01\",\"ProductLevelSys\":\"ROOTPRD\",\"FlagActive\":\"1\"}";
+            var req15 = new StringContent(createJson, Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/mst_product/create", req15);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15.StatusCode);
+            var doc15 = JsonDocument.Parse(body15);
+            Assert.True(doc15.RootElement.GetProperty("Success").GetBoolean());
+
+            // Ca 16: Round-trip đọc lại qua /api/mst_product/search_product_auto với "HH_LIVE_01" -> 200 OK, ListProduct có 1 phần tử
+            var req16 = new StringContent("{\"productcodename\":\"HH_LIVE_01\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/mst_product/search_product_auto", req16);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res16.StatusCode);
+            var doc16 = JsonDocument.Parse(body16);
+            Assert.True(doc16.RootElement.GetProperty("Success").GetBoolean());
+            var listPrdLive = doc16.RootElement.GetProperty("ListProduct");
+            Assert.Equal(1, listPrdLive.GetArrayLength());
+            Assert.Equal("PRD_LIVE_NEW_01", listPrdLive[0].GetProperty("ProductCode").GetString());
+            Assert.Equal("Hang Hoa Live Test 01", listPrdLive[0].GetProperty("ProductName").GetString());
         }
         finally
         {
