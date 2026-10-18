@@ -28,6 +28,10 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         var seeder = new Mst_DepartmentSeeder();
         seeder.SeedAsync(_db).GetAwaiter().GetResult();
 
+        // Chạy seeder Mst_NNT (để kiểm tra MST khi tạo phòng ban)
+        var nntSeeder = new Mst_NNTSeeder();
+        nntSeeder.SeedAsync(_db).GetAwaiter().GetResult();
+
         _controller = new Mst_DepartmentControllerPort(_db);
     }
 
@@ -177,4 +181,232 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         Assert.Equal(3, data.GetProperty("ItemCount").GetInt32());
         Assert.Equal(3, data.GetProperty("DataList").GetArrayLength());
     }
+
+    [Fact]
+    public async Task Create_EmptyBody_ReturnsFail_Mst_Department_Create()
+    {
+        var result = await _controller.Create(new Mst_Department_CreateReq());
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out var p));
+        Assert.Equal(JsonValueKind.Null, p.ValueKind);
+    }
+
+    [Fact]
+    public async Task Create_NullBody_ReturnsFail_Mst_Department_Create()
+    {
+        var result = await _controller.Create(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Create", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_InvalidDepartmentCode_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq { DepartmentCode = "" };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Create_InvalidDepartmentCode", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DepartmentCodeExists_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq { DepartmentCode = "DEPT_BGD" };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_DepartmentExist", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("DEPT_BGD", root.GetProperty("Params").GetProperty("Check.DepartmentCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MSTNotFound_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_NEW",
+            MST = "9999999999"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("9999999999", root.GetProperty("Params").GetProperty("Check.MST").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MSTInactive_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_NEW",
+            MST = "0100000003" // seeded inactive in Mst_NNTSeeder
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("0100000003", root.GetProperty("Params").GetProperty("Check.MST").GetString());
+        Assert.Equal("0", root.GetProperty("Params").GetProperty("DB.FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DepartmentCodeParentNotFound_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_NEW",
+            MST = "0100000001",
+            DepartmentCodeParent = "DEPT_NONEXIST"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_DepartmentNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("DEPT_NONEXIST", root.GetProperty("Params").GetProperty("Check.DepartmentCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DepartmentCodeParentInactive_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_NEW",
+            MST = "0100000001",
+            DepartmentCodeParent = "DEPT_KD_INACT" // seeded inactive in Mst_DepartmentSeeder
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("DEPT_KD_INACT", root.GetProperty("Params").GetProperty("Check.DepartmentCode").GetString());
+        Assert.Equal("0", root.GetProperty("Params").GetProperty("DB.FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Create_InvalidDepartmentName_ReturnsFail()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_NEW",
+            MST = "0100000001",
+            DepartmentName = ""
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Create_InvalidDepartmentName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Success_RoundTrip()
+    {
+        var req = new Mst_Department_CreateReq
+        {
+            DepartmentCode = "DEPT_MKT",
+            DepartmentName = "Phòng Marketing",
+            MST = "0100000001",
+            DepartmentCodeParent = "DEPT_BGD"
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_Department", root.GetProperty("RedirectUrl").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("DEPT_MKT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Phòng Marketing", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCodeParent").GetString());
+        Assert.Equal("DEPT_BGD.DEPT_MKT", data.GetProperty("DepartmentBUCode").GetString());
+        Assert.Equal("2", data.GetProperty("DepartmentLevel").GetString());
+
+        // Đọc lại qua Index để xác minh round-trip
+        var indexRes = await _controller.Index(new Mst_Department_IndexReq { DepartmentCode = "DEPT_MKT" });
+        var okIndex = Assert.IsType<OkObjectResult>(indexRes);
+        var indexDoc = JsonDocument.Parse(JsonSerializer.Serialize(okIndex.Value));
+        var indexData = indexDoc.RootElement.GetProperty("Data");
+
+        Assert.Equal(1, indexData.GetProperty("ItemCount").GetInt32());
+        Assert.Equal("DEPT_MKT", indexData.GetProperty("DataList")[0].GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Phòng Marketing", indexData.GetProperty("DataList")[0].GetProperty("DepartmentName").GetString());
+    }
+
+    [Fact]
+    public async Task Create_WithModelJson_Success_RoundTrip()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            DepartmentCode = "DEPT_HR",
+            DepartmentName = "Phòng Nhân Sự",
+            MST = "0100000001",
+            DepartmentCodeParent = "DEPT_BGD"
+        });
+
+        var req = new Mst_Department_CreateReq { Model = modelJson };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("DEPT_HR", data.GetProperty("DepartmentCode").GetString());
+
+        // Đọc lại qua Index
+        var indexRes = await _controller.Index(new Mst_Department_IndexReq { DepartmentCode = "DEPT_HR" });
+        var okIndex = Assert.IsType<OkObjectResult>(indexRes);
+        var indexDoc = JsonDocument.Parse(JsonSerializer.Serialize(okIndex.Value));
+        var indexData = indexDoc.RootElement.GetProperty("Data");
+
+        Assert.Equal(1, indexData.GetProperty("ItemCount").GetInt32());
+        Assert.Equal("DEPT_HR", indexData.GetProperty("DataList")[0].GetProperty("DepartmentCode").GetString());
+    }
 }
+
