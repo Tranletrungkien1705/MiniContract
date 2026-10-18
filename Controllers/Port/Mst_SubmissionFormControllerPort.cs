@@ -8,7 +8,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_SubmissionFormController.cs — Mst_SubmissionForm
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 142-209 (Create), 212-369 (Detail), 372-549 (CreateCopy), 667-731 (Save), 854-873 (strWhereClauseSearchBy), 875-888 (strWhereClause_Mst_SubmissionForm)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 142-209 (Create), 212-369 (Detail), 372-549 (CreateCopy), 667-731 (Save), 734-798 (Update), 854-873 (strWhereClauseSearchBy), 875-888 (strWhereClause_Mst_SubmissionForm)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstSubmissionFormController.cs:21-89 (WA_Mst_SubmissionForm_Get, WA_Mst_SubmissionForm_Save), MstChannelTypeController.cs:91-140 (WA_Mst_Channel_Get), MstParamContractController.cs:19-75 (WA_Mst_ParamContractSubmissForm_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:13845-14341 (Mst_SubmissionForm_GetX), 14361-14478 (WAS_Mst_SubmissionForm_Save), 14479-15187 (Mst_SubmissionForm_Upd, Mst_SubmissionForm_UpdX), 15188-15359 (Mst_SubmissionForm_Save), 15361-15868 (Mst_SubmissionForm_SaveX), 18384-18780 (Mst_Channel_GetX), 16417-16796 (Mst_ParamContractSubmissForm_GetX)
 [ApiController]
@@ -1007,6 +1007,210 @@ public class Mst_SubmissionFormControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Cập nhật cấu hình mẫu nội dung gửi.
+    /// Gate: Mst_SubmissionFormController.cs:734-798 Update(string model)
+    /// API:  WA_Mst_SubmissionForm_Upd
+    /// BIZ:
+    ///   - WAS_Mst_SubmissionForm_Upd (MasterData.cs:14479-14576): Đóng gói Lst_Mst_SubmissionFormZNS và Lst_Mst_SubmissionFormMessage vào dsData.
+    ///   - Mst_SubmissionForm_Upd (MasterData.cs:14601-14750): Transaction, CheckAuthorize, gọi Mst_SubmissionForm_UpdX.
+    ///   - Mst_SubmissionForm_UpdX (MasterData.cs:14751-15187): Kiểm tra SubFormCode, CheckDB Mst_SubmissionForm, CheckDB Mst_ChannelType, CheckDB Mst_BulletinType, cập nhật Mst_SubmissionForm, xoá và chèn lại Mst_SubmissionFormZNS và Mst_SubmissionFormMessage.
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_SubmissionForm_UpdateReq? req)
+    {
+        try
+        {
+            var form = req?.Mst_SubmissionForm;
+            var listZns = req?.Lst_Mst_SubmissionFormZNS ?? new List<Mst_SubmissionFormZNS>();
+            var listMsg = req?.Lst_Mst_SubmissionFormMessage ?? new List<Mst_SubmissionFormMessage>();
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_SubmissionFormController.cs:734, 746)
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Mst_SubmissionForm_UpdateReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        if (modelObj.Mst_SubmissionForm != null)
+                        {
+                            form = modelObj.Mst_SubmissionForm;
+                        }
+                        if (modelObj.Lst_Mst_SubmissionFormZNS != null && modelObj.Lst_Mst_SubmissionFormZNS.Count > 0)
+                        {
+                            listZns = modelObj.Lst_Mst_SubmissionFormZNS;
+                        }
+                        if (modelObj.Lst_Mst_SubmissionFormMessage != null && modelObj.Lst_Mst_SubmissionFormMessage.Count > 0)
+                        {
+                            listMsg = modelObj.Lst_Mst_SubmissionFormMessage;
+                        }
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            // Hỗ trợ client gửi các trường phẳng thay vì lồng trong Mst_SubmissionForm
+            if (form == null && (!string.IsNullOrEmpty(req?.SubFormCode) || !string.IsNullOrEmpty(req?.SubFormName)))
+            {
+                form = new Mst_SubmissionForm
+                {
+                    SubFormCode = req?.SubFormCode ?? "",
+                    SubFormName = req?.SubFormName,
+                    OrgID = req?.OrgID,
+                    ChannelType = req?.ChannelType,
+                    BulletinType = req?.BulletinType,
+                    IDZNS = req?.IDZNS,
+                    FlagActive = req?.FlagActive
+                };
+            }
+
+            // 1. Kiểm tra strSubFormCode (MasterData.cs:14806, 14819-14828)
+            var strSubFormCode = StdParam(form?.SubFormCode);
+            if (string.IsNullOrEmpty(strSubFormCode))
+            {
+                return PortResult.Fail("Mst_SubmissionForm_SaveX_InvalidSubFormCode", "Check.strSubFormCode", strSubFormCode);
+            }
+
+            // 2. Kiểm tra tồn tại trong DB (MasterData.cs:14831-14837, 13805-13814: Mst_SubmissionForm_CheckDB)
+            var dbForm = await _db.Set<Mst_SubmissionForm>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(strSubFormCode), PortQuery.Esc));
+            if (dbForm == null)
+            {
+                return PortResult.Fail("Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", "Check.SubFormCode", strSubFormCode);
+            }
+
+            // 3. Kiểm tra loại kênh (MasterData.cs:14843-14849, 17883-17915: Mst_ChannelType_CheckDB)
+            var strChannelType = StdParam(form?.ChannelType);
+            if (string.IsNullOrEmpty(strChannelType))
+            {
+                return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelType);
+            }
+            var channelTypeRow = await _db.Set<Mst_ChannelType>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.ChannelType ?? "").ToLower(), PortQuery.Equal(strChannelType), PortQuery.Esc));
+            if (channelTypeRow == null)
+            {
+                return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelType);
+            }
+            if (channelTypeRow.FlagActive != "1")
+            {
+                return PortResult.Fail("Mst_ChannelType_CheckDB_FlagActiveNotMatched", "Check.ChannelType", strChannelType, "Check.FlagActiveListToCheck", "1", "DB.FlagActive", channelTypeRow.FlagActive);
+            }
+
+            // 4. Kiểm tra loại bản tin (MasterData.cs:14853-14859, 17815-17852: Mst_BulletinType_CheckDB)
+            var strBulletinType = StdParam(form?.BulletinType);
+            if (string.IsNullOrEmpty(strBulletinType))
+            {
+                return PortResult.Fail("Mst_BulletinType_CheckDB_BulletinTypeNotFound", "Check.BulletinType", strBulletinType);
+            }
+            var bulletinTypeRow = await _db.Set<Mst_BulletinType>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.BulletinType ?? "").ToLower(), PortQuery.Equal(strBulletinType), PortQuery.Esc));
+            if (bulletinTypeRow == null)
+            {
+                return PortResult.Fail("Mst_BulletinType_CheckDB_BulletinTypeNotFound", "Check.BulletinType", strBulletinType);
+            }
+            if (bulletinTypeRow.FlagActive != "1")
+            {
+                return PortResult.Fail("Mst_BulletinType_CheckDB_FlagActiveNotMatched", "Check.BulletinType", strBulletinType, "Check.FlagActiveListToCheck", "1", "DB.FlagActive", bulletinTypeRow.FlagActive);
+            }
+
+            // 5. Cập nhật dữ liệu trong Transaction (MasterData.cs:14659, 15038-15161)
+            var orgId = StdParam(form?.OrgID) ?? StdParam(req?.OrgID) ?? (dbForm.OrgID ?? "7200000001");
+            var nowStr = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+            using (var tx = await _db.Database.BeginTransactionAsync())
+            {
+                try
+                {
+                    // Update Mst_SubmissionForm (MasterData.cs:15066-15089)
+                    dbForm.SubFormName = form?.SubFormName ?? dbForm.SubFormName;
+                    dbForm.OrgID = orgId;
+                    dbForm.ChannelType = strChannelType;
+                    dbForm.BulletinType = strBulletinType;
+                    dbForm.IDZNS = StdParam(form?.IDZNS);
+                    dbForm.FlagActive = StdFlag(form?.FlagActive);
+                    dbForm.LogLUDTimeUTC = nowStr;
+                    dbForm.LogLUBy = "port";
+
+                    // Clear and insert Mst_SubmissionFormZNS (MasterData.cs:15041-15048, 15091-15113)
+                    var oldZns = await _db.Set<Mst_SubmissionFormZNS>()
+                        .Where(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(strSubFormCode), PortQuery.Esc))
+                        .ToListAsync();
+                    if (oldZns.Count > 0)
+                    {
+                        _db.Set<Mst_SubmissionFormZNS>().RemoveRange(oldZns);
+                    }
+
+                    if (listZns.Count > 0)
+                    {
+                        var newZns = listZns.Select(z => new Mst_SubmissionFormZNS
+                        {
+                            SubFormCode = strSubFormCode,
+                            ParamContractCodeZNS = StdStr(z.ParamContractCodeZNS) ?? "",
+                            SourceDataType = StdParam(z.SourceDataType),
+                            ParamContractCode = StdParam(z.ParamContractCode),
+                            ParamValue = z.ParamValue,
+                            FlagActive = "1",
+                            LogLUDTimeUTC = nowStr,
+                            LogLUBy = "port"
+                        }).ToList();
+                        await _db.Set<Mst_SubmissionFormZNS>().AddRangeAsync(newZns);
+                    }
+
+                    // Clear and insert Mst_SubmissionFormMessage (MasterData.cs:15050-15057, 15115-15135)
+                    var oldMsg = await _db.Set<Mst_SubmissionFormMessage>()
+                        .Where(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(strSubFormCode), PortQuery.Esc))
+                        .ToListAsync();
+                    if (oldMsg.Count > 0)
+                    {
+                        _db.Set<Mst_SubmissionFormMessage>().RemoveRange(oldMsg);
+                    }
+
+                    if (listMsg.Count > 0)
+                    {
+                        var newMsg = listMsg.Select(m => new Mst_SubmissionFormMessage
+                        {
+                            SubFormCode = strSubFormCode,
+                            Message = m.Message,
+                            FlagActive = "1",
+                            LogLUDTimeUTC = nowStr,
+                            LogLUBy = "port"
+                        }).ToList();
+                        await _db.Set<Mst_SubmissionFormMessage>().AddRangeAsync(newMsg);
+                    }
+
+                    await _db.SaveChangesAsync();
+                    await tx.CommitAsync();
+                }
+                catch (Exception)
+                {
+                    await tx.RollbackAsync();
+                    throw;
+                }
+            }
+
+            // 6. Trả kết quả thành công (Gate: Mst_SubmissionFormController.cs:788-790)
+            return Ok(new
+            {
+                Success = true,
+                RedirectUrl = "/Mst_SubmissionForm",
+                Messages = new[] { "Cập nhật mẫu gửi thành công!" },
+                Title = "Cập nhật mẫu gửi thành công!"
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_SubmissionForm_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? value)
     {
         var s = value?.Trim();
@@ -1130,6 +1334,24 @@ public class Mst_SubmissionForm_SaveReq
     public string? NetworkID { get; set; }
     public string? FlagActive { get; set; }
     public string? FlagIsDelete { get; set; }
+
+    public string? SubFormCode { get; set; }
+    public string? SubFormName { get; set; }
+    public string? ChannelType { get; set; }
+    public string? BulletinType { get; set; }
+    public string? IDZNS { get; set; }
+
+    public Mst_SubmissionForm? Mst_SubmissionForm { get; set; }
+    public List<Mst_SubmissionFormZNS>? Lst_Mst_SubmissionFormZNS { get; set; }
+    public List<Mst_SubmissionFormMessage>? Lst_Mst_SubmissionFormMessage { get; set; }
+}
+
+public class Mst_SubmissionForm_UpdateReq
+{
+    public string? Model { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
 
     public string? SubFormCode { get; set; }
     public string? SubFormName { get; set; }

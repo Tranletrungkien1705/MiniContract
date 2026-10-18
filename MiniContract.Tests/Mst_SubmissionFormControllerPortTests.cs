@@ -1111,6 +1111,254 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_WithNullOrEmptyReq_ReturnsInvalidSubFormCodeGuard()
+    {
+        // 1. null request
+        var res1 = await _controller.Update(null);
+        var bad1 = Assert.IsType<BadRequestObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(bad1.Value));
+        Assert.False(doc1.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc1.RootElement.GetProperty("ErrorCode").GetString());
+
+        // 2. empty request
+        var res2 = await _controller.Update(new Mst_SubmissionForm_UpdateReq());
+        var bad2 = Assert.IsType<BadRequestObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(bad2.Value));
+        Assert.False(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc2.RootElement.GetProperty("ErrorCode").GetString());
+
+        // 3. SubFormCode rỗng
+        var res3 = await _controller.Update(new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm { SubFormCode = "" }
+        });
+        var bad3 = Assert.IsType<BadRequestObjectResult>(res3);
+        var doc3 = JsonDocument.Parse(JsonSerializer.Serialize(bad3.Value));
+        Assert.False(doc3.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc3.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithNonExistentSubFormCode_ReturnsSubFormCodeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_NON_EXISTENT_SUBFORM",
+                ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.Update(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithNonExistentChannelType_ReturnsChannelTypeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "NON_EXISTENT_CHANNEL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.Update(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_ChannelTypeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithInactiveChannelType_ReturnsChannelTypeFlagActiveNotMatchedGuard()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "INACTIVE_CHANNEL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.Update(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithNonExistentBulletinType_ReturnsBulletinTypeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "EMAIL",
+                BulletinType = "NON_EXISTENT_BULLETIN"
+            }
+        };
+        var res = await _controller.Update(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_BulletinTypeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_WithInactiveBulletinType_ReturnsBulletinTypeFlagActiveNotMatchedGuard()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "EMAIL",
+                BulletinType = "INACTIVE_BULLETIN"
+            }
+        };
+        var res = await _controller.Update(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Update_RoundTrip_UpdateEmailForm_Success()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                SubFormName = "Mẫu Email 01 Đã Cập Nhật Qua Update",
+                OrgID = "7200000001",
+                ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormMessage = new List<Mst_SubmissionFormMessage>
+            {
+                new()
+                {
+                    Message = "Nội dung email mới qua action Update"
+                }
+            }
+        };
+
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_SubmissionForm", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra dữ liệu round-trip trong DB
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_EMAIL_01");
+        Assert.NotNull(dbItem);
+        Assert.Equal("Mẫu Email 01 Đã Cập Nhật Qua Update", dbItem.SubFormName);
+        Assert.Equal("EMAIL", dbItem.ChannelType);
+
+        var dbMsgs = await _db.Set<Mst_SubmissionFormMessage>().Where(x => x.SubFormCode == "SF_EMAIL_01").ToListAsync();
+        Assert.Single(dbMsgs);
+        Assert.Equal("Nội dung email mới qua action Update", dbMsgs[0].Message);
+    }
+
+    [Fact]
+    public async Task Update_RoundTrip_UpdateZaloFormWithZns_Success()
+    {
+        var req = new Mst_SubmissionForm_UpdateReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_ZALO_01",
+                SubFormName = "Mẫu Zalo Đã Cập Nhật Qua Update",
+                OrgID = "7200000001",
+                ChannelType = "ZALO",
+                BulletinType = "ZNS_NOTIFY",
+                IDZNS = "777777",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormZNS = new List<Mst_SubmissionFormZNS>
+            {
+                new()
+                {
+                    ParamContractCodeZNS = "customer_code",
+                    SourceDataType = "SYSTEM",
+                    ParamContractCode = "CONTRACTCODEOS",
+                    ParamValue = "KH-UPDATE-001"
+                }
+            }
+        };
+
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_ZALO_01");
+        Assert.NotNull(dbItem);
+        Assert.Equal("777777", dbItem.IDZNS);
+        Assert.Equal("Mẫu Zalo Đã Cập Nhật Qua Update", dbItem.SubFormName);
+
+        var dbZns = await _db.Set<Mst_SubmissionFormZNS>().Where(x => x.SubFormCode == "SF_ZALO_01").ToListAsync();
+        Assert.Single(dbZns);
+        Assert.Equal("customer_code", dbZns[0].ParamContractCodeZNS);
+        Assert.Equal("CONTRACTCODEOS", dbZns[0].ParamContractCode);
+        Assert.Equal("KH-UPDATE-001", dbZns[0].ParamValue);
+    }
+
+    [Fact]
+    public async Task Update_RoundTrip_WithJsonModelString_Success()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            Mst_SubmissionForm = new
+            {
+                SubFormCode = "SF_SMS_01",
+                SubFormName = "Mẫu SMS Cập Nhật Qua JSON Model String",
+                OrgID = "7200000001",
+                ChannelType = "SMS",
+                BulletinType = "OTP",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormMessage = new[]
+            {
+                new
+                {
+                    Message = "Mã xác thực SMS cập nhật qua model string"
+                }
+            }
+        });
+
+        var req = new Mst_SubmissionForm_UpdateReq { Model = modelJson };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_SMS_01");
+        Assert.NotNull(dbItem);
+        Assert.Equal("Mẫu SMS Cập Nhật Qua JSON Model String", dbItem.SubFormName);
+        Assert.Equal("SMS", dbItem.ChannelType);
+
+        var dbMsgs = await _db.Set<Mst_SubmissionFormMessage>().Where(x => x.SubFormCode == "SF_SMS_01").ToListAsync();
+        Assert.Single(dbMsgs);
+        Assert.Equal("Mã xác thực SMS cập nhật qua model string", dbMsgs[0].Message);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_submissionform_{Guid.NewGuid():N}.db");
@@ -1431,6 +1679,67 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
             var docVerifyDeleted = JsonDocument.Parse(bodyVerifyDeleted);
             Assert.True(docVerifyDeleted.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(0, docVerifyDeleted.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+
+            // Ca 25 (Update Guard): POST body rỗng -> 400 InvalidSubFormCode
+            var reqUpdateGuard1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resUpdateGuard1 = await http.PostAsync("/api/mst_submissionform/update", reqUpdateGuard1);
+            var bodyUpdateGuard1 = await resUpdateGuard1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resUpdateGuard1.StatusCode);
+            var docUpdateGuard1 = JsonDocument.Parse(bodyUpdateGuard1);
+            Assert.False(docUpdateGuard1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", docUpdateGuard1.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 26 (Update Guard): POST SubFormCode không tồn tại -> 400 SubFormCodeNotFound
+            var reqUpdateGuard2 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_UPDATE_NOT_FOUND\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"CONTRACT_NOTIFY\"}}", Encoding.UTF8, "application/json");
+            var resUpdateGuard2 = await http.PostAsync("/api/mst_submissionform/update", reqUpdateGuard2);
+            var bodyUpdateGuard2 = await resUpdateGuard2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resUpdateGuard2.StatusCode);
+            var docUpdateGuard2 = JsonDocument.Parse(bodyUpdateGuard2);
+            Assert.False(docUpdateGuard2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", docUpdateGuard2.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 27 (Update Guard): POST ChannelType không tồn tại -> 400 ChannelTypeNotFound
+            var reqUpdateGuard3 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_EMAIL_01\",\"ChannelType\":\"UNKNOWN_CHANNEL\",\"BulletinType\":\"CONTRACT_NOTIFY\"}}", Encoding.UTF8, "application/json");
+            var resUpdateGuard3 = await http.PostAsync("/api/mst_submissionform/update", reqUpdateGuard3);
+            var bodyUpdateGuard3 = await resUpdateGuard3.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resUpdateGuard3.StatusCode);
+            var docUpdateGuard3 = JsonDocument.Parse(bodyUpdateGuard3);
+            Assert.False(docUpdateGuard3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_ChannelTypeNotFound", docUpdateGuard3.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 28 (Update Guard): POST BulletinType không tồn tại -> 400 BulletinTypeNotFound
+            var reqUpdateGuard4 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_EMAIL_01\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"UNKNOWN_BULLETIN\"}}", Encoding.UTF8, "application/json");
+            var resUpdateGuard4 = await http.PostAsync("/api/mst_submissionform/update", reqUpdateGuard4);
+            var bodyUpdateGuard4 = await resUpdateGuard4.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resUpdateGuard4.StatusCode);
+            var docUpdateGuard4 = JsonDocument.Parse(bodyUpdateGuard4);
+            Assert.False(docUpdateGuard4.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_BulletinTypeNotFound", docUpdateGuard4.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 29 (Update Round-trip): POST cập nhật mẫu "SF_SMS_01" -> 200 OK
+            var updatePayload = "{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_SMS_01\",\"SubFormName\":\"Mau SMS Da Update Real\",\"ChannelType\":\"SMS\",\"BulletinType\":\"OTP\",\"FlagActive\":\"1\"},\"Lst_Mst_SubmissionFormMessage\":[{\"Message\":\"Ma OTP da update tren server real\"}]}";
+            var reqUpdateSuccess = new StringContent(updatePayload, Encoding.UTF8, "application/json");
+            var resUpdateSuccess = await http.PostAsync("/api/mst_submissionform/update", reqUpdateSuccess);
+            var bodyUpdateSuccess = await resUpdateSuccess.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpdateSuccess.StatusCode);
+            var docUpdateSuccess = JsonDocument.Parse(bodyUpdateSuccess);
+            Assert.True(docUpdateSuccess.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Mst_SubmissionForm", docUpdateSuccess.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // Ca 30 (Update Round-trip Verify): Đọc lại Detail SF_SMS_01 trên server để xác nhận round-trip đã lưu vào DB
+            var reqVerifyUpdate = new StringContent("{\"SubFormCode\":\"SF_SMS_01\"}", Encoding.UTF8, "application/json");
+            var resVerifyUpdate = await http.PostAsync("/api/mst_submissionform/detail", reqVerifyUpdate);
+            var bodyVerifyUpdate = await resVerifyUpdate.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resVerifyUpdate.StatusCode);
+            var docVerifyUpdate = JsonDocument.Parse(bodyVerifyUpdate);
+            Assert.True(docVerifyUpdate.RootElement.GetProperty("Success").GetBoolean());
+            var updateForms = docVerifyUpdate.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm");
+            Assert.Equal(1, updateForms.GetArrayLength());
+            Assert.Equal("SF_SMS_01", updateForms[0].GetProperty("SubFormCode").GetString());
+            Assert.Equal("Mau SMS Da Update Real", updateForms[0].GetProperty("SubFormName").GetString());
+            var updateMsgs = docVerifyUpdate.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionFormMessage");
+            Assert.Equal(1, updateMsgs.GetArrayLength());
+            Assert.Equal("Ma OTP da update tren server real", updateMsgs[0].GetProperty("Message").GetString());
         }
         finally
         {
