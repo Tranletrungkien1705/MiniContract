@@ -1676,4 +1676,285 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             catch { }
         }
     }
+
+    [Fact]
+    public async Task Delete_NullBody_ReturnsSuccessWithEmptyGroupMessage()
+    {
+        var result = await _controller.Delete(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Nhóm cấu hình trống!", msgs[0].GetString()!);
+    }
+
+    [Fact]
+    public async Task Delete_EmptyCode_ReturnsSuccessWithEmptyGroupMessage()
+    {
+        var req = new Mst_ColumnConfigGroup_DeleteReq { ColumnConfigGrpCode = "" };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Nhóm cấu hình trống!", msgs[0].GetString()!);
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentCode_ReturnsSuccessWithNotFoundMessage()
+    {
+        var req = new Mst_ColumnConfigGroup_DeleteReq
+        {
+            OrgID = "7200000001",
+            ColumnConfigGrpCode = "NON_EXIST"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Mã nhóm cấu hình'NON_EXIST' không có trong hệ thống!", msgs[0].GetString()!);
+    }
+
+    [Fact]
+    public async Task Delete_CodeInDifferentOrg_ReturnsSuccessWithNotFoundMessage()
+    {
+        var req = new Mst_ColumnConfigGroup_DeleteReq
+        {
+            OrgID = "7200000002",
+            ColumnConfigGrpCode = "GRP02"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Mã nhóm cấu hình'GRP02' không có trong hệ thống!", msgs[0].GetString()!);
+    }
+
+    [Fact]
+    public async Task Delete_Success_RoundTrip()
+    {
+        // Kiểm tra trước khi xóa: GRP03 tồn tại ở Org 7200000001
+        var detailBefore = await _controller.Detail(new Mst_ColumnConfigGroup_DetailReq
+        {
+            OrgID = "7200000001",
+            ColumnConfigGrpCode = "GRP03"
+        });
+        var okBefore = Assert.IsType<OkObjectResult>(detailBefore);
+        var docBefore = JsonDocument.Parse(JsonSerializer.Serialize(okBefore.Value));
+        Assert.Equal("GRP03", docBefore.RootElement.GetProperty("Data").GetProperty("ColumnConfigGrpCode").GetString());
+
+        // Thực hiện xóa
+        var req = new Mst_ColumnConfigGroup_DeleteReq
+        {
+            OrgID = "7200000001",
+            ColumnConfigGrpCode = "GRP03"
+        };
+        var result = await _controller.Delete(req);
+        var ok = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Xóa nhóm cấu hình thành công!", msgs[0].GetString()!);
+        Assert.Equal("GRP03", root.GetProperty("Data").GetProperty("ColumnConfigGrpCode").GetString());
+
+        // Đọc lại để xác nhận round-trip: bản ghi không còn trong DB
+        var detailAfter = await _controller.Detail(new Mst_ColumnConfigGroup_DetailReq
+        {
+            OrgID = "7200000001",
+            ColumnConfigGrpCode = "GRP03"
+        });
+        var okAfter = Assert.IsType<OkObjectResult>(detailAfter);
+        var docAfter = JsonDocument.Parse(JsonSerializer.Serialize(okAfter.Value));
+        Assert.Equal(JsonValueKind.Null, docAfter.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJsonString_Success()
+    {
+        var req = new Mst_ColumnConfigGroup_DeleteReq
+        {
+            Model = "{\"OrgID\":\"7200000002\",\"ColumnConfigGrpCode\":\"GRP01\"}"
+        };
+        var result = await _controller.Delete(req);
+        var ok = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Contains("Xóa nhóm cấu hình thành công!", msgs[0].GetString()!);
+
+        // Kiểm tra Org 2 GRP01 đã bị xóa
+        var detailOrg2 = await _controller.Detail(new Mst_ColumnConfigGroup_DetailReq
+        {
+            OrgID = "7200000002",
+            ColumnConfigGrpCode = "GRP01"
+        });
+        var okOrg2 = Assert.IsType<OkObjectResult>(detailOrg2);
+        var docOrg2 = JsonDocument.Parse(JsonSerializer.Serialize(okOrg2.Value));
+        Assert.Equal(JsonValueKind.Null, docOrg2.RootElement.GetProperty("Data").ValueKind);
+
+        // Org 1 GRP01 vẫn còn tồn tại
+        var detailOrg1 = await _controller.Detail(new Mst_ColumnConfigGroup_DetailReq
+        {
+            OrgID = "7200000001",
+            ColumnConfigGrpCode = "GRP01"
+        });
+        var okOrg1 = Assert.IsType<OkObjectResult>(detailOrg1);
+        var docOrg1 = JsonDocument.Parse(JsonSerializer.Serialize(okOrg1.Value));
+        Assert.Equal(JsonValueKind.Object, docOrg1.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task RealServer_Delete_Verification_Port8546()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_delete_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = "8546";
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8546"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, "MiniContract server failed to start within 15 seconds.");
+
+            // 1. Ca body rỗng: POST {} -> 200 OK, Success=true, Messages=["Nhóm cấu hình trống!"]
+            var req1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res1 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req1);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res1.StatusCode);
+            var body1 = await res1.Content.ReadAsStringAsync();
+            var doc1 = JsonDocument.Parse(body1);
+            Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Nhóm cấu hình trống!", doc1.RootElement.GetProperty("Messages")[0].GetString()!);
+
+            // 2. Ca guard mã trống: POST {"OrgID":"7200000001","ColumnConfigGrpCode":""} -> 200 OK, Messages=["Nhóm cấu hình trống!"]
+            var req2 = new StringContent("{\"OrgID\":\"7200000001\",\"ColumnConfigGrpCode\":\"\"}", Encoding.UTF8, "application/json");
+            var res2 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req2);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res2.StatusCode);
+            var body2 = await res2.Content.ReadAsStringAsync();
+            var doc2 = JsonDocument.Parse(body2);
+            Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Nhóm cấu hình trống!", doc2.RootElement.GetProperty("Messages")[0].GetString()!);
+
+            // 3. Ca guard mã không tồn tại: POST {"OrgID":"7200000001","ColumnConfigGrpCode":"NON_EXIST"} -> 200 OK, Messages=["Mã nhóm cấu hình'NON_EXIST' không có trong hệ thống!"]
+            var req3 = new StringContent("{\"OrgID\":\"7200000001\",\"ColumnConfigGrpCode\":\"NON_EXIST\"}", Encoding.UTF8, "application/json");
+            var res3 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req3);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res3.StatusCode);
+            var body3 = await res3.Content.ReadAsStringAsync();
+            var doc3 = JsonDocument.Parse(body3);
+            Assert.True(doc3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mã nhóm cấu hình'NON_EXIST' không có trong hệ thống!", doc3.RootElement.GetProperty("Messages")[0].GetString()!);
+
+            // 4. Ca guard mã tồn tại ở Org khác: POST {"OrgID":"7200000002","ColumnConfigGrpCode":"GRP02"} -> 200 OK
+            var req4 = new StringContent("{\"OrgID\":\"7200000002\",\"ColumnConfigGrpCode\":\"GRP02\"}", Encoding.UTF8, "application/json");
+            var res4 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req4);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res4.StatusCode);
+            var body4 = await res4.Content.ReadAsStringAsync();
+            var doc4 = JsonDocument.Parse(body4);
+            Assert.True(doc4.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mã nhóm cấu hình'GRP02' không có trong hệ thống!", doc4.RootElement.GetProperty("Messages")[0].GetString()!);
+
+            // 5. Ca thành công round-trip: POST xóa GRP03 -> 200 OK
+            var req5 = new StringContent("{\"OrgID\":\"7200000001\",\"ColumnConfigGrpCode\":\"GRP03\"}", Encoding.UTF8, "application/json");
+            var res5 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req5);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res5.StatusCode);
+            var body5 = await res5.Content.ReadAsStringAsync();
+            var doc5 = JsonDocument.Parse(body5);
+            Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Xóa nhóm cấu hình thành công!", doc5.RootElement.GetProperty("Messages")[0].GetString()!);
+            Assert.Equal("GRP03", doc5.RootElement.GetProperty("Data").GetProperty("ColumnConfigGrpCode").GetString());
+
+            // 6. Đọc lại qua detail endpoint xác nhận đã xóa thật khỏi DB
+            var req6 = new StringContent("{\"OrgID\":\"7200000001\",\"ColumnConfigGrpCode\":\"GRP03\"}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_columnconfiggroup/detail", req6);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res6.StatusCode);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.True(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc6.RootElement.GetProperty("Data").ValueKind);
+
+            // 7. Ca xóa qua Model JSON string: xóa Org 2 GRP01 -> 200 OK
+            var req7 = new StringContent("{\"Model\":\"{\\\"OrgID\\\":\\\"7200000002\\\",\\\"ColumnConfigGrpCode\\\":\\\"GRP01\\\"}\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_columnconfiggroup/delete", req7);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res7.StatusCode);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Xóa nhóm cấu hình thành công!", doc7.RootElement.GetProperty("Messages")[0].GetString()!);
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(entireProcessTree: true);
+                    await proc.WaitForExitAsync();
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb))
+                {
+                    File.Delete(tempDb);
+                }
+                var shm = tempDb + "-shm";
+                var wal = tempDb + "-wal";
+                if (File.Exists(shm)) File.Delete(shm);
+                if (File.Exists(wal)) File.Delete(wal);
+            }
+            catch { }
+        }
+    }
 }

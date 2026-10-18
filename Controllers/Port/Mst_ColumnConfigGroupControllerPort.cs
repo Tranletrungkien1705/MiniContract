@@ -10,9 +10,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ColumnConfigGroupController.cs — Mst_ColumnConfigGroup
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96 (Index), 97-178 (DoSearch), 181-184 (Create GET), 185-233 (Create POST), 239-290 (Update), 294-385 (Edit), 390-438 (Detail)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstColumnConfigGroupController.cs:19-75 (Index), 89-153 (Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:52007-52078 (CheckDB), 52296-52499 (WAS/Biz Create), 52908-53064 (GetX), 53065-53174 (CreateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96 (Index), 97-178 (DoSearch), 181-184 (Create GET), 185-233 (Create POST), 239-290 (Update), 294-385 (Edit), 390-438 (Detail), 442-507 (Delete)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstColumnConfigGroupController.cs:19-75 (Index), 89-153 (Create), 230-295 (Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:52007-52078 (CheckDB), 52296-52499 (WAS/Biz Create), 52716-52873 (WAS/Biz Delete), 52908-53064 (GetX), 53065-53174 (CreateX), 53306-53367 (DeleteX)
 [ApiController]
 [Route("api/mst_columnconfiggroup")]
 public class Mst_ColumnConfigGroupControllerPort : ControllerBase
@@ -542,6 +542,103 @@ public class Mst_ColumnConfigGroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Delete từ gate Mst_ColumnConfigGroupController.cs:442-507.
+    /// Chuỗi gọi: gate :442-507 -> WA_Mst_ColumnConfigGroup_Get (:483) & WA_Mst_ColumnConfigGroup_Delete (:488)
+    ///            -> WAS_Mst_ColumnConfigGroup_Delete -> Mst_ColumnConfigGroup_Delete (Master.cs:52716-52873)
+    ///            -> Mst_ColumnConfigGroup_DeleteX (Master.cs:53306-53367) & Mst_ColumnConfigGroup_CheckDB (Master.cs:52007-52077).
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ColumnConfigGroup_DeleteReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào ColumnConfigGrpCode (Gate: Mst_ColumnConfigGroupController.cs:442, 450)
+            var code = StdParam(req?.ColumnConfigGrpCode);
+            var orgId = StdParam(req?.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault());
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault());
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(code) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_ColumnConfigGroup_DeleteReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    code = StdParam(modelObj?.ColumnConfigGrpCode);
+                    orgId = StdParam(modelObj?.OrgID) ?? orgId;
+                    networkId = StdParam(modelObj?.NetworkID) ?? networkId;
+                }
+                catch
+                {
+                    code = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu mã rỗng, gate trả về JsonResultEntry: Nhóm cấu hình trống! (Mst_ColumnConfigGroupController.cs:450, 502-504)
+            if (string.IsNullOrEmpty(code))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Nhóm cấu hình trống!" },
+                    Title = "Nhóm cấu hình trống!"
+                });
+            }
+
+            // 3. Tra cứu bản ghi hiện có theo ColumnConfigGrpCode, OrgID, NetworkID (Gate :452-484; Master.cs:52908-53064)
+            var query = _db.Set<Mst_ColumnConfigGroup>().AsQueryable();
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            query = query.Where(x => EF.Functions.Like((x.ColumnConfigGrpCode ?? "").ToLower(), PortQuery.Equal(code), PortQuery.Esc));
+
+            var existing = await query.FirstOrDefaultAsync();
+            if (existing == null)
+            {
+                var rawCode = req?.ColumnConfigGrpCode ?? code;
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Mã nhóm cấu hình'{rawCode}' không có trong hệ thống!" },
+                    Title = $"Mã nhóm cấu hình'{rawCode}' không có trong hệ thống!"
+                });
+            }
+
+            // 4. Mở transaction và xóa dữ liệu (Master.cs:52822, 52870, 53358-53364)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.Set<Mst_ColumnConfigGroup>().Remove(existing);
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // 5. Trả kết quả thành công khớp gate MVC (Mst_ColumnConfigGroupController.cs:490-492)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Xóa nhóm cấu hình thành công!" },
+                    Title = "Xóa nhóm cấu hình thành công!",
+                    RedirectUrl = "/Mst_ColumnConfigGroup",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_ColumnConfigGroup_Delete", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -606,6 +703,14 @@ public class Mst_ColumnConfigGroup_EditReq
 }
 
 public class Mst_ColumnConfigGroup_DetailReq
+{
+    public string? Model { get; set; }
+    public string? ColumnConfigGrpCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+public class Mst_ColumnConfigGroup_DeleteReq
 {
     public string? Model { get; set; }
     public string? ColumnConfigGrpCode { get; set; }
