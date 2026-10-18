@@ -1,4 +1,7 @@
+using System.Reflection;
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -18,11 +21,13 @@ public class Mst_OrganizationControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_OrganizationControllerPort(AppDbContext db, IConfiguration? config = null)
+    public Mst_OrganizationControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -869,6 +874,213 @@ public class Mst_OrganizationControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Xuất danh sách tổ chức / chi nhánh và chứng thư số ra file Excel (đa sheet).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:1365-1506 Export()
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89 WA_Mst_NNT_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:25188-25368 WAS_Mst_NNT_Get -> Mst_NNT_GetX
+    ///       Mst_OrgCKSService: WA_Mst_OrgCKS_Get -> Mst_OrgSignConfig
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Organization_ExportReq? req)
+    {
+        try
+        {
+            // 1. Dựng truy vấn Mst_NNT (Master.cs:25244-25256)
+            var query = _db.Set<Mst_NNT>().AsNoTracking();
+
+            var orgId = StdParam(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var networkId = StdParam(req?.NetworkID);
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(req?.FlagActive))
+            {
+                var flagActive = StdFlag(req.FlagActive);
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var keyWord = StdStr(req?.KeyWord);
+            if (!string.IsNullOrEmpty(keyWord))
+            {
+                var kwPattern = PortQuery.Contains(keyWord);
+                query = query.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), kwPattern, PortQuery.Esc)
+                                      || EF.Functions.Like((x.NNTFullName ?? "").ToLower(), kwPattern, PortQuery.Esc));
+            }
+
+            query = query.OrderBy(x => x.MST);
+
+            long recordStart = req?.Ft_RecordStart ?? ((long)(req?.Page ?? req?.PageIndex ?? 0) * (req?.RecordCount ?? req?.PageSize ?? 0));
+            long recordCount = req?.Ft_RecordCount ?? req?.RecordCount ?? req?.PageSize ?? 123456000;
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_NNT>()
+                : await query.Skip((int)Math.Min(recordStart, int.MaxValue))
+                             .Take((int)Math.Min(recordCount, int.MaxValue))
+                             .ToListAsync();
+
+            // 2. Kiểm tra danh sách rỗng (Gate: Mst_OrganizationController.cs:1495-1498)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "Không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 3. Lấy thông tin chứng thư số tương ứng theo từng OrgID (Gate: Mst_OrganizationController.cs:1418-1467)
+            var listMst_OrgCKS = new List<Mst_OrgSignConfig>();
+            foreach (var item in list)
+            {
+                if (!string.IsNullOrEmpty(item.OrgID))
+                {
+                    var orgCksList = await _db.Set<Mst_OrgSignConfig>().AsNoTracking()
+                        .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(item.OrgID), PortQuery.Esc))
+                        .OrderBy(x => x.AutoID)
+                        .ToListAsync();
+                    listMst_OrgCKS.AddRange(orgCksList);
+                }
+            }
+
+            // 4. Ghép thông tin cho sheet Mst_NNT (Gate: Mst_OrganizationController.cs:1556-1557)
+            var exportList = list.Select(x => new Mst_NNT_ExportItem(x)).ToList();
+
+            // 5. Xuất Excel đa sheet (Sheet 1: Mst_NNT, Sheet 2: Mst_OrgCKS) (Gate: Mst_OrganizationController.cs:1476-1492)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_NNT));
+
+            ExportToExcelMultiSheet(filePath, exportList, listMst_OrgCKS);
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Organization_Export", "Exception", ex.Message);
+        }
+    }
+
+    private static void ExportToExcelMultiSheet(string filePath, IEnumerable<Mst_NNT_ExportItem> nntList, IEnumerable<Mst_OrgSignConfig> cksList)
+    {
+        using var wb = new XLWorkbook();
+
+        // Sheet 1: Mst_NNT (Gate: Mst_OrganizationController.cs:1480-1484, 1537-1567)
+        var wsNNT = wb.Worksheets.Add("Mst_NNT");
+        var colsNNT = ExportNNTDicColumns.ToList();
+        for (var c = 0; c < colsNNT.Count; c++)
+        {
+            wsNNT.Cell(1, c + 1).Value = colsNNT[c].Value;
+        }
+        var r = 2;
+        foreach (var row in nntList)
+        {
+            if (row is null) continue;
+            var t = row.GetType();
+            for (var c = 0; c < colsNNT.Count; c++)
+            {
+                var p = t.GetProperty(colsNNT[c].Key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                var v = p?.GetValue(row);
+                wsNNT.Cell(r, c + 1).Value = v switch
+                {
+                    null => Blank.Value,
+                    DateTime d => d,
+                    double d => d,
+                    int i => i,
+                    long l => l,
+                    decimal m => m,
+                    _ => Convert.ToString(v) ?? "",
+                };
+            }
+            r++;
+        }
+        wsNNT.Columns().AdjustToContents();
+
+        // Sheet 2: Mst_OrgCKS (Gate: Mst_OrganizationController.cs:1485-1489, 1602-1612)
+        var wsCKS = wb.Worksheets.Add("Mst_OrgCKS");
+        var colsCKS = ExportCKSDicColumns.ToList();
+        for (var c = 0; c < colsCKS.Count; c++)
+        {
+            wsCKS.Cell(1, c + 1).Value = colsCKS[c].Value;
+        }
+        var rCks = 2;
+        foreach (var row in cksList)
+        {
+            if (row is null) continue;
+            var t = row.GetType();
+            for (var c = 0; c < colsCKS.Count; c++)
+            {
+                var p = t.GetProperty(colsCKS[c].Key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                var v = p?.GetValue(row);
+                wsCKS.Cell(rCks, c + 1).Value = v switch
+                {
+                    null => Blank.Value,
+                    DateTime d => d,
+                    double d => d,
+                    int i => i,
+                    long l => l,
+                    decimal m => m,
+                    _ => Convert.ToString(v) ?? "",
+                };
+            }
+            rCks++;
+        }
+        wsCKS.Columns().AdjustToContents();
+
+        wb.SaveAs(filePath);
+    }
+
+    private static readonly Dictionary<string, string> ExportNNTDicColumns = new()
+    {
+        { "OrgID", "Mã tổ chức" },
+        { "NNTFullName", "Tên tổ chức" },
+        { "NNTShortName", "Tên viết tắt" },
+        { "MST", "MST" },
+        { "PresentBy", "Người đại diện" },
+        { "NNTAddress", "Địa chỉ" },
+        { "ContactName", "Người liên hệ" },
+        { "ContactEmail", "Email liên hệ" },
+        { "ContactPhone", "ĐT liên hệ" },
+        { "AreaCode", "Vùng thị trường" },
+        { "BizType", "Loại tổ chức" },
+        { "DLCode", "Mã đại lý" },
+        { "NNTPosition", "Chức vụ" },
+        { "PresentIDNo", "Số giấy tờ" },
+        { "PresentIDType", "Loại giấy tờ" },
+        { "DM_DistrictName", "Quận/Huyện" },
+        { "PM_ProvinceName", "Tỉnh/Thành" },
+        { "Website", "Website" },
+        { "NNTPhone", "ĐT cố định" },
+        { "NNTMobile", "ĐT di động" },
+        { "Fax", "Fax" },
+        { "AccNo", "Số tài khoản" },
+        { "AccHolder", "Chủ tài khoản" },
+        { "BankName", "Ngân hàng" },
+        { "FlagActive", "Trạng thái" },
+    };
+
+    private static readonly Dictionary<string, string> ExportCKSDicColumns = new()
+    {
+        { "OrgID", "Mã tổ chức" },
+        { "CANumber", "Số Seri" },
+        { "CAOrg", "Tổ chức cấp CTS" },
+        { "CAEffDTimeUTCStart", "Thời gian bắt đầu" },
+        { "CAEffDTimeUTCEnd", "Thời gian kết thúc" },
+    };
+
     private static string? StdParam(string? value)
     {
         var s = value?.Trim();
@@ -1245,5 +1457,81 @@ public class Mst_Organization_DeleteReq
     public string? Model { get; set; }
     public string? MST { get; set; }
     public string? OrgID { get; set; }
+}
+
+public class Mst_Organization_ExportReq
+{
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
+    public string? KeyWord { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+    public int? RecordCount { get; set; }
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
+    public int? PageSize { get; set; }
+}
+
+public class Mst_NNT_ExportItem : Mst_NNT
+{
+    public string? Fax => NNTFax;
+    public string? DM_DistrictName { get; set; }
+    public string? PM_ProvinceName { get; set; }
+
+    public Mst_NNT_ExportItem() { }
+
+    public Mst_NNT_ExportItem(Mst_NNT src)
+    {
+        MST = src.MST;
+        OrgID = src.OrgID;
+        NNTFullName = src.NNTFullName;
+        NNTShortName = src.NNTShortName;
+        NetworkID = src.NetworkID;
+        MSTParent = src.MSTParent;
+        MSTBUCode = src.MSTBUCode;
+        MSTBUPattern = src.MSTBUPattern;
+        MSTLevel = src.MSTLevel;
+        AreaCode = src.AreaCode;
+        ProvinceCode = src.ProvinceCode;
+        DistrictCode = src.DistrictCode;
+        DLCode = src.DLCode;
+        NNTAddress = src.NNTAddress;
+        NNTMobile = src.NNTMobile;
+        NNTPhone = src.NNTPhone;
+        NNTFax = src.NNTFax;
+        PresentBy = src.PresentBy;
+        BusinessRegNo = src.BusinessRegNo;
+        NNTPosition = src.NNTPosition;
+        PresentIDNo = src.PresentIDNo;
+        PresentIDType = src.PresentIDType;
+        GovTaxID = src.GovTaxID;
+        ContactName = src.ContactName;
+        ContactPhone = src.ContactPhone;
+        ContactEmail = src.ContactEmail;
+        Website = src.Website;
+        CANumber = src.CANumber;
+        CAOrg = src.CAOrg;
+        CAEffDTimeUTCStart = src.CAEffDTimeUTCStart;
+        CAEffDTimeUTCEnd = src.CAEffDTimeUTCEnd;
+        PackageCode = src.PackageCode;
+        CreatedDate = src.CreatedDate;
+        CreateDTime = src.CreateDTime;
+        CreateBy = src.CreateBy;
+        AccNo = src.AccNo;
+        AccHolder = src.AccHolder;
+        BankName = src.BankName;
+        BizType = src.BizType;
+        BizFieldCode = src.BizFieldCode;
+        BizSizeCode = src.BizSizeCode;
+        DealerType = src.DealerType;
+        RegisterStatus = src.RegisterStatus;
+        TCTStatus = src.TCTStatus;
+        FlagActive = src.FlagActive;
+        SignType = src.SignType;
+        Remark = src.Remark;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+    }
 }
 
