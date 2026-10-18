@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 81/295 (27.46%)
+**Tiến độ hiện tại**: 82/295 (27.8%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -241,7 +241,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 229 | Mst_SubmissionFormController/Detail | Đã làm | 1c62233 |
 | 230 | Mst_SubmissionFormController/CreateCopy | Đã làm | 036919d |
 | 231 | Mst_SubmissionFormController/GetZNSTemplateDtl | Chưa làm | - |
-| 232 | Mst_SubmissionFormController/Save | Chưa làm | - |
+| 232 | Mst_SubmissionFormController/Save | Đã làm | f7ddcd8 |
 | 233 | Mst_SubmissionFormController/Update | Chưa làm | - |
 | 234 | Mst_SubmissionFormController/Delete | Chưa làm | - |
 | 235 | Mst_Sys_ConfigController/Index | Đã làm | 12a6934 |
