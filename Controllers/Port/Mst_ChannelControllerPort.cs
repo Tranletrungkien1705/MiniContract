@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ChannelController.cs — Mst_Channel
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ChannelController.cs:572-733 (Save), 21-165 (Index), 479-567 (ZaloDisconnect)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ChannelController.cs:169-247 (Save1), 572-733 (Save), 21-165 (Index), 479-567 (ZaloDisconnect)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstChannelTypeController.cs:376-444
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:18938-19034, 19053-19169, 21232-22492
 [ApiController]
@@ -287,6 +287,238 @@ public class Mst_ChannelControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Lưu cấu hình kênh gửi (Email, SMS, Zalo) - bản Save1 (nhận trực tiếp cấu hình, không merge cấu hình cũ).
+    /// Gate: Mst_ChannelController.cs:169-247 Save1(string model)
+    /// API: MstChannelTypeController.cs:376-444 (WA_Mst_Channel_Save)
+    /// BIZ: MasterData.cs:18938-19034, 19053-19169, 21232-22492
+    /// </summary>
+    [HttpPost("save1")]
+    public async Task<IActionResult> Save1([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Channel_Save1Req? req)
+    {
+        // 1. Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_ChannelController.cs:169, 186)
+        if (!string.IsNullOrWhiteSpace(req?.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Channel_Save1Req>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.OrgID ??= modelObj.OrgID;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.Mst_Channel ??= modelObj.Mst_Channel;
+                    req.Lst_Mst_ChannelEmail ??= modelObj.Lst_Mst_ChannelEmail;
+                    req.Lst_Mst_ChannelSMS ??= modelObj.Lst_Mst_ChannelSMS;
+                    req.Lst_Mst_ChannelZalo ??= modelObj.Lst_Mst_ChannelZalo;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô, để validation phía sau bắt
+            }
+        }
+
+        // 2. Kiểm tra OrgID bắt buộc (MasterData.cs:21295-21306)
+        var orgId = StdParam(req?.OrgID);
+        if (string.IsNullOrEmpty(orgId))
+        {
+            return PortResult.Fail("Mst_Channel_SaveX_InvalidOrgID", "Check.strOrgID", req?.OrgID);
+        }
+
+        // 3. Khởi tạo dữ liệu kênh mới từ request (khác với Save, Save1 không nạp và trộn cấu hình cũ từ DB - Mst_ChannelController.cs:180-210)
+        var channel = req?.Mst_Channel ?? new Mst_Channel();
+        channel.OrgID = orgId;
+        channel.NetworkID = StdParam(req?.NetworkID) ?? "1001";
+
+        // 4. Kiểm tra tính hợp lệ nghiệp vụ theo MasterData.cs:21337-21764
+        // Kiểm tra ChannelTypeContract (MasterData.cs:21337-21343)
+        var strChannelTypeContract = StdParam(channel.ChannelTypeContract);
+        if (string.IsNullOrEmpty(strChannelTypeContract))
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelTypeContract);
+        }
+        var ctContract = await _db.Set<Mst_ChannelType>().FirstOrDefaultAsync(x => EF.Functions.Like((x.ChannelType ?? "").ToLower(), PortQuery.Equal(strChannelTypeContract), PortQuery.Esc));
+        if (ctContract == null)
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelTypeContract);
+        }
+        if (ctContract.FlagActive != "1")
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_FlagActiveNotMatched",
+                "Check.ChannelType", strChannelTypeContract,
+                "Check.FlagActiveListToCheck", "1",
+                "DB.FlagActive", ctContract.FlagActive);
+        }
+
+        // Kiểm tra ChannelTypeOTP (MasterData.cs:21348-21354)
+        var strChannelTypeOTP = StdParam(channel.ChannelTypeOTP);
+        if (string.IsNullOrEmpty(strChannelTypeOTP))
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelTypeOTP);
+        }
+        var ctOTP = await _db.Set<Mst_ChannelType>().FirstOrDefaultAsync(x => EF.Functions.Like((x.ChannelType ?? "").ToLower(), PortQuery.Equal(strChannelTypeOTP), PortQuery.Esc));
+        if (ctOTP == null)
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_ChannelTypeNotFound", "Check.ChannelType", strChannelTypeOTP);
+        }
+        if (ctOTP.FlagActive != "1")
+        {
+            return PortResult.Fail("Mst_ChannelType_CheckDB_FlagActiveNotMatched",
+                "Check.ChannelType", strChannelTypeOTP,
+                "Check.FlagActiveListToCheck", "1",
+                "DB.FlagActive", ctOTP.FlagActive);
+        }
+
+        // Kiểm tra mẫu gửi SubForm (MasterData.cs:13779-13838, 21450-21764)
+        async Task<IActionResult?> CheckSubFormAsync(string? rawCode)
+        {
+            var code = StdParam(rawCode);
+            if (string.IsNullOrEmpty(code)) return null;
+            var sf = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => EF.Functions.Like((x.SubFormCode ?? "").ToLower(), PortQuery.Equal(code), PortQuery.Esc));
+            if (sf == null)
+            {
+                return PortResult.Fail("Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", "Check.SubFormCode", code);
+            }
+            if (sf.FlagActive != "1")
+            {
+                return PortResult.Fail("Mst_SubmissionForm_CheckDB_FlagActiveNotMatched",
+                    "Check.SubFormCode", code,
+                    "Check.FlagActiveListToCheck", "1",
+                    "DB.FlagActive", sf.FlagActive);
+            }
+            return null;
+        }
+
+        // SubForm Email
+        var emailInput = req?.Lst_Mst_ChannelEmail?.FirstOrDefault();
+        if (emailInput != null)
+        {
+            var err = await CheckSubFormAsync(emailInput.SubFormCodeEmailContract);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(emailInput.SubFormCodeEmailOTP);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(emailInput.SubFormCodeEmailAccessKey);
+            if (err != null) return err;
+        }
+
+        // SubForm SMS
+        var smsInput = req?.Lst_Mst_ChannelSMS?.FirstOrDefault();
+        if (smsInput != null)
+        {
+            var err = await CheckSubFormAsync(smsInput.SubFormCodeContractSMS);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(smsInput.SubFormCodeSMSOTP);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(smsInput.SubFormCodeSMSAccessKey);
+            if (err != null) return err;
+        }
+
+        // SubForm Zalo
+        var zaloInput = req?.Lst_Mst_ChannelZalo?.FirstOrDefault();
+        if (zaloInput != null)
+        {
+            var err = await CheckSubFormAsync(zaloInput.SubFormCodeContractZaloUserId);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(zaloInput.SubFormCodeContractPhone);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(zaloInput.SubFormCodeOTP);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(zaloInput.SubFormCodeAccessKeyZaloUserId);
+            if (err != null) return err;
+            err = await CheckSubFormAsync(zaloInput.SubFormCodeAccessKeyPhone);
+            if (err != null) return err;
+        }
+
+        // 5. Lưu vào DB trong transaction (MasterData.cs:22094-22330)
+        var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+        var userCode = "port";
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Xoá bản ghi cũ của OrgID (MasterData.cs:22098-22139)
+            var oldChannels = await _db.Set<Mst_Channel>().Where(x => x.OrgID == orgId).ToListAsync();
+            _db.Set<Mst_Channel>().RemoveRange(oldChannels);
+
+            var oldEmails = await _db.Set<Mst_ChannelEmail>().Where(x => x.OrgID == orgId).ToListAsync();
+            _db.Set<Mst_ChannelEmail>().RemoveRange(oldEmails);
+
+            var oldSMS = await _db.Set<Mst_ChannelSMS>().Where(x => x.OrgID == orgId).ToListAsync();
+            _db.Set<Mst_ChannelSMS>().RemoveRange(oldSMS);
+
+            var oldZalos = await _db.Set<Mst_ChannelZalo>().Where(x => x.OrgID == orgId).ToListAsync();
+            _db.Set<Mst_ChannelZalo>().RemoveRange(oldZalos);
+
+            await _db.SaveChangesAsync();
+
+            // Thêm mới các bản ghi kênh đã cập nhật (MasterData.cs:22146-22275)
+            channel.OrgID = orgId;
+            channel.NetworkID ??= StdParam(req?.NetworkID) ?? "1001";
+            channel.ChannelTypeContract = strChannelTypeContract;
+            channel.ChannelTypeOTP = strChannelTypeOTP;
+            channel.ChannelTypeAccessKey = "EMAIL";
+            channel.FlagActive = "1";
+            channel.LogLUDTimeUTC = dtimeSys;
+            channel.LogLUBy = userCode;
+            _db.Set<Mst_Channel>().Add(channel);
+
+            if (emailInput != null)
+            {
+                emailInput.OrgID = orgId;
+                emailInput.SubFormCodeEmailContract = StdParam(emailInput.SubFormCodeEmailContract);
+                emailInput.SubFormCodeEmailOTP = StdParam(emailInput.SubFormCodeEmailOTP);
+                emailInput.SubFormCodeEmailAccessKey = StdParam(emailInput.SubFormCodeEmailAccessKey);
+                emailInput.FlagActive = "1";
+                emailInput.LogLUDTimeUTC = dtimeSys;
+                emailInput.LogLUBy = userCode;
+                _db.Set<Mst_ChannelEmail>().Add(emailInput);
+            }
+
+            if (smsInput != null)
+            {
+                smsInput.OrgID = orgId;
+                smsInput.SubFormCodeContractSMS = StdParam(smsInput.SubFormCodeContractSMS);
+                smsInput.SubFormCodeSMSOTP = StdParam(smsInput.SubFormCodeSMSOTP);
+                smsInput.SubFormCodeSMSAccessKey = StdParam(smsInput.SubFormCodeSMSAccessKey);
+                smsInput.FlagActive = "1";
+                smsInput.LogLUDTimeUTC = dtimeSys;
+                smsInput.LogLUBy = userCode;
+                _db.Set<Mst_ChannelSMS>().Add(smsInput);
+            }
+
+            if (zaloInput != null)
+            {
+                zaloInput.OrgID = orgId;
+                zaloInput.SubFormCodeContractZaloUserId = StdParam(zaloInput.SubFormCodeContractZaloUserId);
+                zaloInput.SubFormCodeContractPhone = StdParam(zaloInput.SubFormCodeContractPhone);
+                zaloInput.SubFormCodeOTP = StdParam(zaloInput.SubFormCodeOTP);
+                zaloInput.SubFormCodeAccessKeyZaloUserId = StdParam(zaloInput.SubFormCodeAccessKeyZaloUserId);
+                zaloInput.SubFormCodeAccessKeyPhone = StdParam(zaloInput.SubFormCodeAccessKeyPhone);
+                zaloInput.FlagActive = "1";
+                zaloInput.LogLUDTimeUTC = dtimeSys;
+                zaloInput.LogLUBy = userCode;
+                _db.Set<Mst_ChannelZalo>().Add(zaloInput);
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch (Exception)
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        // 6. Trả kết quả thành công khớp gate (Mst_ChannelController.cs:236-239)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Cập nhật cấu hình kênh thành công!" },
+            Title = "Cập nhật cấu hình kênh thành công!",
+            RedirectUrl = "/Mst_Channel"
+        });
+    }
+
+    /// <summary>
     /// Lấy thông tin cấu hình kênh gửi (Email, SMS, Zalo) và danh sách mẫu gửi.
     /// Gate: Mst_ChannelController.cs:21-165 Index()
     /// BIZ: MasterData.cs:18384-18780 Mst_Channel_GetX; 14059-14200 Mst_SubmissionForm_GetX
@@ -452,6 +684,10 @@ public class Mst_Channel_SaveReq
     public List<Mst_ChannelEmail>? Lst_Mst_ChannelEmail { get; set; }
     public List<Mst_ChannelSMS>? Lst_Mst_ChannelSMS { get; set; }
     public List<Mst_ChannelZalo>? Lst_Mst_ChannelZalo { get; set; }
+}
+
+public class Mst_Channel_Save1Req : Mst_Channel_SaveReq
+{
 }
 
 public class Mst_Channel_IndexReq

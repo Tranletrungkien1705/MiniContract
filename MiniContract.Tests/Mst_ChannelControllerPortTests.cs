@@ -215,6 +215,173 @@ public class Mst_ChannelControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Save1_EmptyOrgID_FailsWithInvalidOrgID()
+    {
+        var req = new Mst_Channel_Save1Req { OrgID = "" };
+        var result = await _controller.Save1(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Channel_SaveX_InvalidOrgID", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Save1_InvalidChannelType_FailsWithChannelTypeNotFound()
+    {
+        var req = new Mst_Channel_Save1Req
+        {
+            OrgID = "7200000001",
+            Mst_Channel = new Mst_Channel
+            {
+                ChannelTypeContract = "INVALID_TYPE",
+                ChannelTypeOTP = "SMS"
+            }
+        };
+        var result = await _controller.Save1(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_ChannelTypeNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Save1_InvalidSubFormCode_FailsWithSubFormCodeNotFound()
+    {
+        var req = new Mst_Channel_Save1Req
+        {
+            OrgID = "7200000001",
+            Mst_Channel = new Mst_Channel
+            {
+                ChannelTypeContract = "EMAIL",
+                ChannelTypeOTP = "SMS"
+            },
+            Lst_Mst_ChannelEmail = new List<Mst_ChannelEmail>
+            {
+                new() { SubFormCodeEmailContract = "INVALID_SUBFORM" }
+            }
+        };
+        var result = await _controller.Save1(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Save1_RoundTrip_SuccessAndUpdatesDatabase()
+    {
+        var req = new Mst_Channel_Save1Req
+        {
+            OrgID = "7200000001",
+            NetworkID = "1001",
+            Mst_Channel = new Mst_Channel
+            {
+                ChannelTypeContract = "ZALO",
+                ChannelTypeOTP = "EMAIL"
+            },
+            Lst_Mst_ChannelEmail = new List<Mst_ChannelEmail>
+            {
+                new()
+                {
+                    SubFormCodeEmailContract = "SF_EMAIL_01",
+                    SubFormCodeEmailOTP = "SF_EMAIL_01",
+                    MailFrom = "test_save1@qcontract.vn"
+                }
+            },
+            Lst_Mst_ChannelSMS = new List<Mst_ChannelSMS>
+            {
+                new()
+                {
+                    SubFormCodeContractSMS = "SF_SMS_01",
+                    SubFormCodeSMSOTP = "SF_SMS_01",
+                    SMSBrandName = "BrandTest1"
+                }
+            },
+            Lst_Mst_ChannelZalo = new List<Mst_ChannelZalo>
+            {
+                new()
+                {
+                    SubFormCodeContractPhone = "SF_ZALO_01",
+                    SubFormCodeOTP = "SF_ZALO_01",
+                    ZaloOAID = "1358767413636684272"
+                }
+            }
+        };
+
+        var result = await _controller.Save1(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Cập nhật cấu hình kênh thành công!", root.GetProperty("Title").GetString());
+
+        // Kiểm tra round-trip trong DB
+        var channel = await _db.Set<Mst_Channel>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(channel);
+        Assert.Equal("ZALO", channel.ChannelTypeContract);
+        Assert.Equal("EMAIL", channel.ChannelTypeOTP);
+
+        var email = await _db.Set<Mst_ChannelEmail>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(email);
+        Assert.Equal("SF_EMAIL_01", email.SubFormCodeEmailContract);
+        Assert.Equal("test_save1@qcontract.vn", email.MailFrom);
+
+        var sms = await _db.Set<Mst_ChannelSMS>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(sms);
+        Assert.Equal("SF_SMS_01", sms.SubFormCodeContractSMS);
+        Assert.Equal("BrandTest1", sms.SMSBrandName);
+
+        var zalo = await _db.Set<Mst_ChannelZalo>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(zalo);
+        Assert.Equal("SF_ZALO_01", zalo.SubFormCodeContractPhone);
+    }
+
+    [Fact]
+    public async Task Save1_ViaModelJsonString_Success()
+    {
+        var modelPayload = new Mst_Channel_Save1Req
+        {
+            OrgID = "7200000001",
+            NetworkID = "1001",
+            Mst_Channel = new Mst_Channel
+            {
+                ChannelTypeContract = "SMS",
+                ChannelTypeOTP = "SMS"
+            }
+        };
+
+        var req = new Mst_Channel_Save1Req
+        {
+            Model = JsonSerializer.Serialize(modelPayload)
+        };
+
+        var result = await _controller.Save1(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Cập nhật cấu hình kênh thành công!", root.GetProperty("Title").GetString());
+
+        var channel = await _db.Set<Mst_Channel>().FirstOrDefaultAsync(x => x.OrgID == "7200000001");
+        Assert.NotNull(channel);
+        Assert.Equal("SMS", channel.ChannelTypeContract);
+        Assert.Equal("SMS", channel.ChannelTypeOTP);
+    }
+
+    [Fact]
     public async Task Index_EmptyBody_ReturnsAllActiveChannelsAndSubmissionForms()
     {
         var result = await _controller.Index(null);
@@ -525,6 +692,61 @@ public class Mst_ChannelControllerPortTests : IDisposable
             _output?.WriteLine($"REQ11: {body11}");
             Assert.Equal(System.Net.HttpStatusCode.OK, res11.StatusCode);
             Assert.Contains("Ngắt kết nối Zalo thành công!", body11);
+
+            // Request 12: POST /api/mst_channel/save1 empty OrgID -> Guard Fail 400 Mst_Channel_SaveX_InvalidOrgID
+            var req12 = new StringContent("{\"OrgID\":\"\"}", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/mst_channel/save1", req12);
+            var body12 = await res12.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ12: {body12}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res12.StatusCode);
+            Assert.Contains("Mst_Channel_SaveX_InvalidOrgID", body12);
+
+            // Request 13: POST /api/mst_channel/save1 invalid ChannelType -> Guard Fail 400 Mst_ChannelType_CheckDB_ChannelTypeNotFound
+            var req13 = new StringContent("{\"OrgID\":\"7200000001\",\"Mst_Channel\":{\"ChannelTypeContract\":\"INVALID\"}}", Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/mst_channel/save1", req13);
+            var body13 = await res13.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ13: {body13}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res13.StatusCode);
+            Assert.Contains("Mst_ChannelType_CheckDB_ChannelTypeNotFound", body13);
+
+            // Request 14: POST /api/mst_channel/save1 invalid SubFormCode -> Guard Fail 400 Mst_SubmissionForm_CheckDB_SubFormCodeNotFound
+            var req14 = new StringContent("{\"OrgID\":\"7200000001\",\"Mst_Channel\":{\"ChannelTypeContract\":\"EMAIL\",\"ChannelTypeOTP\":\"SMS\"},\"Lst_Mst_ChannelEmail\":[{\"SubFormCodeEmailContract\":\"INVALID_CODE\"}]}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/mst_channel/save1", req14);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ14: {body14}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res14.StatusCode);
+            Assert.Contains("Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", body14);
+
+            // Request 15: POST /api/mst_channel/save1 round-trip save1 -> 200 OK Cập nhật cấu hình kênh thành công!
+            var validPayload1 = new
+            {
+                OrgID = "7200000001",
+                NetworkID = "1001",
+                Mst_Channel = new { ChannelTypeContract = "ZALO", ChannelTypeOTP = "EMAIL" },
+                Lst_Mst_ChannelEmail = new[] { new { SubFormCodeEmailContract = "SF_EMAIL_01", SubFormCodeEmailOTP = "SF_EMAIL_01", MailFrom = "notify1@qcontract.vn" } },
+                Lst_Mst_ChannelSMS = new[] { new { SubFormCodeContractSMS = "SF_SMS_01", SubFormCodeSMSOTP = "SF_SMS_01", SMSBrandName = "QContractBrand1" } },
+                Lst_Mst_ChannelZalo = new[] { new { SubFormCodeContractPhone = "SF_ZALO_01", SubFormCodeOTP = "SF_ZALO_01", ZaloOAID = "1358767413636684272" } }
+            };
+            var req15 = new StringContent(JsonSerializer.Serialize(validPayload1), Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/mst_channel/save1", req15);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ15: {body15}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15.StatusCode);
+            Assert.Contains("Cập nhật cấu hình kênh thành công!", body15);
+
+            // Request 16: POST /api/mst_channel/save1 via 'model' string -> 200 OK
+            var modelPayload1 = new
+            {
+                OrgID = "7200000001",
+                NetworkID = "1001",
+                Mst_Channel = new { ChannelTypeContract = "SMS", ChannelTypeOTP = "SMS" }
+            };
+            var req16 = new StringContent(JsonSerializer.Serialize(new { Model = JsonSerializer.Serialize(modelPayload1) }), Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/mst_channel/save1", req16);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ16: {body16}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res16.StatusCode);
+            Assert.Contains("Cập nhật cấu hình kênh thành công!", body16);
         }
         finally
         {
