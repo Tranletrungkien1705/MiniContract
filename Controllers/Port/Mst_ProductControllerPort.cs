@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX)
 [ApiController]
@@ -962,6 +962,82 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Tìm kiếm sản phẩm theo mã người dùng hoặc tên sản phẩm (so khớp like %prdid%).
+    /// Gate: Mst_ProductController.cs:1154-1208 SearchProduct(string prdid = "")
+    ///       Mst_ProductController.cs:5037-5053 strWhereSearchProductProductId(Mst_Product data)
+    /// API:  MstProductController.cs:19-87 WA_Mst_Product_Get
+    /// BIZ:  Product.cs:4230-4643 Mst_Product_Get, 4644-4802 WAS_Mst_Product_Get
+    /// </summary>
+    [HttpPost("searchproduct")]
+    public async Task<IActionResult> SearchProduct([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_SearchProductReq? req)
+    {
+        try
+        {
+            // 1. Dựng truy vấn cơ sở từ bảng Mst_Product (Product.cs:4352, 4420)
+            var query = _db.Set<Mst_Product>().AsNoTracking();
+
+            // 2. Lọc theo OrgID nếu có (Gate Mst_ProductController.cs:1177; BIZ Product.cs:4238, 4353)
+            var orgId = StdParam(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            // 3. Lọc theo NetworkID nếu có (Gate Mst_ProductController.cs:1176)
+            var networkId = StdParam(req?.NetworkID);
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            // 4. Lọc theo prdid (Gate Mst_ProductController.cs:1160-1166, 5037-5053 strWhereSearchProductProductId):
+            // Nguồn gán ProductCodeUser = prdid và ProductName = prdid, mệnh đề WHERE là:
+            // Mst_Product.ProductCodeUser like '%prdid%' or Mst_Product.ProductName like '%prdid%'
+            var prdid = StdStr(req?.prdid ?? req?.ProductCodeUser ?? req?.ProductName ?? req?.ProductCode);
+            if (!string.IsNullOrEmpty(prdid))
+            {
+                var kwPattern = PortQuery.Contains(prdid);
+                query = query.Where(x => EF.Functions.Like((x.ProductCodeUser ?? "").ToLower(), kwPattern, PortQuery.Esc)
+                                      || EF.Functions.Like((x.ProductName ?? "").ToLower(), kwPattern, PortQuery.Esc));
+            }
+
+            // 5. Sắp xếp theo mp.OrgID, mp.ProductCode asc (BIZ Product.cs:4360-4362)
+            var ordered = query.OrderBy(x => x.OrgID).ThenBy(x => x.ProductCode);
+
+            // 6. Phân trang dữ liệu nếu có truyền Ft_RecordStart / Ft_RecordCount (BIZ Product.cs:4319-4320, 4375-4376)
+            var listProduct = new List<Mst_Product>();
+            if (req?.Ft_RecordCount != null && req?.Ft_RecordStart != null)
+            {
+                var recordStart = req.Ft_RecordStart.Value;
+                var recordCount = req.Ft_RecordCount.Value;
+                if (recordCount > 0 && recordStart >= 0)
+                {
+                    listProduct = await ordered
+                        .Skip((int)Math.Min(recordStart, int.MaxValue))
+                        .Take((int)Math.Min(recordCount, int.MaxValue))
+                        .ToListAsync();
+                }
+            }
+            else
+            {
+                listProduct = await ordered.ToListAsync();
+            }
+
+            // Trả về kết quả JSON chuẩn hoá { Success = true, Data = listProduct }
+            return Ok(new
+            {
+                Success = true,
+                Data = listProduct
+            });
+        }
+        catch (Exception ex)
+        {
+            // BIZ Product.cs:4257, 4620: strErrorCodeDefault = TError.ErridQContract.Mst_Product_Get
+            return PortResult.Fail("Mst_Product_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1315,6 +1391,25 @@ public class Mst_ProductFiles_Item
 public class Mst_Product_GetBOMReq
 {
     // Gate Mst_ProductController.cs:1100
+    public string? prdid { get; set; }
+    public string? ProductCodeUser { get; set; }
+    public string? ProductName { get; set; }
+    public string? ProductCode { get; set; }
+
+    // Các tham số lọc bổ sung (LESSON A.14)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+}
+
+/// <summary>
+/// Tham số đầu vào cho action SearchProduct của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:1154 SearchProduct(string prdid = "")
+/// </summary>
+public class Mst_Product_SearchProductReq
+{
+    // Gate Mst_ProductController.cs:1154
     public string? prdid { get; set; }
     public string? ProductCodeUser { get; set; }
     public string? ProductName { get; set; }

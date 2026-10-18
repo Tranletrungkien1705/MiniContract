@@ -830,6 +830,135 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task SearchProduct_WithNullOrEmptyReq_ReturnsAllProducts()
+    {
+        // Body rỗng -> Success = true, Data trả về toàn bộ sản phẩm đã seed (7 sản phẩm)
+        var resNull = await _controller.SearchProduct(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(7, docNull.RootElement.GetProperty("Data").GetArrayLength());
+
+        var resEmpty = await _controller.SearchProduct(new Mst_Product_SearchProductReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(7, docEmpty.RootElement.GetProperty("Data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task SearchProduct_FilterByOrgId_ReturnsOrgProducts()
+    {
+        var req = new Mst_Product_SearchProductReq { OrgID = "1001" };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(6, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task SearchProduct_FilterByPrdId_MatchesProductCodeUser()
+    {
+        // Khớp theo ProductCodeUser chứa SP001 (like %SP001%):
+        // PRD_ROOT_01 (SP001), PRD_BASE_01_1 (SP001_HOP), PRD_BASE_01_2 (SP001_THUNG), PRD_L2_01_1 (SP001_L2) -> 4 sản phẩm
+        var req = new Mst_Product_SearchProductReq { prdid = "SP001", OrgID = "1001" };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(4, data.GetArrayLength());
+        Assert.Contains(data.EnumerateArray(), p => p.GetProperty("ProductCode").GetString() == "PRD_ROOT_01");
+        Assert.Contains(data.EnumerateArray(), p => p.GetProperty("ProductCode").GetString() == "PRD_BASE_01_1");
+        Assert.Contains(data.EnumerateArray(), p => p.GetProperty("ProductCode").GetString() == "PRD_BASE_01_2");
+        Assert.Contains(data.EnumerateArray(), p => p.GetProperty("ProductCode").GetString() == "PRD_L2_01_1");
+    }
+
+    [Fact]
+    public async Task SearchProduct_FilterByPrdId_MatchesProductName()
+    {
+        // Khớp theo ProductName like %mẫu 01%:
+        // 4 sản phẩm cùng gốc PRD_ROOT_01 đều có tên chứa "mẫu 01"
+        var req = new Mst_Product_SearchProductReq { prdid = "mẫu 01", OrgID = "1001" };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(4, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task SearchProduct_FilterByPrdId_SingleMatch_ReturnsOneProduct()
+    {
+        // Khớp theo ProductName like %bảo trì%: PRD_ROOT_02 -> 1 sản phẩm
+        var req = new Mst_Product_SearchProductReq { prdid = "bảo trì", OrgID = "1001" };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(1, data.GetArrayLength());
+        Assert.Equal("PRD_ROOT_02", data[0].GetProperty("ProductCode").GetString());
+    }
+
+    [Fact]
+    public async Task SearchProduct_FilterByPrdId_NotFound_ReturnsEmptyList()
+    {
+        var req = new Mst_Product_SearchProductReq { prdid = "KHONG_TON_TAI_XYZ_999", OrgID = "1001" };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(0, data.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task SearchProduct_TwoFilters_ReturnDifferentCounts()
+    {
+        // Bộ lọc 1: prdid = "SP001", OrgID = "1001" -> 4 sản phẩm
+        var req1 = new Mst_Product_SearchProductReq { prdid = "SP001", OrgID = "1001" };
+        var res1 = await _controller.SearchProduct(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var count1 = doc1.RootElement.GetProperty("Data").GetArrayLength();
+        Assert.Equal(4, count1);
+
+        // Bộ lọc 2: prdid = "bảo trì", OrgID = "1001" -> 1 sản phẩm
+        var req2 = new Mst_Product_SearchProductReq { prdid = "bảo trì", OrgID = "1001" };
+        var res2 = await _controller.SearchProduct(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        var count2 = doc2.RootElement.GetProperty("Data").GetArrayLength();
+        Assert.Equal(1, count2);
+
+        // 2 bộ lọc cho số dòng khác nhau (4 != 1)
+        Assert.NotEqual(count1, count2);
+    }
+
+    [Fact]
+    public async Task SearchProduct_Pagination_ReturnsCorrectSubset()
+    {
+        // Lấy 2 sản phẩm đầu tiên của OrgID 1001
+        var req = new Mst_Product_SearchProductReq { OrgID = "1001", Ft_RecordStart = 0, Ft_RecordCount = 2 };
+        var res = await _controller.SearchProduct(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(2, data.GetArrayLength());
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -1087,6 +1216,57 @@ public class Mst_ProductControllerPortTests : IDisposable
 
             // Ca 22: 2 bộ lọc cho ra số dòng khác nhau (OrgID 1001 có 7 dòng != prdid SP001 có 1 dòng)
             Assert.NotEqual(doc18.RootElement.GetProperty("Data").GetArrayLength(), data19.GetArrayLength());
+
+            // Ca 23: POST /api/mst_product/searchproduct với body rỗng -> 200 OK, Success = true, Data = 8 sản phẩm
+            var req23 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res23 = await http.PostAsync("/api/mst_product/searchproduct", req23);
+            var body23 = await res23.Content.ReadAsStringAsync();
+            Assert.True(res23.StatusCode == System.Net.HttpStatusCode.OK, $"Status {res23.StatusCode}, body: {body23}");
+            var doc23 = JsonDocument.Parse(body23);
+            Assert.True(doc23.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(8, doc23.RootElement.GetProperty("Data").GetArrayLength());
+
+            // Ca 24: POST /api/mst_product/searchproduct với OrgID = 1001 -> 200 OK, Data = 7 sản phẩm
+            var req24 = new StringContent("{\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res24 = await http.PostAsync("/api/mst_product/searchproduct", req24);
+            var body24 = await res24.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res24.StatusCode);
+            var doc24 = JsonDocument.Parse(body24);
+            Assert.True(doc24.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(7, doc24.RootElement.GetProperty("Data").GetArrayLength());
+
+            // Ca 25: POST /api/mst_product/searchproduct với prdid = SP001, OrgID = 1001 -> 200 OK, Data = 4 sản phẩm (like %SP001%)
+            var req25 = new StringContent("{\"prdid\":\"SP001\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res25 = await http.PostAsync("/api/mst_product/searchproduct", req25);
+            var body25 = await res25.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res25.StatusCode);
+            var doc25 = JsonDocument.Parse(body25);
+            Assert.True(doc25.RootElement.GetProperty("Success").GetBoolean());
+            var data25 = doc25.RootElement.GetProperty("Data");
+            Assert.Equal(4, data25.GetArrayLength());
+
+            // Ca 26: POST /api/mst_product/searchproduct với prdid = "bảo trì", OrgID = 1001 -> 200 OK, Data = 1 (PRD_ROOT_02)
+            var req26 = new StringContent("{\"prdid\":\"bảo trì\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res26 = await http.PostAsync("/api/mst_product/searchproduct", req26);
+            var body26 = await res26.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res26.StatusCode);
+            var doc26 = JsonDocument.Parse(body26);
+            Assert.True(doc26.RootElement.GetProperty("Success").GetBoolean());
+            var data26 = doc26.RootElement.GetProperty("Data");
+            Assert.Equal(1, data26.GetArrayLength());
+            Assert.Equal("PRD_ROOT_02", data26[0].GetProperty("ProductCode").GetString());
+
+            // Ca 27: POST /api/mst_product/searchproduct với prdid không tồn tại -> 200 OK, Data = 0 phần tử
+            var req27 = new StringContent("{\"prdid\":\"KHONG_TON_TAI_XYZ\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res27 = await http.PostAsync("/api/mst_product/searchproduct", req27);
+            var body27 = await res27.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res27.StatusCode);
+            var doc27 = JsonDocument.Parse(body27);
+            Assert.True(doc27.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, doc27.RootElement.GetProperty("Data").GetArrayLength());
+
+            // Ca 28: 2 bộ lọc cho ra số dòng khác nhau (SP001 có 4 dòng != bảo trì có 1 dòng)
+            Assert.NotEqual(data25.GetArrayLength(), data26.GetArrayLength());
         }
         finally
         {
