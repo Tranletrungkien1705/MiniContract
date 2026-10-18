@@ -1304,6 +1304,81 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ShowPopupChangePassword_NullReq_ReturnsSuccessTrueAndNullUserCode()
+    {
+        // Khi req null (body rỗng): trả về Success = true, UserCode = null (gate: Sys_UserController.cs:956-957)
+        var result = _controller.ShowPopupChangePassword(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").GetProperty("UserCode").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("UserCode").ValueKind);
+        Assert.Equal("<h2>ShowPopupChangePassword</h2>", root.GetProperty("Html").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePassword_EmptyReq_ReturnsSuccessTrueAndNullUserCode()
+    {
+        // Khi req rỗng (không truyền UserCode): trả về Success = true, UserCode = null
+        var req = new Sys_User_ShowPopupChangePasswordReq();
+        var result = _controller.ShowPopupChangePassword(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").GetProperty("UserCode").ValueKind);
+    }
+
+    [Fact]
+    public void ShowPopupChangePassword_ValidUserCode_ReturnsSuccessTrueAndUppercaseUserCode()
+    {
+        // Khi truyền UserCode: chuẩn hoá mã viết hoa và trả về Success = true kèm UserCode
+        var req = new Sys_User_ShowPopupChangePasswordReq { UserCode = "u01" };
+        var result = _controller.ShowPopupChangePassword(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("U01", root.GetProperty("UserCode").GetString());
+        Assert.Equal("U01", root.GetProperty("Data").GetProperty("UserCode").GetString());
+        Assert.Equal("<h2>ShowPopupChangePassword</h2>", root.GetProperty("Html").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePassword_ViaModelJson_Success()
+    {
+        // Hỗ trợ truyền qua chuỗi JSON Model
+        var modelJson = JsonSerializer.Serialize(new { UserCode = "u02" });
+        var req = new Sys_User_ShowPopupChangePasswordReq { Model = modelJson };
+        var result = _controller.ShowPopupChangePassword(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("U02", root.GetProperty("Data").GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePassword_Comparison_ReturnsDifferentUserCodes()
+    {
+        // So sánh 2 ca đầu vào khác nhau: u01 vs u02 -> kết quả trả về UserCode tương ứng
+        var req1 = new Sys_User_ShowPopupChangePasswordReq { UserCode = "u01" };
+        var res1 = _controller.ShowPopupChangePassword(req1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res1).Value));
+        Assert.Equal("U01", doc1.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+        var req2 = new Sys_User_ShowPopupChangePasswordReq { UserCode = "u02" };
+        var res2 = _controller.ShowPopupChangePassword(req2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res2).Value));
+        Assert.Equal("U02", doc2.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -1813,6 +1888,48 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc46 = JsonDocument.Parse(await res46.Content.ReadAsStringAsync());
             Assert.True(doc46.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Mã người dùng 'NON_EXISTENT_JSON' không có trong hệ thống!", doc46.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 47. Action ShowPopupChangePassword: POST /api/sys_user/showpopupchangepassword với body rỗng -> 200 OK, Success = true, UserCode = null
+            var req47 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res47 = await http.PostAsync("/api/sys_user/showpopupchangepassword", req47);
+            Assert.True(res47.IsSuccessStatusCode);
+            var doc47 = JsonDocument.Parse(await res47.Content.ReadAsStringAsync());
+            Assert.True(doc47.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc47.RootElement.GetProperty("Data").GetProperty("UserCode").ValueKind);
+            Assert.Equal("<h2>ShowPopupChangePassword</h2>", doc47.RootElement.GetProperty("Html").GetString());
+
+            // 48. Action ShowPopupChangePassword: POST /api/sys_user/showpopupchangepassword với UserCode = u01 -> 200 OK, UserCode = U01
+            var req48 = new StringContent(JsonSerializer.Serialize(new { UserCode = "u01" }), Encoding.UTF8, "application/json");
+            var res48 = await http.PostAsync("/api/sys_user/showpopupchangepassword", req48);
+            Assert.True(res48.IsSuccessStatusCode);
+            var doc48 = JsonDocument.Parse(await res48.Content.ReadAsStringAsync());
+            Assert.True(doc48.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U01", doc48.RootElement.GetProperty("UserCode").GetString());
+            Assert.Equal("U01", doc48.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 49. Action ShowPopupChangePassword: so sánh ca UserCode = u02 -> kết quả khác biệt U02
+            var req49 = new StringContent(JsonSerializer.Serialize(new { UserCode = "u02" }), Encoding.UTF8, "application/json");
+            var res49 = await http.PostAsync("/api/sys_user/showpopupchangepassword", req49);
+            Assert.True(res49.IsSuccessStatusCode);
+            var doc49 = JsonDocument.Parse(await res49.Content.ReadAsStringAsync());
+            Assert.True(doc49.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U02", doc49.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 50. Action ShowPopupChangePassword: GET /api/sys_user/showpopupchangepassword?usercode=u03 -> 200 OK, UserCode = U03
+            var res50 = await http.GetAsync("/api/sys_user/showpopupchangepassword?usercode=u03");
+            Assert.True(res50.IsSuccessStatusCode);
+            var doc50 = JsonDocument.Parse(await res50.Content.ReadAsStringAsync());
+            Assert.True(doc50.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U03", doc50.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 51. Action ShowPopupChangePassword: POST với Model JSON string -> 200 OK, UserCode = U01
+            var modelJson51 = JsonSerializer.Serialize(new { UserCode = "u01" });
+            var req51 = new StringContent(JsonSerializer.Serialize(new { Model = modelJson51 }), Encoding.UTF8, "application/json");
+            var res51 = await http.PostAsync("/api/sys_user/showpopupchangepassword", req51);
+            Assert.True(res51.IsSuccessStatusCode);
+            var doc51 = JsonDocument.Parse(await res51.Content.ReadAsStringAsync());
+            Assert.True(doc51.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U01", doc51.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
         }
         finally
         {
