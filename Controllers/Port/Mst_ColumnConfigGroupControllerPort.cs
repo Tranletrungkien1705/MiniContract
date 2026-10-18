@@ -354,10 +354,141 @@ public class Mst_ColumnConfigGroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Edit từ gate Mst_ColumnConfigGroupController.cs:294-385.
+    /// Chuỗi gọi: gate :294-385 -> WA_Mst_ColumnConfigGroup_Get (:335) & WA_Mst_ColumnConfigGroup_Update (:356)
+    ///            -> WAS_Mst_ColumnConfigGroup_Update -> Mst_ColumnConfigGroup_Update (Master.cs:52581-52681)
+    ///            -> Mst_ColumnConfigGroup_UpdateX (Master.cs:53175-53305) & Mst_ColumnConfigGroup_CheckDB (Master.cs:52007-52078).
+    /// </summary>
+    [HttpPost("edit")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ColumnConfigGroup_EditReq? req)
+    {
+        // 1. Kiểm tra body rỗng (LESSON A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_Update", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_ColumnConfigGroupController.cs:294, 304)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_ColumnConfigGroup_EditReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.OrgID ??= modelObj.OrgID;
+                    req.ColumnConfigGrpCode ??= modelObj.ColumnConfigGrpCode;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.ColumnGrpName ??= modelObj.ColumnGrpName;
+                    req.ColumnGrpFormat ??= modelObj.ColumnGrpFormat;
+                    req.ColumnGrpDesc ??= modelObj.ColumnGrpDesc;
+                    req.FlagActive ??= modelObj.FlagActive;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.ColumnConfigGrpCode) && string.IsNullOrWhiteSpace(req.OrgID) && string.IsNullOrWhiteSpace(req.Model) && string.IsNullOrWhiteSpace(req.ColumnGrpName))
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_Update", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào (Master.cs:53217-53225)
+        var code = StdParam(req.ColumnConfigGrpCode);
+        var orgId = StdParam(req.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault());
+        var networkId = StdParam(req.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault());
+
+        // Guard: kiểm tra mã nhóm cấu hình không được rỗng (Master.cs:52036-52047, 53220)
+        if (string.IsNullOrEmpty(code))
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_CheckDB_ColumnConfigGrpCodeNotFound",
+                "Check.ColumnConfigGrpCode", req.ColumnConfigGrpCode,
+                "Check.OrgID", orgId);
+        }
+
+        // 3. Tra cứu bản ghi hiện có theo ColumnConfigGrpCode và OrgID (Gate :335; Master.cs:52018-52030, 53236)
+        var query = _db.Set<Mst_ColumnConfigGroup>().AsQueryable();
+        if (!string.IsNullOrEmpty(orgId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+        }
+        if (!string.IsNullOrEmpty(networkId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+        }
+        query = query.Where(x => EF.Functions.Like((x.ColumnConfigGrpCode ?? "").ToLower(), PortQuery.Equal(code), PortQuery.Esc));
+
+        var existing = await query.FirstOrDefaultAsync();
+        if (existing == null)
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_CheckDB_ColumnConfigGrpCodeNotFound",
+                "Check.ColumnConfigGrpCode", req.ColumnConfigGrpCode,
+                "Check.OrgID", orgId);
+        }
+
+        // 4. Mở transaction và cập nhật dữ liệu (Master.cs:52624, 52678, 53250-53270)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var dtimeSys = DateTime.UtcNow;
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            // Cập nhật các cột theo gate :338-342 và Master.cs:53256-53261
+            if (req.ColumnGrpName != null)
+            {
+                existing.ColumnGrpName = req.ColumnGrpName;
+            }
+            if (req.ColumnGrpFormat != null)
+            {
+                existing.ColumnGrpFormat = StdParam(req.ColumnGrpFormat);
+            }
+            if (req.ColumnGrpDesc != null)
+            {
+                existing.ColumnGrpDesc = req.ColumnGrpDesc;
+            }
+            if (req.FlagActive != null)
+            {
+                existing.FlagActive = StdFlag(req.FlagActive);
+            }
+
+            existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            existing.LogLUBy = userCode;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // 5. Trả kết quả thành công khớp gate MVC (Mst_ColumnConfigGroupController.cs:369-371)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Sửa nhóm cấu hình thành công!" },
+                Title = "Sửa nhóm cấu hình thành công!",
+                RedirectUrl = "/Mst_ColumnConfigGroup",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_ColumnConfigGroup_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
         return string.IsNullOrEmpty(s) ? null : s.ToUpperInvariant();
+    }
+
+    private static string StdFlag(object? value)
+    {
+        var s = value?.ToString()?.Trim();
+        return s == "1" ? "1" : "0";
     }
 }
 
@@ -397,4 +528,16 @@ public class Mst_ColumnConfigGroup_UpdateReq
     public string? ColumnConfigGrpCode { get; set; }
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }
+}
+
+public class Mst_ColumnConfigGroup_EditReq
+{
+    public string? Model { get; set; }
+    public string? OrgID { get; set; }
+    public string? ColumnConfigGrpCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ColumnGrpName { get; set; }
+    public string? ColumnGrpFormat { get; set; }
+    public string? ColumnGrpDesc { get; set; }
+    public string? FlagActive { get; set; }
 }
