@@ -214,6 +214,114 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_EmptyOrNullBody_ReturnsBadRequestWithStrJsonError()
+    {
+        var result = await _controller.Create(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Create", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(doc.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+
+        var resultEmpty = await _controller.Create(new Mst_FinishedContractReason_CreateReq());
+        var badEmpty = Assert.IsType<BadRequestObjectResult>(resultEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(badEmpty.Value));
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Create", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_InvalidNetworkID_ReturnsInvalidNetworkIDError()
+    {
+        var req = new Mst_FinishedContractReason_CreateReq
+        {
+            NetworkID = "",
+            ContractFinishReasonCode = "TEST01",
+            ContractFinishReasonName = "Test Reason"
+        };
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Create_InvalidNetworkID", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ExistingCode_ReturnsOrganExistError()
+    {
+        var req = new Mst_FinishedContractReason_CreateReq
+        {
+            NetworkID = "1001",
+            ContractFinishReasonCode = "REASON01",
+            ContractFinishReasonName = "Hết hạn trùng lặp"
+        };
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganExist", doc.RootElement.GetProperty("ErrorCode").GetString());
+        var p = doc.RootElement.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("REASON01", p.GetProperty("Check.ContractFinishReasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ValidItem_CreatesAndReturnsSuccess()
+    {
+        var req = new Mst_FinishedContractReason_CreateReq
+        {
+            NetworkID = "1001",
+            ContractFinishReasonCode = "REASON_NEW",
+            ContractFinishReasonName = "Thanh lý trước hạn",
+            FinishDescription = "Thỏa thuận thanh lý sớm"
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("REASON_NEW", data.GetProperty("ContractFinishReasonCode").GetString());
+        Assert.Equal("Thanh lý trước hạn", data.GetProperty("ContractFinishReasonName").GetString());
+        Assert.Equal("FINISHED", data.GetProperty("FinishType").GetString());
+        Assert.Equal("Thỏa thuận thanh lý sớm", data.GetProperty("FinishDescription").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        // Kiểm tra round-trip: đọc lại từ DB
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_NEW");
+        Assert.NotNull(saved);
+        Assert.Equal("Thanh lý trước hạn", saved.ContractFinishReasonName);
+        Assert.Equal("FINISHED", saved.FinishType);
+        Assert.Equal("1", saved.FlagActive);
+    }
+
+    [Fact]
+    public async Task Create_ViaModelProperty_CreatesSuccessfully()
+    {
+        var req = new Mst_FinishedContractReason_CreateReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_FinishedContractReason_CreateReq
+            {
+                NetworkID = "1001",
+                ContractFinishReasonCode = "REASON_JSON",
+                ContractFinishReasonName = "Tạo qua JSON Model",
+                FinishDescription = "Mô tả JSON"
+            })
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_JSON");
+        Assert.NotNull(saved);
+        Assert.Equal("REASON_JSON", saved.ContractFinishReasonCode);
+        Assert.Equal("Tạo qua JSON Model", saved.ContractFinishReasonName);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8584()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -316,6 +424,61 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             Assert.Equal(0, data5.GetProperty("PageIndex").GetInt32());
             Assert.Equal(2, data5.GetProperty("PageSize").GetInt32());
             Assert.Equal(2, data5.GetProperty("DataList").GetArrayLength());
+
+            // ================== Kiểm thử endpoint Create ==================
+            // Request 6: POST Create empty body -> 400 Bad Request, Mst_FinishedContractReason_Create
+            var req6 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_finishedcontractreason/create", req6);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ6: {body6}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res6.StatusCode);
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.False(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Create", doc6.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 7: POST Create duplicate key -> 400 Bad Request, Mst_FinishedContractReason_CheckDB_OrganExist
+            var req7 = new StringContent("{\"NetworkID\":\"1001\",\"ContractFinishReasonCode\":\"REASON01\",\"ContractFinishReasonName\":\"Trùng lặp\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_finishedcontractreason/create", req7);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ7: {body7}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res7.StatusCode);
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.False(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganExist", doc7.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 8: POST Create invalid NetworkID -> 400 Bad Request, Mst_FinishedContractReason_Create_InvalidNetworkID
+            var req8 = new StringContent("{\"NetworkID\":\"\",\"ContractFinishReasonCode\":\"REASON_INV\",\"ContractFinishReasonName\":\"Lỗi Network\"}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_finishedcontractreason/create", req8);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ8: {body8}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res8.StatusCode);
+            var doc8 = JsonDocument.Parse(body8);
+            Assert.False(doc8.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Create_InvalidNetworkID", doc8.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 9: POST Create valid item -> 200 OK round-trip
+            var req9 = new StringContent("{\"NetworkID\":\"1001\",\"ContractFinishReasonCode\":\"REASON_LIVE\",\"ContractFinishReasonName\":\"Lý do trực tiếp live\",\"FinishDescription\":\"Mô tả chạy live\"}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_finishedcontractreason/create", req9);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ9: {body9}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9.StatusCode);
+            var doc9 = JsonDocument.Parse(body9);
+            Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("REASON_LIVE", doc9.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+
+            // Request 10: Query lại bản ghi vừa tạo qua /api/mst_finishedcontractreason/index
+            var req10 = new StringContent("{\"ContractFinishReasonCode\":\"REASON_LIVE\"}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/mst_finishedcontractreason/index", req10);
+            var body10 = await res10.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ10: {body10}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10.StatusCode);
+            var doc10 = JsonDocument.Parse(body10);
+            var data10 = doc10.RootElement.GetProperty("Data");
+            Assert.Equal(1, data10.GetProperty("ItemCount").GetInt32());
+            Assert.Equal("REASON_LIVE", data10.GetProperty("DataList")[0].GetProperty("ContractFinishReasonCode").GetString());
+            Assert.Equal("Lý do trực tiếp live", data10.GetProperty("DataList")[0].GetProperty("ContractFinishReasonName").GetString());
+            Assert.Equal("FINISHED", data10.GetProperty("DataList")[0].GetProperty("FinishType").GetString());
+            Assert.Equal("1", data10.GetProperty("DataList")[0].GetProperty("FlagActive").GetString());
         }
         finally
         {
