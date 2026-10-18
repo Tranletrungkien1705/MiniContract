@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using MiniContract.Data;
@@ -121,3 +122,120 @@ public class Mst_DepartmentSeeder : IPortSeeder
         await db.SaveChangesAsync();
     }
 }
+
+// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Extensions\Mst_DepartmentExt.cs:10-70
+[NotMapped]
+public class Mst_DepartmentExt : Mst_Department
+{
+    private Mst_DepartmentExt? _parent;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Mst_DepartmentExt Parent
+    {
+        get => _parent ??= new Mst_DepartmentExt { DepartmentCode = DepartmentCodeParent ?? "" };
+        set => _parent = value;
+    }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<Mst_DepartmentExt> Children { get; set; } = new();
+
+    public int HLevel { get; set; }
+
+    public string HlevelTitle
+    {
+        get
+        {
+            if (HLevel > 0)
+            {
+                var l = "";
+                for (var i = 1; i <= HLevel; ++i)
+                {
+                    l += "|--";
+                }
+                return string.Format("{0}{1}", l, DepartmentName);
+            }
+            return DepartmentName?.ToString() ?? "";
+        }
+    }
+
+    public string HlevelCode
+    {
+        get
+        {
+            if (HLevel > 0)
+            {
+                var l = "";
+                for (var i = 1; i <= HLevel; ++i)
+                {
+                    l += "|--";
+                }
+                return string.Format("{0}{1}", l, DepartmentCode);
+            }
+            return DepartmentCode?.ToString() ?? "";
+        }
+    }
+}
+
+// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Extensions\Mst_DepartmentExtension.cs:9-74
+public static class Mst_DepartmentExtension
+{
+    public static List<Mst_DepartmentExt> GetGroupBaseList(List<Mst_DepartmentExt> s)
+    {
+        var listPageBase = new List<Mst_DepartmentExt>();
+        if (s != null)
+        {
+            listPageBase.AddRange(s);
+        }
+        return listPageBase;
+    }
+
+    public static void BuildGroupBaseTree(this Mst_DepartmentExt groupBase, List<Mst_DepartmentExt> groupBaseList)
+    {
+        if (groupBase.Children == null) groupBase.Children = new List<Mst_DepartmentExt>();
+
+        foreach (var c in groupBaseList)
+        {
+            if (c.DepartmentCodeParent != null && string.Equals(c.DepartmentCodeParent, groupBase.DepartmentCode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!groupBase.Children.Contains(c))
+                {
+                    groupBase.Children.Add(c);
+                    c.Parent = groupBase;
+                    BuildGroupBaseTree(c, groupBaseList);
+                }
+            }
+        }
+    }
+
+    public static List<Mst_DepartmentExt> ToGroupBaseTree(List<Mst_DepartmentExt> groupBaseList)
+    {
+        var list = new List<Mst_DepartmentExt>();
+        foreach (var groupBase in groupBaseList)
+        {
+            if (string.IsNullOrWhiteSpace(groupBase.DepartmentCodeParent))
+            {
+                if (groupBase.Children == null || groupBase.Children.Count == 0)
+                {
+                    groupBase.BuildGroupBaseTree(groupBaseList);
+                }
+                list.Add(groupBase);
+            }
+        }
+        return list;
+    }
+
+    public static List<Mst_DepartmentExt> ToFlatGroupBaseTree(this List<Mst_DepartmentExt> groupBaseList, int level = 0)
+    {
+        var list = new List<Mst_DepartmentExt>();
+        foreach (var groupBase in groupBaseList)
+        {
+            groupBase.HLevel = level;
+            list.Add(groupBase);
+            if (groupBase.Children != null && groupBase.Children.Count > 0)
+            {
+                list.AddRange(groupBase.Children.ToFlatGroupBaseTree(level + 1));
+            }
+        }
+        return list;
+    }
+}
+

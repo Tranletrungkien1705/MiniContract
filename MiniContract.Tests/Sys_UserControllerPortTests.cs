@@ -249,10 +249,222 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_NullReq_ReturnsInitDataWithHierarchicalDepartments()
+    {
+        // Khởi tạo màn hình Create với req rỗng
+        var result = await _controller.Create(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        // IsParent mặc định: NetworkID (1001) != OrgID (7200000001) => false
+        Assert.False(data.GetProperty("IsParent").GetBoolean());
+
+        // Mst_NNT: người dùng thông thường (isSysadmin=0) chỉ thấy NNT của đơn vị mình (0100000001) -> 1 bản ghi
+        var nntList = data.GetProperty("ListMst_NNTCur");
+        Assert.Equal(1, nntList.GetArrayLength());
+        Assert.Equal("0100000001", nntList[0].GetProperty("MST").GetString());
+
+        // Mst_Department: lấy các phòng ban FlagActive = '1' và tổ chức cây phân cấp thụt lề HLevel
+        // DEPT_BGD (Level 0, HlevelTitle="Ban Giám Đốc", HlevelCode="DEPT_BGD")
+        // DEPT_KT (Level 1, HlevelTitle="|--Phòng Kế Toán", HlevelCode="|--DEPT_KT")
+        // DEPT_KD_INACT (FlagActive = '0') bị loại bỏ
+        var deptList = data.GetProperty("ListMst_Department");
+        Assert.Equal(2, deptList.GetArrayLength());
+
+        var bgd = deptList[0];
+        Assert.Equal("DEPT_BGD", bgd.GetProperty("DepartmentCode").GetString());
+        Assert.Equal(0, bgd.GetProperty("HLevel").GetInt32());
+        Assert.Equal("Ban Giám Đốc", bgd.GetProperty("HlevelTitle").GetString());
+        Assert.Equal("DEPT_BGD", bgd.GetProperty("HlevelCode").GetString());
+
+        var kt = deptList[1];
+        Assert.Equal("DEPT_KT", kt.GetProperty("DepartmentCode").GetString());
+        Assert.Equal(1, kt.GetProperty("HLevel").GetInt32());
+        Assert.Equal("|--Phòng Kế Toán", kt.GetProperty("HlevelTitle").GetString());
+        Assert.Equal("|--DEPT_KT", kt.GetProperty("HlevelCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Init_SysAdmin_ReturnsAllActiveNNT()
+    {
+        // Bộ lọc 1: Người dùng thường (IsSysAdmin = "0") -> 1 NNT (0100000001)
+        var reqNormal = new Sys_User_CreateReq { IsSysAdmin = "0" };
+        var resNormal = await _controller.Create(reqNormal);
+        var okNormal = Assert.IsType<OkObjectResult>(resNormal);
+        var docNormal = JsonDocument.Parse(JsonSerializer.Serialize(okNormal.Value));
+        Assert.Equal(1, docNormal.RootElement.GetProperty("Data").GetProperty("ListMst_NNTCur").GetArrayLength());
+
+        // Bộ lọc 2: SysAdmin (IsSysAdmin = "1") -> 2 NNT (0100000001, 0100000002) - khác số dòng
+        var reqAdmin = new Sys_User_CreateReq { IsSysAdmin = "1" };
+        var resAdmin = await _controller.Create(reqAdmin);
+        var okAdmin = Assert.IsType<OkObjectResult>(resAdmin);
+        var docAdmin = JsonDocument.Parse(JsonSerializer.Serialize(okAdmin.Value));
+        var nntList = docAdmin.RootElement.GetProperty("Data").GetProperty("ListMst_NNTCur");
+        Assert.Equal(2, nntList.GetArrayLength());
+        Assert.Equal("0100000001", nntList[0].GetProperty("MST").GetString());
+        Assert.Equal("0100000002", nntList[1].GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Init_IsParent_TrueWhenNetworkEqualsOrgID()
+    {
+        // Khi NetworkID == OrgID thì IsParent = true (Sys_UserController.cs:129-134)
+        var req = new Sys_User_CreateReq
+        {
+            NetworkID = "7200000001",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Data").GetProperty("IsParent").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Create_Save_Guard_EmptyUserCode_ReturnsInvalidUserCode()
+    {
+        // Guard 1: UserCode rỗng -> ném TError.ErridQContract.Sys_User_Create_InvalidUserCode (System.cs:8855)
+        var req = new Sys_User_CreateReq
+        {
+            Save = "1",
+            UserCode = ""
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Create_InvalidUserCode", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Save_Guard_DuplicateUserCode_ReturnsUserExist()
+    {
+        // Guard 2: Trùng UserCode đã tồn tại (U01) -> ném TError.ErridQContract.Sys_User_CheckDB_UserExist (System.cs:8880)
+        var req = new Sys_User_CreateReq
+        {
+            Save = "1",
+            UserCode = "u01", // Test không phân biệt hoa thường
+            MST = "0100000001"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserExist", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Save_Guard_NotFoundMST_ReturnsNNTNotFound()
+    {
+        // Guard 3: MST không tồn tại trong Mst_NNT -> ném TError.ErridQContract.Mst_NNT_CheckDB_NNTNotFound (System.cs:8915)
+        var req = new Sys_User_CreateReq
+        {
+            Save = "1",
+            UserCode = "U_NEW_FAIL",
+            MST = "9999999999"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Save_SuccessRoundTrip()
+    {
+        // Ca ghi thành công round-trip: lưu người dùng mới và kiểm tra lưu thành công trong cơ sở dữ liệu
+        var req = new Sys_User_CreateReq
+        {
+            Save = "1",
+            UserCode = "u_tester_01",
+            UserName = "Nguyễn Văn Tester",
+            UserPassword = "CustomPassword123",
+            PhoneNo = "0988776655",
+            EMail = "tester01@solution.hn",
+            MST = "0100000001",
+            DepartmentCode = "DEPT_KT"
+        };
+
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Sys_User", root.GetProperty("RedirectUrl").GetString());
+
+        var messages = root.GetProperty("Messages");
+        Assert.Equal("Tạo tài khoản thành công!", messages[0].GetString());
+
+        // Kiểm tra đối tượng tạo mới trả về
+        var userRet = root.GetProperty("Data");
+        Assert.Equal("U_TESTER_01", userRet.GetProperty("UserCode").GetString()); // Chuẩn hoá UPPER
+        Assert.Equal("Nguyễn Văn Tester", userRet.GetProperty("UserName").GetString());
+
+        // Round-trip kiểm tra trực tiếp trong DB
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U_TESTER_01");
+        Assert.NotNull(userInDb);
+        Assert.Equal("U_TESTER_01", userInDb.UserCode);
+        Assert.Equal("Nguyễn Văn Tester", userInDb.UserName);
+        Assert.Equal("CustomPassword123", userInDb.UserPassword);
+        Assert.Equal("DEPT_KT", userInDb.DepartmentCode);
+        Assert.Equal("0100000001", userInDb.MST);
+        Assert.Equal("1", userInDb.FlagActive);
+        Assert.Equal("0", userInDb.FlagSysAdmin);
+        Assert.Equal("0", userInDb.FlagDLAdmin);
+    }
+
+    [Fact]
+    public async Task Create_Save_ViaModelJsonString_SuccessRoundTrip()
+    {
+        // Ca ghi thành công khi client truyền JSON chuỗi qua tham số 'model' (Sys_UserController.cs:200, 213)
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            UserCode = "u_json_01",
+            UserName = "Người Dùng JSON",
+            UserPassword = "Password456",
+            MST = "0100000001",
+            DepartmentCode = "DEPT_BGD"
+        });
+
+        var req = new Sys_User_CreateReq
+        {
+            Model = modelJson
+        };
+
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U_JSON_01");
+        Assert.NotNull(userInDb);
+        Assert.Equal("U_JSON_01", userInDb.UserCode);
+        Assert.Equal("Người Dùng JSON", userInDb.UserName);
+        Assert.Equal("DEPT_BGD", userInDb.DepartmentCode);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
-        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        var dllPath = typeof(Sys_UserControllerPort).Assembly.Location;
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        }
         if (!File.Exists(dllPath))
         {
             dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
@@ -357,6 +569,88 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc7 = JsonDocument.Parse(await res7.Content.ReadAsStringAsync());
             Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(3, doc7.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 8. Ca khởi tạo Create với body rỗng: POST /api/sys_user/create -> 200 OK
+            var req8 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/sys_user/create", req8);
+            var content8 = await res8.Content.ReadAsStringAsync();
+            Assert.True(res8.IsSuccessStatusCode, $"res8 failed with status {res8.StatusCode}: {content8}");
+            var doc8 = JsonDocument.Parse(content8);
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+            var initData = doc8.RootElement.GetProperty("Data");
+            Assert.False(initData.GetProperty("IsParent").GetBoolean());
+            Assert.Equal(1, initData.GetProperty("ListMst_NNTCur").GetArrayLength());
+            // Kiểm tra cây phòng ban có 2 phần tử FlagActive = '1' và thụt lề HLevel
+            var deptArr = initData.GetProperty("ListMst_Department");
+            Assert.Equal(2, deptArr.GetArrayLength());
+            Assert.Equal("DEPT_BGD", deptArr[0].GetProperty("DepartmentCode").GetString());
+            Assert.Equal("Ban Giám Đốc", deptArr[0].GetProperty("HlevelTitle").GetString());
+            Assert.Equal("DEPT_KT", deptArr[1].GetProperty("DepartmentCode").GetString());
+            Assert.Equal("|--Phòng Kế Toán", deptArr[1].GetProperty("HlevelTitle").GetString());
+
+            // 9. Ca khởi tạo Create với IsSysAdmin = 1 -> lấy 2 NNT active
+            var req9 = new StringContent(JsonSerializer.Serialize(new { IsSysAdmin = "1" }), Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/sys_user/create", req9);
+            Assert.True(res9.IsSuccessStatusCode);
+            var doc9 = JsonDocument.Parse(await res9.Content.ReadAsStringAsync());
+            Assert.Equal(2, doc9.RootElement.GetProperty("Data").GetProperty("ListMst_NNTCur").GetArrayLength());
+
+            // 10. Ca guard Create: UserCode rỗng -> 400 BadRequest (Sys_User_Create_InvalidUserCode)
+            var req10 = new StringContent(JsonSerializer.Serialize(new { Save = "1", UserCode = "" }), Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/sys_user/create", req10);
+            Assert.False(res10.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res10.StatusCode);
+            var doc10 = JsonDocument.Parse(await res10.Content.ReadAsStringAsync());
+            Assert.False(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_Create_InvalidUserCode", doc10.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 11. Ca guard Create: UserCode trùng -> 400 BadRequest (Sys_User_CheckDB_UserExist)
+            var req11 = new StringContent(JsonSerializer.Serialize(new { Save = "1", UserCode = "U01", MST = "0100000001" }), Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/sys_user/create", req11);
+            Assert.False(res11.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res11.StatusCode);
+            var doc11 = JsonDocument.Parse(await res11.Content.ReadAsStringAsync());
+            Assert.False(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_CheckDB_UserExist", doc11.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 12. Ca guard Create: MST không tồn tại -> 400 BadRequest (Mst_NNT_CheckDB_NNTNotFound)
+            var req12 = new StringContent(JsonSerializer.Serialize(new { Save = "1", UserCode = "U_FAIL", MST = "9999999999" }), Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/sys_user/create", req12);
+            Assert.False(res12.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res12.StatusCode);
+            var doc12 = JsonDocument.Parse(await res12.Content.ReadAsStringAsync());
+            Assert.False(doc12.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", doc12.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 13. Ca ghi thành công round-trip: POST /api/sys_user/create -> 200 OK
+            var req13 = new StringContent(JsonSerializer.Serialize(new
+            {
+                Save = "1",
+                UserCode = "u_server_created",
+                UserName = "Server Created User",
+                UserPassword = "Password789",
+                PhoneNo = "0911223344",
+                EMail = "server_user@solution.hn",
+                MST = "0100000001",
+                DepartmentCode = "DEPT_KT"
+            }), Encoding.UTF8, "application/json");
+            var res13 = await http.PostAsync("/api/sys_user/create", req13);
+            Assert.True(res13.IsSuccessStatusCode);
+            var doc13 = JsonDocument.Parse(await res13.Content.ReadAsStringAsync());
+            Assert.True(doc13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Sys_User", doc13.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 14. Kiểm tra người dùng vừa tạo xuất hiện trong danh sách khi tìm kiếm qua Index
+            var req14 = new StringContent(JsonSerializer.Serialize(new { UserName = "Server Created User" }), Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/sys_user/index", req14);
+            Assert.True(res14.IsSuccessStatusCode);
+            var doc14 = JsonDocument.Parse(await res14.Content.ReadAsStringAsync());
+            Assert.Equal(1, doc14.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            var createdItem = doc14.RootElement.GetProperty("Data").GetProperty("DataList")[0];
+            Assert.Equal("U_SERVER_CREATED", createdItem.GetProperty("UserCode").GetString());
+            Assert.Equal("Server Created User", createdItem.GetProperty("UserName").GetString());
+            Assert.Equal("Phòng Kế Toán", createdItem.GetProperty("mdept_DepartmentName").GetString());
+            Assert.Equal("*********", createdItem.GetProperty("UserPassword").GetString());
         }
         finally
         {
