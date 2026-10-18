@@ -2546,6 +2546,75 @@ public class Mst_ProductControllerPortTests : IDisposable
 
     #endregion
 
+    #region ShowPopupImportExcel Tests
+
+    [Fact]
+    public void ShowPopupImportExcel_WithNullReq_ReturnsSuccessTrueAndHtml()
+    {
+        // Khi req null (body rỗng): trả về Success = true, Html chứa modal nhập Excel (Gate Mst_ProductController.cs:4801-4806)
+        var result = _controller.ShowPopupImportExcel(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var html = root.GetProperty("Html").GetString();
+        Assert.NotNull(html);
+        Assert.Contains("Nhập hàng hóa từ file Excel", html);
+        Assert.Contains("manageFormImportExcel", html);
+    }
+
+    [Fact]
+    public void ShowPopupImportExcel_WithEmptyReq_ReturnsSuccessTrueAndHtml()
+    {
+        // Khi req rỗng (new Mst_Product_ShowPopupImportExcelReq()): trả về Success = true, Html hợp lệ
+        var req = new Mst_Product_ShowPopupImportExcelReq();
+        var result = _controller.ShowPopupImportExcel(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var html = root.GetProperty("Html").GetString();
+        Assert.NotNull(html);
+        Assert.Contains("Nhập hàng hóa từ file Excel", html);
+    }
+
+    [Fact]
+    public void ShowPopupImportExcel_HtmlContainsExpectedModalElements()
+    {
+        // Kiểm tra chi tiết các thành phần giao diện của modal nhập Excel theo Views/Mst_Product/_ImportExcel.cshtml
+        var result = _controller.ShowPopupImportExcel(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var html = doc.RootElement.GetProperty("Html").GetString()!;
+
+        // 1. Tiêu đề modal
+        Assert.Contains("Nhập hàng hóa từ file Excel", html);
+        // 2. ID Form quản lý import
+        Assert.Contains("id=\"manageFormImportExcel\"", html);
+        // 3. Radio xử lý trùng mã hàng: 1 = Báo lỗi và dừng import
+        Assert.Contains("id=\"importErrorAndStop\"", html);
+        Assert.Contains("value=\"1\"", html);
+        Assert.Contains("Báo lỗi và dừng import", html);
+        // 4. Radio xử lý trùng mã hàng: 0 = Cập nhật thông tin mới
+        Assert.Contains("id=\"importReplaceProduct\"", html);
+        Assert.Contains("value=\"0\"", html);
+        Assert.Contains("Cập nhật thông tin mới cho hàng hóa", html);
+        // 5. Thẻ input file
+        Assert.Contains("type=\"file\"", html);
+        Assert.Contains("name=\"file\"", html);
+        Assert.Contains("id=\"file\"", html);
+        // 6. Nút bấm submit Import
+        Assert.Contains("id=\"btnSaveImport\"", html);
+        Assert.Contains("Nhập</a>", html);
+    }
+
+    #endregion
+
     [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
@@ -3277,6 +3346,38 @@ public class Mst_ProductControllerPortTests : IDisposable
             Assert.False(doc68.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Erridn.Skycic.QContract.Mst_Product_Export", doc68.RootElement.GetProperty("ErrorCode").GetString());
             Assert.Equal("Tham số lstattribute không hợp lệ!", doc68.RootElement.GetProperty("Params").GetProperty("Exception").GetString());
+
+            // Ca 69: POST /api/mst_product/showpopupimportexcel với body rỗng -> 200 OK, Success = true, Html có "Nhập hàng hóa từ file Excel"
+            var req69 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res69 = await http.PostAsync("/api/mst_product/showpopupimportexcel", req69);
+            var body69 = await res69.Content.ReadAsStringAsync();
+            Assert.True(res69.StatusCode == System.Net.HttpStatusCode.OK, $"Status {res69.StatusCode}, body: {body69}");
+            var doc69 = JsonDocument.Parse(body69);
+            Assert.True(doc69.RootElement.GetProperty("Success").GetBoolean());
+            var html69 = doc69.RootElement.GetProperty("Html").GetString();
+            Assert.NotNull(html69);
+            Assert.Contains("Nhập hàng hóa từ file Excel", html69);
+            Assert.Contains("manageFormImportExcel", html69);
+
+            // Ca 70: GET /api/mst_product/showpopupimportexcel -> 200 OK, Success = true, Html có "Nhập hàng hóa từ file Excel"
+            var res70 = await http.GetAsync("/api/mst_product/showpopupimportexcel");
+            var body70 = await res70.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res70.StatusCode);
+            var doc70 = JsonDocument.Parse(body70);
+            Assert.True(doc70.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Nhập hàng hóa từ file Excel", doc70.RootElement.GetProperty("Html").GetString()!);
+
+            // Ca 71: POST /api/mst_product/show-popup-import-excel (kebab-case route alias) -> 200 OK, Success = true
+            var req71 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res71 = await http.PostAsync("/api/mst_product/show-popup-import-excel", req71);
+            var body71 = await res71.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res71.StatusCode);
+            var doc71 = JsonDocument.Parse(body71);
+            Assert.True(doc71.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("manageFormImportExcel", doc71.RootElement.GetProperty("Html").GetString()!);
+
+            // Ca 72: So sánh kết quả cấu trúc modal ShowPopupImportExcel: Html không rỗng và dài hơn 100 ký tự
+            Assert.True(html69.Length > 100);
         }
         finally
         {

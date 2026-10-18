@@ -11,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 2950-2960 (ExportTemplate), 4818-4859 (GetImportDicColumsTemplate), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 2950-2960 (ExportTemplate), 2964-4567 (Import), 4575-4792 (Export), 4801-4814 (ShowPopupImportExcel), 4818-4859 (GetImportDicColumsTemplate), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save), MstProductGroupController.cs:19-89 (WA_Mst_ProductGroup_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX), 30-146 (WAS_Mst_ProductGroup_Get), 147-293 (Mst_ProductGroup_Get), 295-459 (Mst_ProductGroup_GetX)
 [ApiController]
@@ -2952,6 +2952,74 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    private const string ImportExcelHtml = """
+<div class="modal-dialog" style="width: 500px;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="exampleModalLabel">Nhập hàng hóa từ file Excel</h3>
+            <a href="javascript:;" onclick="CloseModalImportExcel()" class="close" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </a>
+        </div>
+        <div class="modal-body">
+            <form id="manageFormImportExcel" method="post">
+                <div class="form-group margin-bottom-9 layout-search">
+                    <div class="title-excel">
+                        <p>Xử lý trùng mã hàng, khác các thông tin khác của hàng hóa?</p>
+                        <input type="radio" id="importErrorAndStop" name="importChoose" value="1" checked>
+                        <label for="importErrorAndStop">Báo lỗi và dừng import</label><br>
+                        <input type="radio" id="importReplaceProduct" name="importChoose" value="0">
+                        <label for="importReplaceProduct">Cập nhật thông tin mới cho hàng hóa</label><br>
+                    </div>
+                </div>
+
+                <div class="form-group margin-bottom-9">
+                    <input type="file" name="file" id="file" />
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <a href="javascript:void(0);" class="btn mybtn-Button" onclick="Import()" id="btnSaveImport" style="padding-left: 10px!important; padding-right: 10px!important; font-size: 16px; font-weight: 500;">Nhập</a>
+        </div>
+    </div>
+</div>
+""";
+
+    /// <summary>
+    /// Hiển thị popup modal nhập hàng hóa từ file Excel.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:4801-4814 ShowPopupImportExcel()
+    ///       hàm phụ: BaseController.cs:504-507, 508-534 (JsonView), BaseController.cs:563-605 (JsonViewError), BaseController.cs:467-478 (RenderRazorViewToString)
+    /// View: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Views\Mst_Product\_ImportExcel.cshtml:1-76
+    /// Chuỗi gọi:
+    /// 1. Action ShowPopupImportExcel() không nhận tham số (gate dòng 4801).
+    /// 2. Khởi tạo resultEntry = new JsonResultEntry() { Success = false } (gate dòng 4803).
+    /// 3. Gọi JsonView("_ImportExcel", null) (gate dòng 4806) render view Razor popup modal nhập Excel và trả JSON { Success = true, Html = html }.
+    ///    Không gọi dịch vụ BIZ hay API bên ngoài, không đọc/ghi database (source_excerpt mục 4: 0 lỗi, 0 bảng/dịch vụ).
+    /// 4. Nhánh ngoại lệ: catch (Exception ex) -> resultEntry.SetFailed().AddException(this, ex) -> JsonViewError(...) (gate dòng 4808-4813)
+    ///    -> PortResult.Fail("Mst_Product_ShowPopupImportExcel", "Exception", ex.Message).
+    /// 5. Ở API Port: hỗ trợ POST và GET, trả về Success = true kèm Html và Title/Data.
+    /// </summary>
+    [HttpGet("showpopupimportexcel")]
+    [HttpPost("showpopupimportexcel")]
+    [HttpPost("show-popup-import-excel")]
+    public IActionResult ShowPopupImportExcel([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_ShowPopupImportExcelReq? req = null)
+    {
+        try
+        {
+            return Ok(new
+            {
+                Success = true,
+                Html = ImportExcelHtml,
+                Title = (string[]?)null,
+                Data = (object?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Product_ShowPopupImportExcel", "Exception", ex.Message);
+        }
+    }
+
     private class Mst_Product_ParsedImportItem
     {
         public Mst_Product Product { get; set; } = null!;
@@ -3709,5 +3777,13 @@ public class Mst_Product_ExportReq
     public int? PageIndex { get; set; }
     public int? PageSize { get; set; }
     public int? RecordCount { get; set; }
+}
+
+/// <summary>
+/// Model nhận tham số cho action ShowPopupImportExcel của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:4801 ShowPopupImportExcel()
+/// </summary>
+public class Mst_Product_ShowPopupImportExcelReq
+{
 }
 
