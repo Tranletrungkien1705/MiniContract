@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
@@ -696,6 +698,244 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         Assert.Equal("Phòng Kinh Doanh Kích Hoạt", deptInDb.DepartmentName);
         Assert.Equal("0100000002", deptInDb.MST);
         Assert.Equal("1", deptInDb.FlagActive);
+    }
+
+    [Fact]
+    public async Task Detail_WithNullOrEmptyBody_ReturnsNullData()
+    {
+        // Body null (Gate: Mst_DepartmentController.cs:361, 417)
+        var resNull = await _controller.Detail(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        // Body rỗng
+        var resEmpty = await _controller.Detail(new Mst_Department_DetailReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+
+        // DepartmentCode chuỗi trắng
+        var resWhite = await _controller.Detail(new Mst_Department_DetailReq { DepartmentCode = "   " });
+        var okWhite = Assert.IsType<OkObjectResult>(resWhite);
+        var docWhite = JsonDocument.Parse(JsonSerializer.Serialize(okWhite.Value));
+        Assert.True(docWhite.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docWhite.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_WithNonExistentDepartmentCode_ReturnsNullData()
+    {
+        var res = await _controller.Detail(new Mst_Department_DetailReq { DepartmentCode = "DEPT_NOT_FOUND" });
+        var okRes = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_WithValidDepartmentCode_ReturnsDetailAndActiveLookups()
+    {
+        var req = new Mst_Department_DetailReq { DepartmentCode = "DEPT_BGD" };
+        var res = await _controller.Detail(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Ban Giám Đốc", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0101234567", data.GetProperty("MST").GetString());
+
+        // Kiểm tra danh sách phòng ban active (ViewBag.ListMst_Department): chỉ có 2 bản ghi active (DEPT_BGD, DEPT_KT)
+        var listDept = data.GetProperty("ListMst_Department");
+        Assert.Equal(2, listDept.GetArrayLength());
+        Assert.Equal("DEPT_BGD", listDept[0].GetProperty("DepartmentCode").GetString());
+        Assert.Equal("DEPT_KT", listDept[1].GetProperty("DepartmentCode").GetString());
+
+        // Kiểm tra danh sách NNT active (ViewBag.ListMst_NNT): chỉ có 2 bản ghi active (0100000001, 0100000002)
+        var listNNT = data.GetProperty("ListMst_NNT");
+        Assert.Equal(2, listNNT.GetArrayLength());
+        Assert.Equal("0100000001", listNNT[0].GetProperty("MST").GetString());
+        Assert.Equal("0100000002", listNNT[1].GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WithModelJson_ReturnsCorrectDetail()
+    {
+        var modelJson = JsonSerializer.Serialize(new { DepartmentCode = "DEPT_KT" });
+        var req = new Mst_Department_DetailReq { Model = modelJson };
+        var res = await _controller.Detail(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_KT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Phòng Kế Toán", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCodeParent").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_CaseInsensitiveDepartmentCode_ReturnsDetail()
+    {
+        var req = new Mst_Department_DetailReq { DepartmentCode = "dept_bgd" };
+        var res = await _controller.Detail(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_BGD", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Ban Giám Đốc", data.GetProperty("DepartmentName").GetString());
+    }
+
+    [Fact]
+    public async Task Detail_WhenInactiveDepartment_StillReturnsItselfWithActiveLookups()
+    {
+        // Khi departmentcode là phòng ban không active (DEPT_KD_INACT), bản ghi vẫn được trả về để xem chi tiết
+        // Nhưng danh sách ListMst_Department và ListMst_NNT vẫn chỉ gồm các bản ghi active (Mst_DepartmentController.cs:398, 407)
+        var req = new Mst_Department_DetailReq { DepartmentCode = "DEPT_KD_INACT" };
+        var res = await _controller.Detail(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("DEPT_KD_INACT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+
+        var listDept = data.GetProperty("ListMst_Department");
+        Assert.Equal(2, listDept.GetArrayLength());
+        var listNNT = data.GetProperty("ListMst_NNT");
+        Assert.Equal(2, listNNT.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Detail_TwoDifferentDepartmentCodes_ReturnDifferentResults()
+    {
+        // Bộ lọc 1: DEPT_BGD
+        var req1 = new Mst_Department_DetailReq { DepartmentCode = "DEPT_BGD" };
+        var res1 = await _controller.Detail(req1);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var data1 = doc1.RootElement.GetProperty("Data");
+
+        // Bộ lọc 2: DEPT_KT
+        var req2 = new Mst_Department_DetailReq { DepartmentCode = "DEPT_KT" };
+        var res2 = await _controller.Detail(req2);
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        var data2 = doc2.RootElement.GetProperty("Data");
+
+        // So sánh 2 kết quả khác nhau
+        Assert.NotEqual(data1.GetProperty("DepartmentCode").GetString(), data2.GetProperty("DepartmentCode").GetString());
+        Assert.NotEqual(data1.GetProperty("DepartmentName").GetString(), data2.GetProperty("DepartmentName").GetString());
+        Assert.Equal("DEPT_BGD", data1.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("DEPT_KT", data2.GetProperty("DepartmentCode").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Port()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_department_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // Ca 1: POST empty body -> 200 OK, Success = true, Data = null
+            var req1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res1 = await http.PostAsync("/api/mst_department/detail", req1);
+            var body1 = await res1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res1.StatusCode);
+            var doc1 = JsonDocument.Parse(body1);
+            Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc1.RootElement.GetProperty("Data").ValueKind);
+
+            // Ca 2: POST mã không tồn tại -> 200 OK, Success = true, Data = null
+            var req2 = new StringContent("{\"DepartmentCode\":\"DEPT_NONEXISTENT\"}", Encoding.UTF8, "application/json");
+            var res2 = await http.PostAsync("/api/mst_department/detail", req2);
+            var body2 = await res2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res2.StatusCode);
+            var doc2 = JsonDocument.Parse(body2);
+            Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc2.RootElement.GetProperty("Data").ValueKind);
+
+            // Ca 3: POST mã hợp lệ DEPT_BGD -> 200 OK, Success = true, trả về chi tiết và danh sách lookup
+            var req3 = new StringContent("{\"DepartmentCode\":\"DEPT_BGD\"}", Encoding.UTF8, "application/json");
+            var res3 = await http.PostAsync("/api/mst_department/detail", req3);
+            var body3 = await res3.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res3.StatusCode);
+            var doc3 = JsonDocument.Parse(body3);
+            Assert.True(doc3.RootElement.GetProperty("Success").GetBoolean());
+            var data3 = doc3.RootElement.GetProperty("Data");
+            Assert.Equal("DEPT_BGD", data3.GetProperty("DepartmentCode").GetString());
+            Assert.Equal("Ban Giám Đốc", data3.GetProperty("DepartmentName").GetString());
+            Assert.Equal(2, data3.GetProperty("ListMst_Department").GetArrayLength());
+            Assert.Equal(2, data3.GetProperty("ListMst_NNT").GetArrayLength());
+
+            // Ca 4: POST mã khác DEPT_KT -> 200 OK, trả về đúng phòng ban Kế Toán
+            var req4 = new StringContent("{\"DepartmentCode\":\"DEPT_KT\"}", Encoding.UTF8, "application/json");
+            var res4 = await http.PostAsync("/api/mst_department/detail", req4);
+            var body4 = await res4.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res4.StatusCode);
+            var doc4 = JsonDocument.Parse(body4);
+            Assert.True(doc4.RootElement.GetProperty("Success").GetBoolean());
+            var data4 = doc4.RootElement.GetProperty("Data");
+            Assert.Equal("DEPT_KT", data4.GetProperty("DepartmentCode").GetString());
+            Assert.Equal("Phòng Kế Toán", data4.GetProperty("DepartmentName").GetString());
+        }
+        finally
+        {
+            try { proc.Kill(); } catch { }
+            if (File.Exists(tempDb))
+            {
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
     }
 }
 
