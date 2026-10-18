@@ -1006,6 +1006,75 @@ public class Mst_OrganizationControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ExportTemplate_EmptyBody_ReturnsExcelTemplateWith26Columns()
+    {
+        var result = _controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xuất file excel template thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(strUrl));
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported template file does not exist at {physicalPath}");
+
+        using var wb = new XLWorkbook(physicalPath);
+        Assert.Equal(1, wb.Worksheets.Count);
+        var ws = wb.Worksheet(1);
+        Assert.Equal("Mst_NNT", ws.Name);
+        Assert.Equal(1, ws.LastRowUsed()?.RowNumber()); // Chỉ có 1 dòng tiêu đề, 0 dòng dữ liệu
+        Assert.Equal(26, ws.LastColumnUsed()?.ColumnNumber()); // Đúng 26 cột theo GetImportDicColumsTemplate
+
+        Assert.Equal("Mã tổ chức", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên tổ chức", ws.Cell(1, 2).GetString());
+        Assert.Equal("Mã đại lý", ws.Cell(1, 3).GetString());
+        Assert.Equal("Vùng thị trường", ws.Cell(1, 4).GetString());
+        Assert.Equal("MST", ws.Cell(1, 5).GetString());
+        Assert.Equal("Người đại diện", ws.Cell(1, 6).GetString());
+        Assert.Equal("Chức vụ", ws.Cell(1, 7).GetString());
+        Assert.Equal("Số giấy tờ", ws.Cell(1, 8).GetString());
+        Assert.Equal("Loại giấy tờ", ws.Cell(1, 9).GetString());
+        Assert.Equal("Địa chỉ", ws.Cell(1, 10).GetString());
+        Assert.Equal("Mã Quận/Huyện", ws.Cell(1, 11).GetString());
+        Assert.Equal("Mã Tỉnh/Thành", ws.Cell(1, 12).GetString());
+        Assert.Equal("Website", ws.Cell(1, 13).GetString());
+        Assert.Equal("Điện thoại cố định", ws.Cell(1, 14).GetString());
+        Assert.Equal("Điện thoại di động", ws.Cell(1, 15).GetString());
+        Assert.Equal("Fax", ws.Cell(1, 16).GetString());
+        Assert.Equal("Người liên hệ", ws.Cell(1, 17).GetString());
+        Assert.Equal("Email liên hệ", ws.Cell(1, 18).GetString());
+        Assert.Equal("ĐT liên hệ", ws.Cell(1, 19).GetString());
+        Assert.Equal("Số tài khoản", ws.Cell(1, 20).GetString());
+        Assert.Equal("Chủ tài khoản", ws.Cell(1, 21).GetString());
+        Assert.Equal("Ngân hàng", ws.Cell(1, 22).GetString());
+        Assert.Equal("Chứng thư số", ws.Cell(1, 23).GetString());
+        Assert.Equal("Tổ chức cấp CTS", ws.Cell(1, 24).GetString());
+        Assert.Equal("Thời gian bắt đầu hiệu lực", ws.Cell(1, 25).GetString());
+        Assert.Equal("Thời gian hết hiệu lực", ws.Cell(1, 26).GetString());
+    }
+
+    [Fact]
+    public void ExportTemplate_WithRequestBody_AlsoSucceeds()
+    {
+        var result = _controller.ExportTemplate(new { SomeProperty = "value" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xuất file excel template thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("strUrl").GetString()));
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8584()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -1406,6 +1475,43 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             var doc34 = JsonDocument.Parse(body34);
             Assert.True(doc34.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Đã xuất excel thành công!", doc34.RootElement.GetProperty("Title").GetString());
+
+            // Request 35: POST /api/mst_organization/exporttemplate empty body -> 200 OK
+            var req35 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res35 = await http.PostAsync("/api/mst_organization/exporttemplate", req35);
+            var body35 = await res35.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ35 (ExportTemplate Empty Body): {body35}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res35.StatusCode);
+            var doc35 = JsonDocument.Parse(body35);
+            Assert.True(doc35.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xuất file excel template thành công!", doc35.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc35.RootElement.GetProperty("CheckSuccess").GetString());
+            var templateVirtualPath = doc35.RootElement.GetProperty("strUrl").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(templateVirtualPath));
+
+            var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var templatePhysicalPath = Path.Combine(webRoot, templateVirtualPath!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(templatePhysicalPath), $"Template file not found at {templatePhysicalPath}");
+            using (var templateWb = new XLWorkbook(templatePhysicalPath))
+            {
+                Assert.Equal(1, templateWb.Worksheets.Count);
+                var templateWs = templateWb.Worksheet(1);
+                Assert.Equal("Mst_NNT", templateWs.Name);
+                Assert.Equal(1, templateWs.LastRowUsed()?.RowNumber());
+                Assert.Equal(26, templateWs.LastColumnUsed()?.ColumnNumber());
+                Assert.Equal("Mã tổ chức", templateWs.Cell(1, 1).GetString());
+                Assert.Equal("Thời gian hết hiệu lực", templateWs.Cell(1, 26).GetString());
+            }
+
+            // Request 36: POST /api/mst_organization/exporttemplate with body -> 200 OK
+            var req36 = new StringContent("{\"AnyParam\":\"123\"}", Encoding.UTF8, "application/json");
+            var res36 = await http.PostAsync("/api/mst_organization/exporttemplate", req36);
+            var body36 = await res36.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ36 (ExportTemplate With Body): {body36}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res36.StatusCode);
+            var doc36 = JsonDocument.Parse(body36);
+            Assert.True(doc36.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xuất file excel template thành công!", doc36.RootElement.GetProperty("Title").GetString());
         }
         finally
         {

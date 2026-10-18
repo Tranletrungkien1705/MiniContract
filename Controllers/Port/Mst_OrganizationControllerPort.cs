@@ -12,7 +12,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_OrganizationController.cs — Mst_NNT
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109, 363-431, 435-683, 687-816, 821-1017, 1021-1092
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109, 363-431, 435-683, 687-816, 821-1017, 1021-1092, 1365-1506, 1510-1533
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89, 604-673, 819-880, 1109-1179
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12120, 12121-12218, 24791-24865, 24869-24988, 25188-25368, 27313-27369, 29088-29179, 29783-30027, 30391-30764, 32350-32449, 33301-33849, 34791-35208; MasterData.Org.cs:516-635
 [ApiController]
@@ -974,6 +974,44 @@ public class Mst_OrganizationControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xuất file Excel template mẫu để import tổ chức / chi nhánh (Mst_NNT).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:1510-1533 ExportTemplate()
+    ///       Mst_OrganizationController.cs:1568-1601 GetImportDicColumsTemplate()
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] object? req = null)
+    {
+        try
+        {
+            // 1. Khởi tạo danh sách rỗng (Gate: Mst_OrganizationController.cs:1517: var list = new List<Mst_NNT>())
+            var list = new List<Mst_NNT>();
+
+            // 2. Lấy danh sách 26 cột mẫu từ GetImportDicColumsTemplate (Gate: Mst_OrganizationController.cs:1520, 1568-1601)
+            var dicColNames = ExportTemplateDicColumns;
+
+            // 3. Sinh đường dẫn file vật lý và URL ảo (Gate: Mst_OrganizationController.cs:1522: GenExcelExportFilePath)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_NNT));
+
+            // 4. Xuất file Excel chứa dòng tiêu đề vào sheet Mst_NNT (Gate: Mst_OrganizationController.cs:1523: ExcelExport.ExportToExcelFromList)
+            PortExcel.ExportToExcelFromList(list, dicColNames, filePath, nameof(Mst_NNT));
+
+            // 5. Trả kết quả thành công khớp gate MVC (Gate: Mst_OrganizationController.cs:1525)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Xuất file excel template thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Organization_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
     private static void ExportToExcelMultiSheet(string filePath, IEnumerable<Mst_NNT_ExportItem> nntList, IEnumerable<Mst_OrgSignConfig> cksList)
     {
         using var wb = new XLWorkbook();
@@ -1079,6 +1117,36 @@ public class Mst_OrganizationControllerPort : ControllerBase
         { "CAOrg", "Tổ chức cấp CTS" },
         { "CAEffDTimeUTCStart", "Thời gian bắt đầu" },
         { "CAEffDTimeUTCEnd", "Thời gian kết thúc" },
+    };
+
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { "OrgID", "Mã tổ chức" },
+        { "NNTFullName", "Tên tổ chức" },
+        { "DLCode", "Mã đại lý" },
+        { "AreaCode", "Vùng thị trường" },
+        { "MST", "MST" },
+        { "PresentBy", "Người đại diện" },
+        { "NNTPosition", "Chức vụ" },
+        { "PresentIDNo", "Số giấy tờ" },
+        { "PresentIDType", "Loại giấy tờ" },
+        { "NNTAddress", "Địa chỉ" },
+        { "DistrictCode", "Mã Quận/Huyện" },
+        { "ProvinceCode", "Mã Tỉnh/Thành" },
+        { "Website", "Website" },
+        { "NNTPhone", "Điện thoại cố định" },
+        { "NNTMobile", "Điện thoại di động" },
+        { "Fax", "Fax" },
+        { "ContactName", "Người liên hệ" },
+        { "ContactEmail", "Email liên hệ" },
+        { "ContactPhone", "ĐT liên hệ" },
+        { "AccNo", "Số tài khoản" },
+        { "AccHolder", "Chủ tài khoản" },
+        { "BankName", "Ngân hàng" },
+        { "CANumber", "Chứng thư số" },
+        { "CAOrg", "Tổ chức cấp CTS" },
+        { "CAEffDTimeUTCStart", "Thời gian bắt đầu hiệu lực" },
+        { "CAEffDTimeUTCEnd", "Thời gian hết hiệu lực" },
     };
 
     private static string? StdParam(string? value)
