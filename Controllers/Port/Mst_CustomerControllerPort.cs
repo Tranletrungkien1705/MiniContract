@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update), 2609-2995 (Edit)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
@@ -1862,6 +1862,263 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Sửa thông tin khách hàng.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:2609-2995 Edit(string model)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:19-89 WA_Mst_Customer_Save, 92-162 WA_Mst_Customer_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
+    /// </summary>
+    [HttpPost("edit")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_EditReq? req)
+    {
+        // 1. Phân giải tham số từ JSON model nếu có (Mst_CustomerController.cs:2616)
+        if (req != null && !string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Customer_EditReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.OrgID ??= modelObj.OrgID;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.CustomerCode ??= modelObj.CustomerCode;
+                    req.CustomerCodeSys ??= modelObj.CustomerCodeSys;
+                    req.CustomerType ??= modelObj.CustomerType;
+                    req.CustomerGrpCode ??= modelObj.CustomerGrpCode;
+                    req.CustomerSourceCode ??= modelObj.CustomerSourceCode;
+                    req.CustomerSourceNameActual ??= modelObj.CustomerSourceNameActual;
+                    req.CustomerName ??= modelObj.CustomerName;
+                    req.CustomerNameEN ??= modelObj.CustomerNameEN;
+                    req.CustomerGender ??= modelObj.CustomerGender;
+                    req.CustomerPhoneNo ??= modelObj.CustomerPhoneNo;
+                    req.CustomerMobilePhone ??= modelObj.CustomerMobilePhone;
+                    req.ProvinceCode ??= modelObj.ProvinceCode;
+                    req.DistrictCode ??= modelObj.DistrictCode;
+                    req.WardCode ??= modelObj.WardCode;
+                    req.AreaCode ??= modelObj.AreaCode;
+                    req.CustomerAvatarName ??= modelObj.CustomerAvatarName;
+                    req.CustomerAvatarSpec ??= modelObj.CustomerAvatarSpec;
+                    req.FlagCustomerAvatarPath ??= modelObj.FlagCustomerAvatarPath;
+                    req.CustomerAvatarPath ??= modelObj.CustomerAvatarPath;
+                    req.CustomerAddress ??= modelObj.CustomerAddress;
+                    req.CustomerEmail ??= modelObj.CustomerEmail;
+                    req.CustomerDateOfBirth ??= modelObj.CustomerDateOfBirth;
+                    req.GovIDType ??= modelObj.GovIDType;
+                    req.GovIDCardNo ??= modelObj.GovIDCardNo;
+                    req.GovIDCardDate ??= modelObj.GovIDCardDate;
+                    req.GovIDCardPlace ??= modelObj.GovIDCardPlace;
+                    req.TaxCode ??= modelObj.TaxCode;
+                    req.BankCode ??= modelObj.BankCode;
+                    req.BankName ??= modelObj.BankName;
+                    req.BankAccountNo ??= modelObj.BankAccountNo;
+                    req.RepresentName ??= modelObj.RepresentName;
+                    req.RepresentPosition ??= modelObj.RepresentPosition;
+                    req.UserCodeOwner ??= modelObj.UserCodeOwner;
+                    req.ContactName ??= modelObj.ContactName;
+                    req.ContactPhone ??= modelObj.ContactPhone;
+                    req.ContactEmail ??= modelObj.ContactEmail;
+                    req.Fax ??= modelObj.Fax;
+                    req.Facebook ??= modelObj.Facebook;
+                    req.InvoiceCustomerName ??= modelObj.InvoiceCustomerName;
+                    req.InvoiceCustomerAddress ??= modelObj.InvoiceCustomerAddress;
+                    req.InvoiceOrgName ??= modelObj.InvoiceOrgName;
+                    req.InvoiceEmailSend ??= modelObj.InvoiceEmailSend;
+                    req.MST ??= modelObj.MST;
+                    req.ListOfCustDynamicFieldValue ??= modelObj.ListOfCustDynamicFieldValue;
+                    req.FlagDealer ??= modelObj.FlagDealer;
+                    req.FlagSupplier ??= modelObj.FlagSupplier;
+                    req.FlagShipper ??= modelObj.FlagShipper;
+                    req.FlagEndUser ??= modelObj.FlagEndUser;
+                    req.FlagBank ??= modelObj.FlagBank;
+                    req.FlagInsurrance ??= modelObj.FlagInsurrance;
+                    req.DTimeUsed ??= modelObj.DTimeUsed;
+                    req.Remark ??= modelObj.Remark;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.FlagRedirect ??= modelObj.FlagRedirect;
+                }
+            }
+            catch { }
+        }
+
+        // 2. Guard kiểm tra CustomerCodeSys (Mst_CustomerController.cs:2617, 2981-2985)
+        var customerCodeSys = StdParam(req?.CustomerCodeSys);
+        if (req == null || string.IsNullOrEmpty(customerCodeSys))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Mã khách hàng không hợp lệ!" },
+                Title = "Mã khách hàng không hợp lệ!"
+            });
+        }
+
+        // 3. Chuẩn hóa các tham số context
+        var orgId = StdParam(req.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault()) ?? _config?["Biz_OrgID"] ?? "7200000001";
+        var networkId = StdParam(req.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault()) ?? _config?["Biz_NetworkID"] ?? "1001";
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+        var dtimeNowStr = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+        try
+        {
+            // 4. Tìm kiếm khách hàng cần sửa (Mst_CustomerController.cs:2620-2657)
+            var query = _db.Set<Mst_Customer>().Where(x => EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(customerCodeSys), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            var customerCode = StdParam(req.CustomerCode);
+            if (!string.IsNullOrEmpty(customerCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.CustomerCode ?? "").ToLower(), PortQuery.Equal(customerCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var matchingCustomers = await query.ToListAsync();
+            if (matchingCustomers.Count != 1)
+            {
+                var cusCodeDisplay = req.CustomerCode ?? "";
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Mã khách hàng '{cusCodeDisplay}' không có trong hệ thống!" },
+                    Title = $"Mã khách hàng '{cusCodeDisplay}' không có trong hệ thống!"
+                });
+            }
+
+            var customer = matchingCustomers[0];
+
+            // 5. Cập nhật các trường thông tin (Mst_CustomerController.cs:2659-2716)
+            customer.CustomerType = StdParam(req.CustomerType);
+            customer.CustomerName = StdStr(req.CustomerName);
+            customer.CustomerNameEN = StdStr(req.CustomerNameEN) ?? StdStr(req.CustomerName);
+            customer.CustomerSourceCode = StdParam(req.CustomerSourceCode);
+            customer.CustomerSourceNameActual = StdStr(req.CustomerSourceNameActual);
+            customer.CustomerPhoneNo = StdStr(req.CustomerPhoneNo);
+            customer.CustomerMobilePhone = StdStr(req.CustomerMobilePhone);
+            customer.CustomerAddress = StdStr(req.CustomerAddress);
+            customer.ProvinceCode = StdParam(req.ProvinceCode);
+            customer.DistrictCode = StdParam(req.DistrictCode);
+            customer.WardCode = StdParam(req.WardCode);
+            customer.Remark = StdStr(req.Remark);
+            customer.RepresentName = StdStr(req.RepresentName);
+            customer.RepresentPosition = StdStr(req.RepresentPosition);
+            customer.GovIDCardNo = StdStr(req.GovIDCardNo);
+            customer.GovIDType = StdParam(req.GovIDType);
+            customer.BankAccountNo = StdStr(req.BankAccountNo);
+            customer.BankName = StdStr(req.BankName);
+            customer.BankCode = StdStr(req.BankCode ?? req.BankName);
+            customer.ContactName = StdStr(req.ContactName);
+            customer.ContactPhone = StdStr(req.ContactPhone);
+            customer.ContactEmail = StdStr(req.ContactEmail);
+            customer.Fax = StdStr(req.Fax);
+            customer.CustomerDateOfBirth = StdStr(req.CustomerDateOfBirth);
+            customer.Facebook = StdStr(req.Facebook);
+            customer.InvoiceCustomerName = StdStr(req.InvoiceCustomerName);
+            customer.InvoiceOrgName = StdStr(req.InvoiceOrgName);
+            customer.MST = StdParam(req.MST);
+            customer.CustomerGender = StdStr(req.CustomerGender);
+            customer.InvoiceCustomerAddress = StdStr(req.InvoiceCustomerAddress);
+            customer.InvoiceEmailSend = StdStr(req.InvoiceEmailSend);
+            customer.FlagDealer = StdFlag(req.FlagDealer);
+            customer.FlagBank = StdFlag(req.FlagBank);
+            customer.FlagEndUser = StdFlag(req.FlagEndUser);
+            customer.FlagInsurrance = StdFlag(req.FlagInsurrance);
+            customer.FlagSupplier = StdFlag(req.FlagSupplier);
+            customer.FlagShipper = StdFlag(req.FlagShipper);
+            if (!string.IsNullOrEmpty(req.FlagActive))
+            {
+                customer.FlagActive = StdFlag(req.FlagActive);
+            }
+            customer.FlagCustomerAvatarPath = StdFlag(req.FlagCustomerAvatarPath);
+            customer.CustomerAvatarPath = StdStr(req.CustomerAvatarPath);
+            customer.CustomerAvatarSpec = StdStr(req.CustomerAvatarSpec);
+            customer.CustomerAvatarName = StdStr(req.CustomerAvatarName);
+
+            // Nguồn: Mst_CustomerController.cs:2838-2839
+            // objRT_Mst_CustomerSearch.Lst_Mst_Customer[0].CustomerGrpCode = "";
+            // objRT_Mst_CustomerSearch.Lst_Mst_Customer[0].AreaCode = "";
+            customer.CustomerGrpCode = "";
+            customer.AreaCode = "";
+
+            customer.LUDTimeUTC = dtimeNowStr;
+            customer.LUBy = userCode;
+            customer.LogLUDTimeUTC = dtimeNowStr;
+            customer.LogLUBy = userCode;
+
+            // 6. Xử lý nhóm khách hàng Mst_CustomerInCustomerGroup (Mst_CustomerController.cs:2767-2781)
+            var customerGroupsToSave = new List<Mst_CustomerInCustomerGroup>();
+            var grpCodeStr = req.CustomerGrpCode?.Trim();
+            if (!string.IsNullOrEmpty(grpCodeStr))
+            {
+                var grpCodes = grpCodeStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var gc in grpCodes)
+                {
+                    customerGroupsToSave.Add(new Mst_CustomerInCustomerGroup
+                    {
+                        OrgID = customer.OrgID,
+                        CustomerCodeSys = customer.CustomerCodeSys,
+                        CustomerGrpCode = gc.Trim().ToUpperInvariant(),
+                        NetworkID = customer.NetworkID ?? networkId,
+                        FlagActive = "1",
+                        LogLUDTimeUTC = dtimeNowStr,
+                        LogLUBy = userCode
+                    });
+                }
+            }
+
+            // 7. Thực hiện lưu vào DB trong transaction (Mst_CustomerController.cs:2962 -> Biz Mst_Customer_SaveX_New20231205:2650-2700)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var oldGroups = await _db.Set<Mst_CustomerInCustomerGroup>()
+                    .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(customer.OrgID), PortQuery.Esc) &&
+                                EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(customer.CustomerCodeSys), PortQuery.Esc))
+                    .ToListAsync();
+
+                if (oldGroups.Count > 0)
+                {
+                    _db.Set<Mst_CustomerInCustomerGroup>().RemoveRange(oldGroups);
+                }
+
+                if (customerGroupsToSave.Count > 0)
+                {
+                    _db.Set<Mst_CustomerInCustomerGroup>().AddRange(customerGroupsToSave);
+                }
+
+                _db.Set<Mst_Customer>().Update(customer);
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                var flagRedirect = StdStr(req.FlagRedirect);
+                var redirectUrl = string.Equals(flagRedirect, "1", StringComparison.OrdinalIgnoreCase)
+                    ? $"/Mst_Customer/Update?customercode={customer.CustomerCode ?? req.CustomerCode}"
+                    : "/Mst_Customer/Index";
+
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Sửa thông tin khách hàng thành công!" },
+                    Title = "Sửa thông tin khách hàng thành công!",
+                    RedirectUrl = redirectUrl
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Customer_Save", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Save", "Exception", ex.Message);
+        }
+    }
+
     private class CustomerDynamicFieldParamType
     {
         public string Title { get; set; } = "";
@@ -2288,6 +2545,70 @@ public class Mst_Customer_UpdateData : Mst_Customer
         ListMst_GovIDType = listGovIDType;
         List_Mst_GovIDType = listGovIDType;
     }
+}
+
+public class Mst_Customer_EditReq
+{
+    // Hỗ trợ truyền chuỗi JSON model (Mst_CustomerController.cs:2609)
+    public string? Model { get; set; }
+
+    // Các tham số theo Mst_CustomerUI (Mst_CustomerController.cs:2659-2716)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? CustomerCode { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerType { get; set; }
+    public string? CustomerGrpCode { get; set; }
+    public string? CustomerSourceCode { get; set; }
+    public string? CustomerSourceNameActual { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerNameEN { get; set; }
+    public string? CustomerGender { get; set; }
+    public string? CustomerPhoneNo { get; set; }
+    public string? CustomerMobilePhone { get; set; }
+    public string? ProvinceCode { get; set; }
+    public string? DistrictCode { get; set; }
+    public string? WardCode { get; set; }
+    public string? AreaCode { get; set; }
+    public string? CustomerAvatarName { get; set; }
+    public string? CustomerAvatarSpec { get; set; }
+    public string? FlagCustomerAvatarPath { get; set; }
+    public string? CustomerAvatarPath { get; set; }
+    public string? CustomerAddress { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? CustomerDateOfBirth { get; set; }
+    public string? GovIDType { get; set; }
+    public string? GovIDCardNo { get; set; }
+    public string? GovIDCardDate { get; set; }
+    public string? GovIDCardPlace { get; set; }
+    public string? TaxCode { get; set; }
+    public string? BankCode { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccountNo { get; set; }
+    public string? RepresentName { get; set; }
+    public string? RepresentPosition { get; set; }
+    public string? UserCodeOwner { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? Fax { get; set; }
+    public string? Facebook { get; set; }
+    public string? InvoiceCustomerName { get; set; }
+    public string? InvoiceCustomerAddress { get; set; }
+    public string? InvoiceOrgName { get; set; }
+    public string? InvoiceEmailSend { get; set; }
+    public string? MST { get; set; }
+    public string? ListOfCustDynamicFieldValue { get; set; }
+    public string? FlagDealer { get; set; }
+    public string? FlagSupplier { get; set; }
+    public string? FlagShipper { get; set; }
+    public string? FlagEndUser { get; set; }
+    public string? FlagBank { get; set; }
+    public string? FlagInsurrance { get; set; }
+    public string? DTimeUsed { get; set; }
+    public string? Remark { get; set; }
+    public string? FlagActive { get; set; }
+    public string? FlagRedirect { get; set; }
 }
 
 
