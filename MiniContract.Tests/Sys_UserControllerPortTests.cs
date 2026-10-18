@@ -2109,6 +2109,52 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ExportTemplate_NullReq_ReturnsSuccessTrueWithExcelUrl()
+    {
+        // Khi req null (body rỗng): xuất file Excel mẫu thành công (gate Sys_UserController.cs:1519-1537)
+        var result = _controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        var url = root.GetProperty("strUrl").GetString();
+        Assert.NotNull(url);
+        Assert.StartsWith("/TempFiles/", url);
+        Assert.EndsWith(".xlsx", url);
+
+        var physicalPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported template Excel file not found at {physicalPath}");
+
+        // Đọc lại file Excel để kiểm tra tiêu đề 8 cột mẫu và 0 dòng dữ liệu (gate Sys_UserController.cs:1915-1931)
+        using var stream = File.OpenRead(physicalPath);
+        var keys = new[] { "UserName", "EMail", "Position", "UserPassword", "MST", "FlagSysAdmin", "FlagViewOrgCreate", "FlagViewOtherOrgCreate" };
+        var (colCount, rows) = PortExcel.ReadSheet(stream, keys);
+
+        Assert.Equal(8, colCount);
+        Assert.Empty(rows); // Danh sách rỗng: 0 dòng dữ liệu
+    }
+
+    [Fact]
+    public void ExportTemplate_EmptyReq_ReturnsSuccessTrueWithExcelUrl()
+    {
+        // Khi req rỗng (new Sys_User_ExportTemplateReq()): xuất file Excel mẫu thành công
+        var req = new Sys_User_ExportTemplateReq();
+        var result = _controller.ExportTemplate(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -3068,6 +3114,35 @@ public class Sys_UserControllerPortTests : IDisposable
             Assert.True(doc87.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Đã xuất excel thành công!", doc87.RootElement.GetProperty("Title").GetString());
             Assert.NotNull(doc87.RootElement.GetProperty("strUrl").GetString());
+
+            // 88. Action ExportTemplate: POST /api/sys_user/exporttemplate với body rỗng -> 200 OK, CheckSuccess = 1, strUrl != null
+            var req88 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res88 = await http.PostAsync("/api/sys_user/exporttemplate", req88);
+            Assert.True(res88.IsSuccessStatusCode);
+            var doc88 = JsonDocument.Parse(await res88.Content.ReadAsStringAsync());
+            Assert.True(doc88.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc88.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc88.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.NotNull(doc88.RootElement.GetProperty("strUrl").GetString());
+
+            // 89. Action ExportTemplate: POST /api/sys_user/export-template (route phụ) -> 200 OK
+            var req89 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res89 = await http.PostAsync("/api/sys_user/export-template", req89);
+            Assert.True(res89.IsSuccessStatusCode);
+            var doc89 = JsonDocument.Parse(await res89.Content.ReadAsStringAsync());
+            Assert.True(doc89.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc89.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc89.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.NotNull(doc89.RootElement.GetProperty("strUrl").GetString());
+
+            // 90. Action ExportTemplate: GET /api/sys_user/exporttemplate -> 200 OK
+            var res90 = await http.GetAsync("/api/sys_user/exporttemplate");
+            Assert.True(res90.IsSuccessStatusCode);
+            var doc90 = JsonDocument.Parse(await res90.Content.ReadAsStringAsync());
+            Assert.True(doc90.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc90.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc90.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.NotNull(doc90.RootElement.GetProperty("strUrl").GetString());
         }
         finally
         {

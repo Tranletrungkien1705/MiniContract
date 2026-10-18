@@ -26,7 +26,9 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1097-1258 (ChangePasswordCheckOld)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1264-1413 (ChangeInfo)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1419-1515 (Export)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1519-1545 (ExportTemplate)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1894-1913 (GetImportDicColums)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1915-1931 (GetImportDicColumsTemplate)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:664-682 (GenExcelExportFilePath)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203 (GetEncodedHash)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
@@ -86,6 +88,19 @@ public class Sys_UserControllerPort : ControllerBase
         { nameof(Sys_User.FlagActive), "Trạng thái" },
         { nameof(Sys_User.ACLanguage), "Ngôn ngữ" },
         { nameof(Sys_User.ACTimeZone), "Múi giờ" }
+    };
+
+    // Danh sách cột mẫu nhập Excel từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1915-1931 GetImportDicColumsTemplate()
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { nameof(Sys_User.UserName), "Họ tên(*)" },
+        { nameof(Sys_User.EMail), "Email(*)" },
+        { nameof(Sys_User.Position), "Chức vụ" },
+        { nameof(Sys_User.UserPassword), "Mật khẩu(*)" },
+        { nameof(Sys_User.MST), "Chi nhánh(*)" },
+        { nameof(Sys_User.FlagSysAdmin), "QT hệ thống(*)" },
+        { nameof(Sys_User.FlagViewOrgCreate), "QLHD đi(*)" },
+        { nameof(Sys_User.FlagViewOtherOrgCreate), "QLHD đến()*" }
     };
 
     public Sys_UserControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
@@ -2500,6 +2515,53 @@ public class Sys_UserControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action ExportTemplate từ gate Sys_UserController.cs:1519-1545.
+    /// Chuỗi gọi:
+    /// 1. Lấy UserState: AddressAPIs, waUserCode, waUserPassword (gate dòng 1521-1525).
+    /// 2. Khởi tạo danh sách rỗng: var list = new List<Sys_User>() (gate dòng 1529).
+    /// 3. Lấy từ điển cột mẫu: Dictionary<string, string> dicColNames = GetImportDicColumsTemplate() (gate dòng 1531, 1915-1931):
+    ///    - UserName: "Họ tên(*)"
+    ///    - EMail: "Email(*)"
+    ///    - Position: "Chức vụ"
+    ///    - UserPassword: "Mật khẩu(*)"
+    ///    - MST: "Chi nhánh(*)"
+    ///    - FlagSysAdmin: "QT hệ thống(*)"
+    ///    - FlagViewOrgCreate: "QLHD đi(*)"
+    ///    - FlagViewOtherOrgCreate: "QLHD đến()*"
+    /// 4. Sinh file Excel vật lý và URL ảo qua GenExcelExportFilePath (gate dòng 1533, BaseController.cs:664-682).
+    /// 5. Ghi tệp Excel qua ExcelExport.ExportToExcelFromList(list, dicColNames, filePath, "Sys_User") (gate dòng 1534).
+    /// 6. Trả về kết quả thành công: Json(new { Success = true, Title = "Đã xuất excel thành công!", CheckSuccess = "1", strUrl = url }) (gate dòng 1536).
+    /// 7. Bắt ngoại lệ nếu có và trả về PortResult.Fail("Sys_User_ExportTemplate", "Exception", ex.Message) (gate dòng 1539-1544).
+    /// </summary>
+    [HttpGet("exporttemplate")]
+    [HttpPost("exporttemplate")]
+    [HttpPost("export-template")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_ExportTemplateReq? req = null)
+    {
+        try
+        {
+            var list = new List<Sys_User>();
+            var dicColNames = ExportTemplateDicColumns;
+
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Sys_User));
+            PortExcel.ExportToExcelFromList(list, dicColNames, filePath, nameof(Sys_User));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Mã hoá mật khẩu bằng thuật toán chuẩn idocNet: Base64(MD5(password + "idocNet")) bỏ 2 ký tự cuối ("==").
     /// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203.
     /// </summary>
@@ -2886,7 +2948,12 @@ public class Sys_User_ExportReq
     public int? PageIndex { get; set; }
 }
 
-
-
+/// <summary>
+/// Model nhận tham số cho action ExportTemplate của Sys_UserController.
+/// Gate: Sys_UserController.cs:1519 ExportTemplate()
+/// </summary>
+public class Sys_User_ExportTemplateReq
+{
+}
 
 
