@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 107/295 (36.27%)
+**Tiến độ hiện tại**: 108/295 (36.61%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -88,7 +88,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 76 | Contract_ContractController/Resend | Chưa làm | - |
 | 77 | Contract_TempContractController/Index | Đã làm | 02e84d5 |
 | 78 | Contract_TempContractController/DoSearch | Chưa làm | - |
-| 79 | Contract_TempContractController/Delete | Chưa làm | - |
+| 79 | Contract_TempContractController/Delete | Đã làm | e770833 |
 | 80 | Contract_TempContractController/Export | Chưa làm | - |
 | 81 | Contract_TempContractController/Create | Chưa làm | - |
 | 82 | Contract_TempContractController/Create_BK | Chưa làm | - |
