@@ -156,6 +156,59 @@ namespace MiniContract.Controllers.Port
 
             return Ok(resultData);
         }
+
+        [HttpPost("searchuser")]
+        public async Task<ActionResult> SearchUser([FromBody] Contract_SearchUserReq? req)
+        {
+            req ??= new Contract_SearchUserReq();
+            var q = req.Q ?? string.Empty;
+            if (string.IsNullOrEmpty(q))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = new List<object>()
+                });
+            }
+
+            var networkID = req.NetworkID ?? "1001";
+            var orgID = req.OrgID ?? "ROOT";
+            var pattern = $"%{q.ToLower()}%";
+
+            var users = await _db.Set<Sys_User>()
+                .Where(u => u.FlagActive == "1" && (
+                    EF.Functions.Like(u.UserCode.ToLower(), pattern, "\\") ||
+                    EF.Functions.Like(u.UserName.ToLower(), pattern, "\\") ||
+                    EF.Functions.Like(u.Position.ToLower(), pattern, "\\") ||
+                    EF.Functions.Like(u.PhoneNo.ToLower(), pattern, "\\") ||
+                    EF.Functions.Like(u.EMail.ToLower(), pattern, "\\") ||
+                    EF.Functions.Like(u.MST.ToLower(), pattern, "\\")
+                ))
+                .Take(10)
+                .ToListAsync();
+
+            var ret = users.Select(u => new
+            {
+                id = u.UserCode ?? "",
+                text = u.UserName ?? "",
+                UUID = u.ACId ?? "",
+                Code = u.UserCode ?? "",
+                Name = u.UserName ?? "",
+                Email = u.EMail ?? "",
+                Avatar = !string.IsNullOrEmpty(u.ACAvatar) && u.ACAvatar.Contains("~") 
+                    ? u.ACAvatar.Split('~')[1] 
+                    : (u.ACAvatar ?? ""),
+                Pos = u.Position ?? "",
+                Dep = "",
+                DateTimeCreated = ""
+            });
+
+            return Ok(new
+            {
+                Success = true,
+                Data = ret
+            });
+        }
     }
 
     public class Contract_TempUpdateReq
@@ -169,6 +222,13 @@ namespace MiniContract.Controllers.Port
     {
         public string? Copy { get; set; }
         public string? TContractCode { get; set; }
+        public string? NetworkID { get; set; }
+        public string? OrgID { get; set; }
+    }
+
+    public class Contract_SearchUserReq
+    {
+        public string? Q { get; set; }
         public string? NetworkID { get; set; }
         public string? OrgID { get; set; }
     }
