@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -10,20 +11,31 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_DepartmentController.cs — Mst_Department
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail), 422-485 (Delete)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail), 422-485 (Delete), 491-548 (Export)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create), 162-231 (WA_Mst_Department_Update), 233-302 (WA_Mst_Department_Delete)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36433-36510 (WAS_Mst_Department_Delete), 36511-36640 (Mst_Department_Delete), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 37042-37097 (Mst_Department_DeleteX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX/Export), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36433-36510 (WAS_Mst_Department_Delete), 36511-36640 (Mst_Department_Delete), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 37042-37097 (Mst_Department_DeleteX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
 [ApiController]
 [Route("api/mst_department")]
 public class Mst_DepartmentControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_DepartmentControllerPort(AppDbContext db, IConfiguration? config = null)
+    private static readonly Dictionary<string, string> ExportDicColumns = new()
+    {
+        { "DepartmentCode", "Mã bộ phận (*)" },
+        { "DepartmentName", "Tên bộ phận (*)" },
+        { "DepartmentCodeParent", "Bộ phận quản lý (*)" },
+        { "MST", "Mã đơn vị (*)" },
+        { "FlagActive", "Trạng thái" }
+    };
+
+    public Mst_DepartmentControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -729,6 +741,126 @@ public class Mst_DepartmentControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xuất danh sách phòng ban ra file Excel.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:491-548 Export()
+    ///       hàm phụ: BaseController.cs:5480-5490 (WA_Mst_Department_Get), Mst_DepartmentController.cs:734-744 (GetImportDicColums), BaseController.cs:664-682 (GenExcelExportFilePath)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 WA_Mst_Department_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35737-35835 (WAS_Mst_Department_Get) -> 35836-35980 (Mst_Department_Get) -> 36641-36794 (Mst_Department_GetX)
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Department_ExportReq? req)
+    {
+        try
+        {
+            // 1. Dựng truy vấn cơ sở từ bảng Mst_Department (Master.cs:36698, 36738)
+            var query = _db.Set<Mst_Department>().AsNoTracking();
+
+            // 2. Bộ lọc điều kiện theo các cột hỗ trợ (Master.cs:36749-36773 BuildWhere)
+            var deptCode = req?.DepartmentCode?.Trim();
+            if (!string.IsNullOrEmpty(deptCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentCode ?? "").ToLower(), PortQuery.Equal(deptCode), PortQuery.Esc));
+            }
+
+            var deptName = req?.DepartmentName?.Trim();
+            if (!string.IsNullOrEmpty(deptName))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentName ?? "").ToLower(), PortQuery.Contains(deptName), PortQuery.Esc));
+            }
+
+            var keyWord = req?.KeyWord?.Trim();
+            if (!string.IsNullOrEmpty(keyWord))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentName ?? "").ToLower(), PortQuery.Contains(keyWord), PortQuery.Esc)
+                                      || EF.Functions.Like((x.DepartmentCode ?? "").ToLower(), PortQuery.Contains(keyWord), PortQuery.Esc));
+            }
+
+            var flagActive = req?.FlagActive?.Trim();
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var mst = req?.MST?.Trim();
+            if (!string.IsNullOrEmpty(mst))
+            {
+                query = query.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+
+            var networkId = req?.NetworkID?.Trim();
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var parentCode = req?.DepartmentCodeParent?.Trim();
+            if (!string.IsNullOrEmpty(parentCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentCodeParent ?? "").ToLower(), PortQuery.Equal(parentCode), PortQuery.Esc));
+            }
+
+            var buCode = req?.DepartmentBUCode?.Trim();
+            if (!string.IsNullOrEmpty(buCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentBUCode ?? "").ToLower(), PortQuery.Equal(buCode), PortQuery.Esc));
+            }
+
+            var deptLevel = req?.DepartmentLevel?.Trim();
+            if (!string.IsNullOrEmpty(deptLevel))
+            {
+                query = query.Where(x => EF.Functions.Like((x.DepartmentLevel ?? "").ToLower(), PortQuery.Equal(deptLevel), PortQuery.Esc));
+            }
+
+            // 3. Sắp xếp: order by mdept.DepartmentCode asc (Master.cs:36701, 36740)
+            var ordered = query.OrderBy(x => x.DepartmentCode);
+
+            // 4. Phân trang nếu có truyền (Gate lines 515-516: Ft_RecordStartExportExcel, RowsWorksheets)
+            long recordStart = req?.Ft_RecordStart ?? 0;
+            long recordCount = req?.Ft_RecordCount ?? 1000000;
+            if (req != null && req.RecordCount != null && req.Ft_RecordCount == null)
+            {
+                recordCount = req.RecordCount.Value;
+                var page = req.Page ?? req.PageIndex ?? 0;
+                recordStart = (long)page * recordCount;
+            }
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_Department>()
+                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                               .Take((int)Math.Min(recordCount, int.MaxValue))
+                               .ToListAsync();
+
+            // 5. Kiểm tra danh sách rỗng (Gate lines 538-540)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "Không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 6. Xuất danh sách ra file Excel và trả URL (Gate lines 528-535)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_Department));
+            PortExcel.ExportToExcelFromList(list, ExportDicColumns, filePath, nameof(Mst_Department));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Department_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU (Master.cs:35700-35736).
     /// </summary>
     private async Task UpdBUAsync()
@@ -969,4 +1101,30 @@ public class Mst_Department_DeleteReq
 
     // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
     public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Export của Mst_DepartmentController.
+/// Gate: Mst_DepartmentController.cs:491 Export()
+/// BIZ:  Master.cs:35737-35835 (WAS_Mst_Department_Get) -> 35836-35980 (Mst_Department_Get) -> 36641-36794 (Mst_Department_GetX)
+/// </summary>
+public class Mst_Department_ExportReq
+{
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
+    public int? RecordCount { get; set; }
+    public int? PageSize { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+    public string? Ft_WhereClause { get; set; }
+
+    public string? DepartmentCode { get; set; }
+    public string? DepartmentName { get; set; }
+    public string? KeyWord { get; set; }
+    public string? FlagActive { get; set; }
+    public string? MST { get; set; }
+    public string? NetworkID { get; set; }
+    public string? DepartmentCodeParent { get; set; }
+    public string? DepartmentBUCode { get; set; }
+    public string? DepartmentLevel { get; set; }
 }

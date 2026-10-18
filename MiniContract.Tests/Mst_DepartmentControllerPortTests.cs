@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -977,6 +978,119 @@ public class Mst_DepartmentControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Export_EmptyBody_ReturnsExcelSuccessWith3Rows()
+    {
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(strUrl));
+
+        // Kiểm tra file vật lý đã được tạo và đọc nội dung
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported file does not exist at {physicalPath}");
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal("Mst_Department", ws.Name);
+        Assert.Equal("Mã bộ phận (*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên bộ phận (*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Bộ phận quản lý (*)", ws.Cell(1, 3).GetString());
+        Assert.Equal("Mã đơn vị (*)", ws.Cell(1, 4).GetString());
+        Assert.Equal("Trạng thái", ws.Cell(1, 5).GetString());
+
+        // 3 dòng dữ liệu từ seeder (1 header + 3 rows)
+        Assert.Equal(4, ws.LastRowUsed()?.RowNumber());
+    }
+
+    [Fact]
+    public async Task Export_FilterByFlagActive1_Returns2Rows()
+    {
+        var req = new Mst_Department_ExportReq { FlagActive = "1" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(3, ws.LastRowUsed()?.RowNumber()); // 1 header + 2 rows
+    }
+
+    [Fact]
+    public async Task Export_FilterByDepartmentCode_DEPT_BGD_Returns1Row()
+    {
+        var req = new Mst_Department_ExportReq { DepartmentCode = "DEPT_BGD" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(2, ws.LastRowUsed()?.RowNumber()); // 1 header + 1 row
+        Assert.Equal("DEPT_BGD", ws.Cell(2, 1).GetString());
+        Assert.Equal("Ban Giám Đốc", ws.Cell(2, 2).GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterNonExistent_ReturnsNoDataMessage()
+    {
+        var req = new Mst_Department_ExportReq { DepartmentCode = "DEPT_NONEXIST" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Không có dữ liệu!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.False(root.TryGetProperty("strUrl", out _));
+    }
+
+    [Fact]
+    public async Task Export_Pagination_Start0_Count1_Returns1Row()
+    {
+        var req = new Mst_Department_ExportReq
+        {
+            Ft_RecordStart = 0,
+            Ft_RecordCount = 1
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var strUrl = root.GetProperty("strUrl").GetString();
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet(1);
+        Assert.Equal(2, ws.LastRowUsed()?.RowNumber()); // 1 header + 1 row
+        Assert.Equal("DEPT_BGD", ws.Cell(2, 1).GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_department_{Guid.NewGuid():N}.db");
@@ -1116,6 +1230,54 @@ public class Mst_DepartmentControllerPortTests : IDisposable
             var docVerify = JsonDocument.Parse(bodyVerify);
             Assert.True(docVerify.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(JsonValueKind.Null, docVerify.RootElement.GetProperty("Data").ValueKind);
+
+            // Ca 8: POST /api/mst_department/export với body rỗng -> 200 OK, Success = true, Title = "Đã xuất excel thành công!", strUrl
+            var req8 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_department/export", req8);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 8 POST /api/mst_department/export (empty body)] Status: {(int)res8.StatusCode} Response: {body8}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res8.StatusCode);
+            var doc8 = JsonDocument.Parse(body8);
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc8.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc8.RootElement.GetProperty("CheckSuccess").GetString());
+            var exportUrl = doc8.RootElement.GetProperty("strUrl").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(exportUrl));
+
+            // Ca 9: POST /api/mst_department/export với mã không tồn tại -> 200 OK, Success = true, Title = "Không có dữ liệu!"
+            var req9 = new StringContent("{\"DepartmentCode\":\"DEPT_SRV_NONEXIST\"}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_department/export", req9);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 9 POST /api/mst_department/export (non-existent filter)] Status: {(int)res9.StatusCode} Response: {body9}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9.StatusCode);
+            var doc9 = JsonDocument.Parse(body9);
+            Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Không có dữ liệu!", doc9.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc9.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // Ca 10: POST /api/mst_department/export với 2 bộ lọc ra số dòng khác nhau
+            // Bộ lọc active -> xuất 2 bản ghi
+            var req10a = new StringContent("{\"FlagActive\":\"1\"}", Encoding.UTF8, "application/json");
+            var res10a = await http.PostAsync("/api/mst_department/export", req10a);
+            var body10a = await res10a.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 10a POST /api/mst_department/export (FlagActive=1)] Status: {(int)res10a.StatusCode} Response: {body10a}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10a.StatusCode);
+            var doc10a = JsonDocument.Parse(body10a);
+            Assert.True(doc10a.RootElement.GetProperty("Success").GetBoolean());
+            var url10a = doc10a.RootElement.GetProperty("strUrl").GetString();
+
+            // Bộ lọc DepartmentCode = DEPT_BGD -> xuất 1 bản ghi
+            var req10b = new StringContent("{\"DepartmentCode\":\"DEPT_BGD\"}", Encoding.UTF8, "application/json");
+            var res10b = await http.PostAsync("/api/mst_department/export", req10b);
+            var body10b = await res10b.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 10b POST /api/mst_department/export (DepartmentCode=DEPT_BGD)] Status: {(int)res10b.StatusCode} Response: {body10b}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res10b.StatusCode);
+            var doc10b = JsonDocument.Parse(body10b);
+            Assert.True(doc10b.RootElement.GetProperty("Success").GetBoolean());
+            var url10b = doc10b.RootElement.GetProperty("strUrl").GetString();
+
+            // Xác minh 2 tệp excel khác nhau được tạo ra
+            Assert.NotEqual(url10a, url10b);
         }
         finally
         {
