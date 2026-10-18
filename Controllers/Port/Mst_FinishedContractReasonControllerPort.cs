@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -10,20 +11,30 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete), 351-499 (Import)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (Edit/Update), 230-298 (Delete)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46304-46382 (WAS Delete), 46383-46528 (Biz Delete), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX), 46890-46947 (DeleteX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete), 351-499 (Import), 505-564 (Export)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update, Export), 89-140 (Create), 160-228 (Edit/Update), 230-298 (Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update/Export), 45656-45812 (Biz Get/Update/Export), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46304-46382 (WAS Delete), 46383-46528 (Biz Delete), 46529-46685 (Search/Index/Update/Export GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX), 46890-46947 (DeleteX)
 [ApiController]
 [Route("api/mst_finishedcontractreason")]
 public class Mst_FinishedContractReasonControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_FinishedContractReasonControllerPort(AppDbContext db, IConfiguration? config = null)
+    private static readonly Dictionary<string, string> ExportDicColumns = new()
+    {
+        { "ContractFinishReasonCode", "Mã lý do(*)" },
+        { "ContractFinishReasonName", "Nội dung(*)" },
+        { "FinishDescription", "Mô tả" },
+        { "FlagActive", "Trạng thái" }
+    };
+
+    public Mst_FinishedContractReasonControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -630,6 +641,100 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xuất danh sách nguyên nhân chấm dứt hợp đồng ra tệp Excel.
+    /// Gate: Mst_FinishedContractReasonController.cs:505-564 Export(int page = 0, int recordcount = 10)
+    /// API:  MstFinishedContractReasonController.cs:20-88 WA_Mst_FinishedContractReason_Get
+    /// BIZ:  Master.cs:45559-45655 (WAS Get), 45656-45812 (Biz Get), 46529-46685 (GetX)
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_FinishedContractReason_ExportReq? req)
+    {
+        try
+        {
+            // 1. Dựng truy vấn cơ sở từ bảng Mst_FinishedContractReason (Master.cs:46581-46592)
+            var query = _db.Set<Mst_FinishedContractReason>().AsNoTracking();
+
+            // 2. Bộ lọc điều kiện theo các cột hỗ trợ (Master.cs:46640-46664)
+            var networkId = req?.NetworkID?.Trim();
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var reasonCode = req?.ContractFinishReasonCode?.Trim() ?? req?.ReasonCode?.Trim();
+            if (!string.IsNullOrEmpty(reasonCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
+            }
+
+            var keyWord = req?.KeyWord?.Trim() ?? req?.ContractFinishReasonName?.Trim();
+            if (!string.IsNullOrEmpty(keyWord))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractFinishReasonName ?? "").ToLower(), PortQuery.Contains(keyWord), PortQuery.Esc));
+            }
+
+            var flagActive = req?.FlagActive?.Trim();
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var finishType = req?.FinishType?.Trim();
+            if (!string.IsNullOrEmpty(finishType))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FinishType ?? "").ToLower(), PortQuery.Equal(finishType), PortQuery.Esc));
+            }
+
+            // 3. Sắp xếp: order by mo.NetworkID asc, then by ContractFinishReasonCode (Master.cs:46591, 46631)
+            var ordered = query.OrderBy(x => x.NetworkID).ThenBy(x => x.ContractFinishReasonCode);
+
+            // 4. Phân trang nếu có truyền (Gate lines 530-531: Ft_RecordStart = "0", Ft_RecordCount = "123456000")
+            long recordStart = req?.Ft_RecordStart ?? 0;
+            long recordCount = req?.Ft_RecordCount ?? 123456000;
+            if (req != null && req.RecordCount != null && req.Ft_RecordCount == null)
+            {
+                recordCount = req.RecordCount.Value;
+                var page = req.Page ?? req.PageIndex ?? 0;
+                recordStart = (long)page * recordCount;
+            }
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_FinishedContractReason>()
+                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                               .Take((int)Math.Min(recordCount, int.MaxValue))
+                               .ToListAsync();
+
+            // 5. Kiểm tra danh sách rỗng (Gate lines 542-555: Nonsense.MESS_CHECK_FILE_NULL)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "File Excel nhập không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 6. Xuất danh sách ra file Excel và trả URL (Gate lines 544-551: Nonsense.MESS_EXPORT_EXCEL_SUCCESS)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_FinishedContractReason));
+            PortExcel.ExportToExcelFromList(list, ExportDicColumns, filePath, nameof(Mst_FinishedContractReason));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Hàm dùng chung thực hiện tạo mới 1 bản ghi Mst_FinishedContractReason trong 1 transaction riêng.
     /// Dùng cho cả action Create đơn và vòng lặp Import (hành vi import một phần).
     /// </summary>
@@ -786,3 +891,28 @@ public class Mst_FinishedContractReason_DeleteReq
     public string? NetworkID { get; set; }
     public string? Model { get; set; }
 }
+
+/// <summary>
+/// DTO tham số đầu vào cho action Export.
+/// Gate: Mst_FinishedContractReasonController.cs:505 Export(int page = 0, int recordcount = 10)
+/// </summary>
+public class Mst_FinishedContractReason_ExportReq
+{
+    public int? Page { get; set; }
+    public int? RecordCount { get; set; }
+    public int? PageIndex { get; set; }
+    public int? PageSize { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? ContractFinishReasonCode { get; set; }
+    public string? ReasonCode { get; set; }
+    public string? ContractFinishReasonName { get; set; }
+    public string? KeyWord { get; set; }
+    public string? FinishType { get; set; }
+    public string? FlagActive { get; set; }
+    public string? Ft_WhereClause { get; set; }
+}
+

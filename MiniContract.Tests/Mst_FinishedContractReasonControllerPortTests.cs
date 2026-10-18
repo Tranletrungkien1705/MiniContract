@@ -3,10 +3,12 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using ClosedXML.Excel;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using MiniContract.Controllers.Port;
 using MiniContract.Data;
 using MiniContract.Models.Port;
@@ -20,6 +22,7 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     private readonly ITestOutputHelper? _output;
     private readonly SqliteConnection _conn;
     private readonly AppDbContext _db;
+    private readonly TestWebHostEnvironment _env;
     private readonly Mst_FinishedContractReasonControllerPort _controller;
 
     public Mst_FinishedContractReasonControllerPortTests(ITestOutputHelper? output = null)
@@ -36,13 +39,22 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
         var seeder = new Mst_FinishedContractReasonSeeder();
         seeder.SeedAsync(_db).GetAwaiter().GetResult();
 
-        _controller = new Mst_FinishedContractReasonControllerPort(_db);
+        _env = new TestWebHostEnvironment();
+        _controller = new Mst_FinishedContractReasonControllerPort(_db, null, _env);
     }
 
     public void Dispose()
     {
         _conn.Dispose();
         _db.Dispose();
+        try
+        {
+            if (Directory.Exists(_env.WebRootPath))
+            {
+                Directory.Delete(_env.WebRootPath, true);
+            }
+        }
+        catch { }
     }
 
     [Fact]
@@ -959,6 +971,109 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
         Assert.Equal("1", row2.FlagActive);
     }
 
+    // ================== Kiểm thử endpoint Export ==================
+
+    [Fact]
+    public async Task Export_EmptyBody_ReturnsExcelSuccessWithAllItems()
+    {
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_FinishedContractReason");
+        Assert.Equal(4, ws.Row(1).LastCellUsed()?.Address.ColumnNumber);
+        Assert.Equal("Mã lý do(*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Nội dung(*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Mô tả", ws.Cell(1, 3).GetString());
+        Assert.Equal("Trạng thái", ws.Cell(1, 4).GetString());
+
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(6, lastRow); // Dòng 1 tiêu đề + 5 dòng dữ liệu
+    }
+
+    [Fact]
+    public async Task Export_FilterByNetworkID_ReturnsDifferentCounts()
+    {
+        // Bộ lọc 1: NetworkID = "1001" -> 4 bản ghi
+        var req1001 = new Mst_FinishedContractReason_ExportReq { NetworkID = "1001" };
+        var res1001 = await _controller.Export(req1001);
+        var ok1001 = Assert.IsType<OkObjectResult>(res1001);
+        var doc1001 = JsonDocument.Parse(JsonSerializer.Serialize(ok1001.Value));
+        var root1001 = doc1001.RootElement;
+        Assert.True(root1001.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root1001.GetProperty("Title").GetString());
+
+        string url1001 = root1001.GetProperty("strUrl").GetString()!;
+        var path1001 = Path.Combine(_env.WebRootPath, url1001.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb1001 = new XLWorkbook(path1001);
+        var ws1001 = wb1001.Worksheet("Mst_FinishedContractReason");
+        var rows1001 = ws1001.LastRowUsed()?.RowNumber() - 1; // Số dòng dữ liệu (trừ header)
+        Assert.Equal(4, rows1001);
+
+        // Bộ lọc 2: NetworkID = "1002" -> 1 bản ghi
+        var req1002 = new Mst_FinishedContractReason_ExportReq { NetworkID = "1002" };
+        var res1002 = await _controller.Export(req1002);
+        var ok1002 = Assert.IsType<OkObjectResult>(res1002);
+        var doc1002 = JsonDocument.Parse(JsonSerializer.Serialize(ok1002.Value));
+        var root1002 = doc1002.RootElement;
+        Assert.True(root1002.GetProperty("Success").GetBoolean());
+
+        string url1002 = root1002.GetProperty("strUrl").GetString()!;
+        var path1002 = Path.Combine(_env.WebRootPath, url1002.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb1002 = new XLWorkbook(path1002);
+        var ws1002 = wb1002.Worksheet("Mst_FinishedContractReason");
+        var rows1002 = ws1002.LastRowUsed()?.RowNumber() - 1;
+        Assert.Equal(1, rows1002);
+
+        // Đối chiếu 2 bộ lọc ra số dòng khác nhau (4 != 1)
+        Assert.NotEqual(rows1001, rows1002);
+    }
+
+    [Fact]
+    public async Task Export_FilterByFlagActive_ReturnsFilteredResults()
+    {
+        var req = new Mst_FinishedContractReason_ExportReq { FlagActive = "0" };
+        var res = await _controller.Export(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        string url = root.GetProperty("strUrl").GetString()!;
+        var path = Path.Combine(_env.WebRootPath, url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(path);
+        var ws = wb.Worksheet("Mst_FinishedContractReason");
+        var rows = ws.LastRowUsed()?.RowNumber() - 1;
+        Assert.Equal(1, rows);
+        Assert.Equal("REASON04", ws.Cell(2, 1).GetString());
+    }
+
+    [Fact]
+    public async Task Export_NonExistentFilter_ReturnsFileNullTitle()
+    {
+        var req = new Mst_FinishedContractReason_ExportReq { NetworkID = "NON_EXISTENT" };
+        var res = await _controller.Export(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("File Excel nhập không có dữ liệu!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+    }
+
     [Fact]
     public async Task RealServer_Verification_Port8585()
     {
@@ -1464,6 +1579,41 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             Assert.Equal("Lý do nhập live 1", data39.GetProperty("DataList")[0].GetProperty("ContractFinishReasonName").GetString());
             Assert.Equal("FINISHED", data39.GetProperty("DataList")[0].GetProperty("FinishType").GetString());
             Assert.Equal("1", data39.GetProperty("DataList")[0].GetProperty("FlagActive").GetString());
+
+            // ================== Kiểm thử endpoint Export ==================
+            // Request 40: POST Export empty body -> 200 OK, Title = "Đã xuất excel thành công", strUrl hợp lệ
+            var req40 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res40 = await http.PostAsync("/api/mst_finishedcontractreason/export", req40);
+            var body40 = await res40.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ40: {body40}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res40.StatusCode);
+            var doc40 = JsonDocument.Parse(body40);
+            Assert.True(doc40.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", doc40.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc40.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.StartsWith("/TempFiles/", doc40.RootElement.GetProperty("strUrl").GetString()!);
+
+            // Request 41: POST Export Filter NetworkID = 1001 -> 200 OK, Title = "Đã xuất excel thành công"
+            var req41 = new StringContent("{\"NetworkID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res41 = await http.PostAsync("/api/mst_finishedcontractreason/export", req41);
+            var body41 = await res41.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ41: {body41}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res41.StatusCode);
+            var doc41 = JsonDocument.Parse(body41);
+            Assert.True(doc41.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", doc41.RootElement.GetProperty("Title").GetString());
+            Assert.StartsWith("/TempFiles/", doc41.RootElement.GetProperty("strUrl").GetString()!);
+
+            // Request 42: POST Export Filter NetworkID = NON_EXISTENT -> 200 OK, Title = "File Excel nhập không có dữ liệu!"
+            var req42 = new StringContent("{\"NetworkID\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var res42 = await http.PostAsync("/api/mst_finishedcontractreason/export", req42);
+            var body42 = await res42.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ42: {body42}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res42.StatusCode);
+            var doc42 = JsonDocument.Parse(body42);
+            Assert.True(doc42.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File Excel nhập không có dữ liệu!", doc42.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc42.RootElement.GetProperty("CheckSuccess").GetString());
         }
         finally
         {
@@ -1486,5 +1636,15 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             }
             catch { }
         }
+    }
+
+    private class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_reason_" + Guid.NewGuid().ToString("N"));
+        public IFileProvider WebRootFileProvider { get; set; } = null!;
+        public string ApplicationName { get; set; } = "MiniContract.Tests";
+        public IFileProvider ContentRootFileProvider { get; set; } = null!;
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public string EnvironmentName { get; set; } = "Development";
     }
 }
