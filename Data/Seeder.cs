@@ -9,6 +9,7 @@ public static class Seeder
     {
         await db.Database.EnsureCreatedAsync();
         await MigratePostgresAsync(db);
+        await PortSchema.EnsureAsync(db);   // bang/seed port 1-1 (Data/PortSchema.cs)
 
         if (!await db.Orgs.AnyAsync(o => o.Id == TenantContext.DefaultOrgId))
         {

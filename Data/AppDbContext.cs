@@ -37,6 +37,8 @@ public class AppDbContext : DbContext
             e.HasQueryFilter(x => x.OrgId == _orgId);
         });
         b.Entity<ContractSignature>().HasQueryFilter(x => x.OrgId == _orgId);
+    
+        b.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);   // entity port 1-1 (Data/PortInfra.cs)
     }
 
     public override int SaveChanges() { StampOrg(); return base.SaveChanges(); }
