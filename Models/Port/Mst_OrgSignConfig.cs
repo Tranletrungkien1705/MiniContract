@@ -111,6 +111,19 @@ public class Mst_OrgSignConfigSeeder : IPortSeeder
                 CreateBy = "seed",
                 LogLUDTimeUTC = "2026-01-01 00:00:00",
                 LogLUBy = "seed"
+            },
+            new Mst_OrgSignConfig
+            {
+                OrgID = "7200000001",
+                SignType = "REMOTE",
+                NetworkID = "1001",
+                CANumber = "CAREMOTE02",
+                CAOrg = "VNPT-CA",
+                FlagActive = "0",
+                CreateDTimeUTC = "2026-01-01 00:00:00",
+                CreateBy = "seed",
+                LogLUDTimeUTC = "2026-01-01 00:00:00",
+                LogLUBy = "seed"
             }
         );
 
