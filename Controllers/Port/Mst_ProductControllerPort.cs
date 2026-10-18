@@ -11,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 2950-2960 (ExportTemplate), 2964-4567 (Import), 4575-4792 (Export), 4801-4814 (ShowPopupImportExcel), 4818-4859 (GetImportDicColumsTemplate), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 2950-2960 (ExportTemplate), 2964-4567 (Import), 4575-4792 (Export), 4801-4814 (ShowPopupImportExcel), 4818-4859 (GetImportDicColumsTemplate), 5534-5631 (StopProducts), 5055-5075 (strWhereSearchProductByListProduct), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save), MstProductGroupController.cs:19-89 (WA_Mst_ProductGroup_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX), 30-146 (WAS_Mst_ProductGroup_Get), 147-293 (Mst_ProductGroup_Get), 295-459 (Mst_ProductGroup_GetX)
 [ApiController]
@@ -3020,6 +3020,138 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Ngừng kinh doanh hàng hóa (StopProducts).
+    /// Chuyển cờ FlagActive của các sản phẩm được chọn về "0".
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:5534-5631 StopProducts(string listproduct)
+    ///       hàm phụ: Mst_ProductController.cs:5055-5075 (strWhereSearchProductByListProduct)
+    ///       BaseController.cs:4618-4624 (RT_Mst_Product_Get)
+    /// API:  MstProductController.cs:19-87 (WA_Mst_Product_Get)
+    /// BIZ:  Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get)
+    /// Chuỗi gọi:
+    /// 1. Nhận tham số listproduct (chuỗi JSON danh sách sản phẩm) hoặc danh sách sản phẩm từ DTO (gate dòng 5534).
+    /// 2. Khởi tạo resultEntry = new JsonResultEntry() { Success = false } (gate dòng 5536).
+    /// 3. Lấy waUserCode = CUtils.StrValueOrNull(UserState.SysUser.UserCode) (gate dòng 5538).
+    /// 4. Deserialize listproduct -> List<Mst_Product> (gate dòng 5542).
+    ///    Nếu listproduct không phải JSON hợp lệ -> ném ngoại lệ JsonException -> catch (gate dòng 5525-5628)
+    ///    -> PortResult.Fail("Mst_Product_StopProducts", "Exception", ex.Message).
+    /// 5. Dựng điều kiện strWhereClauseMst_Product = strWhereSearchProductByListProduct(objListMst_ProductInput) (gate dòng 5545, 5055-5075).
+    ///    Duyệt danh sách, trích xuất ProductCode: "Mst_Product.ProductCode in 'PRD1','PRD2'".
+    /// 6. Đóng gói objRQ_Mst_ProductCur và gọi RT_Mst_Product_Get (gate dòng 5546-5575)
+    ///    -> API WA_Mst_Product_Get -> BIZ WAS_Mst_Product_Get -> BIZ Mst_Product_Get.
+    ///    Truy vấn bảng Mst_Product theo danh sách ProductCode và OrgID.
+    /// 7. Nếu obj_RT_Mst_Product != null (gate dòng 5578):
+    ///    - Duyệt danh sách sản phẩm, gán item.FlagActive = "0" (gate dòng 5580-5586).
+    ///    - Cập nhật DB: FlagActive = "0", LUDTimeUTC = dtimeSys, LUBy = "port", LogLUDTimeUTC = dtimeSys, LogLUBy = "port".
+    ///    - Bỏ qua gọi Mst_ProductService.Instance.WA_Mst_Product_Update sang dịch vụ ngoài Product Center (gate dòng 5618) -> GAP (Rule P3).
+    ///    - Gán resultEntry.Success = true, resultEntry.AddMessage("Ngừng kinh doanh hàng hóa thành công!"), resultEntry.RedirectUrl = Url.Action("Index") (gate dòng 5620-5622).
+    /// 8. Trả về Json(resultEntry) (gate dòng 5630).
+    /// </summary>
+    [HttpPost("stopproducts")]
+    [HttpPost("stop-products")]
+    [HttpPost("stop_products")]
+    public async Task<IActionResult> StopProducts([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_StopProductsReq? req = null)
+    {
+        try
+        {
+            string? rawListProduct = req?.listproduct;
+
+            // Xử lý query string hoặc form nếu có (khớp MVC model binding)
+            if (string.IsNullOrEmpty(rawListProduct) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("listproduct", out var qList))
+            {
+                rawListProduct = qList.ToString();
+            }
+            if (string.IsNullOrEmpty(rawListProduct) && HttpContext?.Request?.HasFormContentType == true && HttpContext.Request.Form.TryGetValue("listproduct", out var fList))
+            {
+                rawListProduct = fList.ToString();
+            }
+
+            // Gate dòng 5542: DeserializeObject<List<Mst_Product>>(listproduct)
+            List<Mst_Product_StopProductItem>? listInput = req?.Products;
+            if (!string.IsNullOrWhiteSpace(rawListProduct))
+            {
+                listInput = JsonSerializer.Deserialize<List<Mst_Product_StopProductItem>>(
+                    rawListProduct,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+
+            // Gate dòng 5545, 5055-5075: strWhereSearchProductByListProduct
+            var prdCodes = new List<string>();
+            if (listInput != null && listInput.Count > 0)
+            {
+                foreach (var item in listInput)
+                {
+                    var code = StdParam(item.ProductCode);
+                    if (!string.IsNullOrEmpty(code))
+                    {
+                        prdCodes.Add(code);
+                    }
+                }
+            }
+
+            var orgId = StdParam(req?.OrgID);
+            var query = _db.Set<Mst_Product>().AsQueryable();
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            // Nếu có danh sách mã sản phẩm thì lọc theo ProductCode
+            if (prdCodes.Count > 0)
+            {
+                query = query.Where(x => prdCodes.Contains((x.ProductCode ?? "").ToUpper()));
+            }
+
+            // Cập nhật các bản ghi phù hợp (Gate dòng 5580-5586, BIZ Update)
+            if (prdCodes.Count > 0)
+            {
+                var productsToUpdate = await query.ToListAsync();
+                if (productsToUpdate.Count > 0)
+                {
+                    await using var tx = await _db.Database.BeginTransactionAsync();
+                    try
+                    {
+                        var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+                        foreach (var item in productsToUpdate)
+                        {
+                            item.FlagActive = "0";
+                            item.LUDTimeUTC = dtimeSys;
+                            item.LUBy = "port";
+                            item.LogLUDTimeUTC = dtimeSys;
+                            item.LogLUBy = "port";
+                        }
+
+                        await _db.SaveChangesAsync();
+                        await tx.CommitAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        await tx.RollbackAsync();
+                        return PortResult.Fail("Mst_Product_StopProducts", "Exception", ex.Message);
+                    }
+                }
+            }
+
+            // GAP: Mst_ProductService.Instance.WA_Mst_Product_Update gọi sang hệ thống ngoài Product Center bỏ qua theo Rule P3 (Gate dòng 5618)
+
+            // Gate dòng 5620-5622: Success = true, thông báo và RedirectUrl
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Ngừng kinh doanh hàng hóa thành công!" },
+                Title = "Ngừng kinh doanh hàng hóa thành công!",
+                RedirectUrl = "/Mst_Product/Index",
+                Data = (object?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            // Gate dòng 5625-5628: catch (Exception ex) -> resultEntry.SetFailed().AddException(this, ex)
+            return PortResult.Fail("Mst_Product_StopProducts", "Exception", ex.Message);
+        }
+    }
+
     private class Mst_Product_ParsedImportItem
     {
         public Mst_Product Product { get; set; } = null!;
@@ -3785,5 +3917,31 @@ public class Mst_Product_ExportReq
 /// </summary>
 public class Mst_Product_ShowPopupImportExcelReq
 {
+}
+
+/// <summary>
+/// Model nhận tham số cho action StopProducts của Mst_ProductController.
+/// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:5534 StopProducts(string listproduct)
+/// </summary>
+public class Mst_Product_StopProductsReq
+{
+    // Gate Mst_ProductController.cs:5534
+    public string? listproduct { get; set; }
+    public List<Mst_Product_StopProductItem>? Products { get; set; }
+
+    // Các tham số bổ sung (LESSON A.14)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// DTO từng phần tử trong danh sách sản phẩm gửi tới StopProducts.
+/// </summary>
+public class Mst_Product_StopProductItem
+{
+    public string? ProductCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
 }
 
