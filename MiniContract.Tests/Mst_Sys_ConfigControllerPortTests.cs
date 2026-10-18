@@ -530,6 +530,135 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateAttribute_NullReq_ReturnsInvalidAttributeContractCodeFail()
+    {
+        var result = await _controller.CreateAttribute(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_Create_InvalidAttributeContractCode", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.strAttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task CreateAttribute_EmptyReq_ReturnsInvalidAttributeContractCodeFail()
+    {
+        var req = new Mst_Sys_Config_CreateAttributeReq();
+        var result = await _controller.CreateAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_Create_InvalidAttributeContractCode", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal(JsonValueKind.Null, p.GetProperty("Check.strAttributeContractCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task CreateAttribute_ExistingCode_ReturnsOrganExistFail()
+    {
+        var req = new Mst_Sys_Config_CreateAttributeReq
+        {
+            AttributeContractCode = "ATTR01",
+            AttributeName = "Thuoc tinh trung"
+        };
+        var result = await _controller.CreateAttribute(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganExist", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("ATTR01", p.GetProperty("Check.AttributeContractCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateAttribute_ValidReq_RoundTrip_Success()
+    {
+        var req = new Mst_Sys_Config_CreateAttributeReq
+        {
+            AttributeContractCode = "ATTR04",
+            AttributeName = "Thời hạn hợp đồng",
+            DefaultValues = "12 tháng"
+        };
+        var result = await _controller.CreateAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var messages = root.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Lưu thông tin hợp đồng thành công!", messages[0].GetString());
+        Assert.Equal("/Mst_Sys_Config", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra round-trip đọc lại từ DB
+        var created = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR04");
+        Assert.NotNull(created);
+        Assert.Equal("Thời hạn hợp đồng", created.AttributeName);
+        Assert.Equal("12 tháng", created.DefaultValues);
+        Assert.Equal("1", created.FlagActive);
+        Assert.Equal("1001", created.NetworkID);
+        Assert.Equal("port", created.LogLUBy);
+        Assert.False(string.IsNullOrEmpty(created.LogLUDTimeUTC));
+    }
+
+    [Fact]
+    public async Task CreateAttribute_JsonModelString_Success()
+    {
+        var req = new Mst_Sys_Config_CreateAttributeReq
+        {
+            Model = "{\"AttributeContractCode\":\"ATTR05\",\"AttributeName\":\"Mã dự án\",\"DefaultValues\":\"PRJ-01\"}"
+        };
+        var result = await _controller.CreateAttribute(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+
+        var created = await _db.Set<Mst_Attribute_Contract>().FirstOrDefaultAsync(x => x.AttributeContractCode == "ATTR05");
+        Assert.NotNull(created);
+        Assert.Equal("Mã dự án", created.AttributeName);
+        Assert.Equal("PRJ-01", created.DefaultValues);
+        Assert.Equal("1", created.FlagActive);
+    }
+
+    [Fact]
+    public async Task CreateAttribute_DuplicateCodeAfterCreate_ReturnsOrganExistFail()
+    {
+        var req1 = new Mst_Sys_Config_CreateAttributeReq
+        {
+            AttributeContractCode = "ATTR06",
+            AttributeName = "Lần đầu tạo"
+        };
+        var result1 = await _controller.CreateAttribute(req1);
+        Assert.IsType<OkObjectResult>(result1);
+
+        var req2 = new Mst_Sys_Config_CreateAttributeReq
+        {
+            AttributeContractCode = "ATTR06",
+            AttributeName = "Tạo lại cùng mã"
+        };
+        var result2 = await _controller.CreateAttribute(req2);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result2);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganExist", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8544()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_sys_config_{Guid.NewGuid():N}.db");
@@ -741,6 +870,59 @@ public class Mst_Sys_ConfigControllerPortTests : IDisposable
             Assert.Equal("Số hợp đồng gốc sửa thật", listAttrFinal[0].GetProperty("AttributeName").GetString());
             Assert.Equal("VAL_TEST", listAttrFinal[0].GetProperty("DefaultValues").GetString());
             Assert.Equal("0", listAttrFinal[0].GetProperty("FlagActive").GetString());
+
+            // 17. Ca CreateAttribute body rỗng: POST {} -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_Create_InvalidAttributeContractCode
+            var req17 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res17 = await http.PostAsync("/api/mst_sys_config/createattribute", req17);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res17.StatusCode);
+            var body17 = await res17.Content.ReadAsStringAsync();
+            var doc17 = JsonDocument.Parse(body17);
+            Assert.False(doc17.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_Create_InvalidAttributeContractCode", doc17.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal(JsonValueKind.Null, doc17.RootElement.GetProperty("Params").GetProperty("Check.strAttributeContractCode").ValueKind);
+
+            // 18. Ca CreateAttribute mã đã tồn tại (ATTR01) -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganExist
+            var req18 = new StringContent("{\"AttributeContractCode\":\"ATTR01\",\"AttributeName\":\"Trùng mã\"}", Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/mst_sys_config/createattribute", req18);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res18.StatusCode);
+            var body18 = await res18.Content.ReadAsStringAsync();
+            var doc18 = JsonDocument.Parse(body18);
+            Assert.False(doc18.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganExist", doc18.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("ATTR01", doc18.RootElement.GetProperty("Params").GetProperty("Check.AttributeContractCode").GetString());
+
+            // 19. Ca CreateAttribute round-trip thành công tạo mới ATTR04 -> 200 OK
+            var req19 = new StringContent("{\"AttributeContractCode\":\"ATTR04\",\"AttributeName\":\"Thời hạn hiệu lực\",\"DefaultValues\":\"12 tháng\"}", Encoding.UTF8, "application/json");
+            var res19 = await http.PostAsync("/api/mst_sys_config/createattribute", req19);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res19.StatusCode);
+            var body19 = await res19.Content.ReadAsStringAsync();
+            var doc19 = JsonDocument.Parse(body19);
+            Assert.True(doc19.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Lưu thông tin hợp đồng thành công!", doc19.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Mst_Sys_Config", doc19.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 20. Đọc lại qua Index để xác nhận ATTR04 đã tồn tại thật trong DB
+            var req20 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res20 = await http.PostAsync("/api/mst_sys_config/index", req20);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res20.StatusCode);
+            var body20 = await res20.Content.ReadAsStringAsync();
+            var doc20 = JsonDocument.Parse(body20);
+            var listAttrWithNew = doc20.RootElement.GetProperty("Data").GetProperty("ListMst_Attribute_Contract");
+            Assert.Equal(3, listAttrWithNew.GetArrayLength()); // Trước đó 2 (do xoá ATTR03), giờ thêm ATTR04 thành 3
+            var attr04 = listAttrWithNew[2];
+            Assert.Equal("ATTR04", attr04.GetProperty("AttributeContractCode").GetString());
+            Assert.Equal("Thời hạn hiệu lực", attr04.GetProperty("AttributeName").GetString());
+            Assert.Equal("12 tháng", attr04.GetProperty("DefaultValues").GetString());
+            Assert.Equal("1", attr04.GetProperty("FlagActive").GetString());
+
+            // 21. Tạo lại ATTR04 vừa tạo -> 400 Bad Request, mã lỗi Mst_Attribute_Contract_CheckDB_OrganExist
+            var req21 = new StringContent("{\"AttributeContractCode\":\"ATTR04\",\"AttributeName\":\"Thời hạn hiệu lực 2\"}", Encoding.UTF8, "application/json");
+            var res21 = await http.PostAsync("/api/mst_sys_config/createattribute", req21);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res21.StatusCode);
+            var body21 = await res21.Content.ReadAsStringAsync();
+            var doc21 = JsonDocument.Parse(body21);
+            Assert.False(doc21.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Attribute_Contract_CheckDB_OrganExist", doc21.RootElement.GetProperty("ErrorCode").GetString());
         }
         finally
         {

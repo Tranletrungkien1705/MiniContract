@@ -14,7 +14,9 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:94-167 (Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:170-217 (DeleteAttribute)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:221-282 (UpdateAttribute)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_Sys_ConfigController.cs:286-341 (CreateAttribute)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:20-88 (WA_Mst_Attribute_Contract_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:90-158 (WA_Mst_Attribute_Contract_Create)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:160-228 (WA_Mst_Attribute_Contract_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAttributeContractController.cs:230-298 (WA_Mst_Attribute_Contract_Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstSysConfigController.cs:20-88 (WA_Mst_Sys_Config_Get)
@@ -22,6 +24,7 @@ namespace MiniContract.Controllers.Port;
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7224-7312 (WAS_Mst_Sys_Config_Get) -> 7313-7439 (Mst_Sys_Config_Get) -> 7441-7597 (Mst_Sys_Config_GetX)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7599-7678 (WAS_Mst_Sys_Config_Update) -> 7679-7810 (Mst_Sys_Config_Update) -> 7812-7904 (Mst_Sys_Config_UpdateX) -> 7158-7222 (Mst_Sys_Config_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:7974-8070 (WAS_Mst_Attribute_Contract_Get) -> 8071-8227 (Mst_Attribute_Contract_Get) -> 8923-9052 (Mst_Attribute_Contract_GetX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:8229-8308 (WAS_Mst_Attribute_Contract_Create) -> 8309-8458 (Mst_Attribute_Contract_Create) -> 9079-9168 (Mst_Attribute_Contract_CreateX) -> 7908-7972 (Mst_Attribute_Contract_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:8459-8541 (WAS_Mst_Attribute_Contract_Update) -> 8542-8700 (Mst_Attribute_Contract_Update) -> 9169-9253 (Mst_Attribute_Contract_UpdateX) -> 7908-7972 (Mst_Attribute_Contract_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:8701-8778 (WAS_Mst_Attribute_Contract_Delete) -> 8779-8922 (Mst_Attribute_Contract_Delete) -> 9254-9309 (Mst_Attribute_Contract_DeleteX) -> 7908-7972 (Mst_Attribute_Contract_CheckDB)
 [ApiController]
@@ -505,6 +508,131 @@ public class Mst_Sys_ConfigControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action CreateAttribute từ gate Mst_Sys_ConfigController.cs:286-341.
+    /// Chuỗi gọi:
+    /// 1. Gate nhận tham số model (chuỗi JSON đại diện cho Mst_Attribute_Contract) (gate dòng 286, 296).
+    /// 2. Gate tạo RQ_Mst_Attribute_Contract chứa Mst_Attribute_Contract (AttributeContractCode, AttributeName, DefaultValues, FlagActive) (gate dòng 300-328).
+    /// 3. Gate gọi Mst_Attribute_ContractService.Instance.WA_Mst_Attribute_Contract_Create (gate dòng 329).
+    /// 4. API WA_Mst_Attribute_Contract_Create (MstAttributeContractController.cs:90-158)
+    ///    -> BIZ WAS_Mst_Attribute_Contract_Create (QContract.cs:8229-8308)
+    ///    -> Mst_Attribute_Contract_Create (QContract.cs:8309-8458, mở transaction dòng 8346)
+    ///    -> Mst_Attribute_Contract_CreateX (QContract.cs:9079-9168):
+    ///       - Chuẩn hoá strAttributeContractCode = StdParam(objAttributeContractCode) (dòng 9109).
+    ///       - Guard 1: if (strAttributeContractCode == null || strAttributeContractCode.Length < 1)
+    ///         -> ném Mst_Attribute_Contract_Create_InvalidAttributeContractCode (dòng 9120-9130).
+    ///       - Guard 2: Mst_Attribute_Contract_CheckDB với FlagExist = "0" (QContract.cs:7908-7972, 9132-9138):
+    ///         Nếu bản ghi đã tồn tại trong DB (dtDB.Rows.Count > 0)
+    ///         -> ném Mst_Attribute_Contract_CheckDB_OrganExist (dòng 7951).
+    ///       - Tạo mới bản ghi: AttributeContractCode, NetworkID, AttributeName, DefaultValues, FlagActive = "1", LogLUDTimeUTC, LogLUBy (dòng 9146-9158).
+    ///       - Lưu DB (dòng 9161) và commit transaction (dòng 8421).
+    /// 5. Gate trả về JsonResultEntry(Success=true, "Lưu thông tin hợp đồng thành công!", RedirectUrl="Index") (gate dòng 330-333).
+    /// </summary>
+    [HttpPost("createattribute")]
+    public async Task<IActionResult> CreateAttribute([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Sys_Config_CreateAttributeReq? req)
+    {
+        try
+        {
+            // 1. Hỗ trợ nhận model dạng chuỗi JSON thô như gate MVC (Mst_Sys_ConfigController.cs:286, 296)
+            if (req != null && !string.IsNullOrWhiteSpace(req.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Sys_Config_CreateAttributeReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.AttributeContractCode ??= modelObj.AttributeContractCode;
+                        req.NetworkID ??= modelObj.NetworkID;
+                        req.AttributeName ??= modelObj.AttributeName;
+                        req.DefaultValues ??= modelObj.DefaultValues;
+                        req.FlagActive ??= modelObj.FlagActive;
+                        req.Mst_Attribute_Contract ??= modelObj.Mst_Attribute_Contract;
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            // Gán thông tin từ Mst_Attribute_Contract lồng (nếu có)
+            if (req?.Mst_Attribute_Contract != null)
+            {
+                req.AttributeContractCode ??= req.Mst_Attribute_Contract.AttributeContractCode;
+                req.NetworkID ??= req.Mst_Attribute_Contract.NetworkID;
+                req.AttributeName ??= req.Mst_Attribute_Contract.AttributeName;
+                req.DefaultValues ??= req.Mst_Attribute_Contract.DefaultValues;
+                req.FlagActive ??= req.Mst_Attribute_Contract.FlagActive;
+            }
+
+            // 2. Chuẩn hoá tham số đầu vào (QContract.cs:9109-9111)
+            var code = StdParam(req?.AttributeContractCode);
+
+            // Guard 1: Kiểm tra mã hợp lệ (QContract.cs:9120-9130)
+            // if (strAttributeContractCode == null || strAttributeContractCode.Length < 1) -> ném InvalidAttributeContractCode
+            if (string.IsNullOrEmpty(code))
+            {
+                return PortResult.Fail("Mst_Attribute_Contract_Create_InvalidAttributeContractCode", "Check.strAttributeContractCode", code);
+            }
+
+            // Guard 2: Kiểm tra bản ghi đã tồn tại chưa (Mst_Attribute_Contract_CheckDB: QContract.cs:7945-7955, 9132-9138)
+            // if (strFlagExistToCheck == "0" && dtDB.Rows.Count > 0) -> ném OrganExist
+            var existing = await _db.Set<Mst_Attribute_Contract>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.AttributeContractCode ?? "").ToLower(), PortQuery.Equal(code), PortQuery.Esc));
+
+            if (existing != null)
+            {
+                return PortResult.Fail("Mst_Attribute_Contract_CheckDB_OrganExist", "Check.AttributeContractCode", code);
+            }
+
+            // 3. Mở transaction và lưu dữ liệu (QContract.cs:8346, 8421, 9146-9166)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var networkId = StdParam(req?.NetworkID) ?? _config?["Biz_NetworkID"] ?? "1001";
+                var attrName = req?.AttributeName != null ? req.AttributeName.Trim() : "";
+                var defaultValues = req?.DefaultValues != null ? req.DefaultValues.Trim() : "";
+                var dtimeSys = DateTime.UtcNow;
+                var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+                var entity = new Mst_Attribute_Contract
+                {
+                    AttributeContractCode = code,
+                    NetworkID = networkId,
+                    AttributeName = attrName,
+                    DefaultValues = defaultValues,
+                    FlagActive = "1", // TConst.Flag.Active trong Mst_Attribute_Contract_CreateX dòng 9155
+                    LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+                    LogLUBy = userCode
+                };
+
+                await _db.Set<Mst_Attribute_Contract>().AddAsync(entity);
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // 4. Trả về kết quả thành công khớp gate MVC (Mst_Sys_ConfigController.cs:330-333)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Lưu thông tin hợp đồng thành công!" },
+                    Title = "Lưu thông tin hợp đồng thành công!",
+                    RedirectUrl = "/Mst_Sys_Config",
+                    Data = entity
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Attribute_Contract_Create", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Attribute_Contract_Create", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -590,6 +718,29 @@ public class Mst_Sys_Config_UpdateAttributeReq
 }
 
 public class Mst_Attribute_Contract_UpdateItem
+{
+    public string? AttributeContractCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? AttributeName { get; set; }
+    public string? DefaultValues { get; set; }
+    public string? FlagActive { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action CreateAttribute của Mst_Sys_ConfigController.
+/// </summary>
+public class Mst_Sys_Config_CreateAttributeReq
+{
+    public string? Model { get; set; }
+    public string? AttributeContractCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? AttributeName { get; set; }
+    public string? DefaultValues { get; set; }
+    public string? FlagActive { get; set; }
+    public Mst_Attribute_Contract_CreateItem? Mst_Attribute_Contract { get; set; }
+}
+
+public class Mst_Attribute_Contract_CreateItem
 {
     public string? AttributeContractCode { get; set; }
     public string? NetworkID { get; set; }
