@@ -524,5 +524,178 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         var listNNT = data.GetProperty("ListMst_NNT");
         Assert.Equal(2, listNNT.GetArrayLength());
     }
+
+    [Fact]
+    public async Task Edit_NullBody_ReturnsFail_Mst_Department_Update()
+    {
+        var result = await _controller.Edit(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Update", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out var p));
+        Assert.Equal(JsonValueKind.Null, p.ValueKind);
+    }
+
+    [Fact]
+    public async Task Edit_EmptyBodyOrModel_ReturnsOk_DepartmentEmptyMessage()
+    {
+        // 1. Body rỗng không có thông tin
+        var resEmpty = await _controller.Edit(new Mst_Department_EditReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Bộ phận phòng ban trống!", docEmpty.RootElement.GetProperty("Messages")[0].GetString());
+
+        // 2. Chuỗi Model rỗng
+        var resModelEmpty = await _controller.Edit(new Mst_Department_EditReq { Model = "" });
+        var okModelEmpty = Assert.IsType<OkObjectResult>(resModelEmpty);
+        var docModelEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okModelEmpty.Value));
+        Assert.True(docModelEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Bộ phận phòng ban trống!", docModelEmpty.RootElement.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentDepartmentCode_ReturnsOk_DepartmentNotFoundMessage()
+    {
+        var req = new Mst_Department_EditReq
+        {
+            DepartmentCode = "DEPT_NONEXIST",
+            DepartmentName = "Phòng không tồn tại",
+            MST = "0100000001"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã bộ phận phòng ban 'DEPT_NONEXIST' không có trong hệ thống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_MSTNotFound_ReturnsFail_Mst_NNT_CheckDB_NNTNotFound()
+    {
+        var req = new Mst_Department_EditReq
+        {
+            DepartmentCode = "DEPT_KT",
+            DepartmentName = "Phòng Kế Toán",
+            MST = "9999999999"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("9999999999", root.GetProperty("Params").GetProperty("Check.MST").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_MSTInactive_ReturnsFail_Mst_NNT_CheckDB_FlagActiveNotMatched()
+    {
+        var req = new Mst_Department_EditReq
+        {
+            DepartmentCode = "DEPT_KT",
+            DepartmentName = "Phòng Kế Toán",
+            MST = "0100000003" // Seeded inactive (FlagActive = "0") in Mst_NNTSeeder
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("0100000003", root.GetProperty("Params").GetProperty("Check.MST").GetString());
+        Assert.Equal("0", root.GetProperty("Params").GetProperty("DB.FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyDepartmentName_ReturnsFail_Mst_Department_UpdateX_InvalidDepartmentName()
+    {
+        var req = new Mst_Department_EditReq
+        {
+            DepartmentCode = "DEPT_KT",
+            DepartmentName = "",
+            MST = "0100000001"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_UpdateX_InvalidDepartmentName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_Success_RoundTrip()
+    {
+        var req = new Mst_Department_EditReq
+        {
+            DepartmentCode = "DEPT_KT",
+            DepartmentName = "Phòng Kế Toán Đã Sửa",
+            MST = "0100000001",
+            FlagActive = "1"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Sửa bộ phận phòng ban thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Mst_Department", root.GetProperty("RedirectUrl").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("DEPT_KT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("Phòng Kế Toán Đã Sửa", data.GetProperty("DepartmentName").GetString());
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        // Đọc lại từ DB để xác minh round-trip
+        var deptInDb = await _db.Set<Mst_Department>().FirstAsync(x => x.DepartmentCode == "DEPT_KT");
+        Assert.Equal("Phòng Kế Toán Đã Sửa", deptInDb.DepartmentName);
+        Assert.Equal("0100000001", deptInDb.MST);
+        Assert.Equal("1", deptInDb.FlagActive);
+    }
+
+    [Fact]
+    public async Task Edit_WithModelJson_Success_RoundTrip()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            DepartmentCode = "DEPT_KD_INACT",
+            DepartmentName = "Phòng Kinh Doanh Kích Hoạt",
+            MST = "0100000002",
+            FlagActive = "1"
+        });
+
+        var req = new Mst_Department_EditReq { Model = modelJson };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Sửa bộ phận phòng ban thành công!", root.GetProperty("Messages")[0].GetString());
+
+        // Đọc lại từ DB xác minh chuyển từ inactive "0" sang active "1" và tên mới
+        var deptInDb = await _db.Set<Mst_Department>().FirstAsync(x => x.DepartmentCode == "DEPT_KD_INACT");
+        Assert.Equal("Phòng Kinh Doanh Kích Hoạt", deptInDb.DepartmentName);
+        Assert.Equal("0100000002", deptInDb.MST);
+        Assert.Equal("1", deptInDb.FlagActive);
+    }
 }
 

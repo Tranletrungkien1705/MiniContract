@@ -10,9 +10,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_DepartmentController.cs — Mst_Department
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36795-36931 (Mst_Department_CreateX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create), 162-231 (WA_Mst_Department_Update)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
 [ApiController]
 [Route("api/mst_department")]
 public class Mst_DepartmentControllerPort : ControllerBase
@@ -407,6 +407,165 @@ public class Mst_DepartmentControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Cập nhật thông tin phòng ban bộ phận.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:263-348 Edit(string model)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:162-231 WA_Mst_Department_Update
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:36201-36284 (WAS_Mst_Department_Update) -> 36285-36432 (Mst_Department_Update) -> 36932-37041 (Mst_Department_UpdateX), 35634-35698 (Mst_Department_CheckDB), 12001-12070 (Mst_NNT_CheckDB)
+    /// </summary>
+    [HttpPost("edit")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Department_EditReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoàn toàn (Lesson A.15, A.21; Master.cs:36218, 36311)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_Department_Update", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_DepartmentController.cs:263, 273)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Department_EditReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.DepartmentCode ??= modelObj.DepartmentCode;
+                    req.DepartmentCodeParent ??= modelObj.DepartmentCodeParent;
+                    req.DepartmentBUCode ??= modelObj.DepartmentBUCode;
+                    req.DepartmentBUPattern ??= modelObj.DepartmentBUPattern;
+                    req.DepartmentLevel ??= modelObj.DepartmentLevel;
+                    req.MST ??= modelObj.MST;
+                    req.DepartmentName ??= modelObj.DepartmentName;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.Ft_Cols_Upd ??= modelObj.Ft_Cols_Upd;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        // Gate guard 1: Kiểm tra model/thông tin phòng ban trống (Mst_DepartmentController.cs:271, 343-346)
+        if (string.IsNullOrWhiteSpace(req.DepartmentCode) &&
+            string.IsNullOrWhiteSpace(req.DepartmentName) &&
+            string.IsNullOrWhiteSpace(req.MST) &&
+            string.IsNullOrWhiteSpace(req.Model))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Bộ phận phòng ban trống!" },
+                Title = "Bộ phận phòng ban trống!"
+            });
+        }
+
+        var strDepartmentCode = StdParam(req.DepartmentCode);
+        if (string.IsNullOrEmpty(strDepartmentCode))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Bộ phận phòng ban trống!" },
+                Title = "Bộ phận phòng ban trống!"
+            });
+        }
+
+        // Gate guard 2: Tra cứu bản ghi phòng ban hiện có trong DB (Mst_DepartmentController.cs:279-303, 336-340; Master.cs:36701, 36740)
+        var existing = await _db.Set<Mst_Department>()
+            .FirstOrDefaultAsync(x => EF.Functions.Like((x.DepartmentCode ?? "").ToLower(), PortQuery.Equal(strDepartmentCode), PortQuery.Esc));
+
+        if (existing == null)
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { $"Mã bộ phận phòng ban '{req.DepartmentCode}' không có trong hệ thống!" },
+                Title = $"Mã bộ phận phòng ban '{req.DepartmentCode}' không có trong hệ thống!"
+            });
+        }
+
+        // Xác định các cột cập nhật theo Ft_Cols_Upd của gate (Mst_DepartmentController.cs:314-326; Master.cs:36979-36981)
+        var strFt_Cols_Upd = req.Ft_Cols_Upd != null ? StdParam(req.Ft_Cols_Upd) : "";
+        bool bUpd_MST = string.IsNullOrEmpty(strFt_Cols_Upd) || strFt_Cols_Upd.Contains("MST");
+        bool bUpd_DepartmentName = string.IsNullOrEmpty(strFt_Cols_Upd) || strFt_Cols_Upd.Contains("DEPARTMENTNAME");
+        bool bUpd_FlagActive = string.IsNullOrEmpty(strFt_Cols_Upd) || strFt_Cols_Upd.Contains("FLAGACTIVE");
+
+        // Chuẩn hoá tham số đầu vào theo Master.cs:36973-36978
+        var strMST = req.MST != null ? StdParam(req.MST) : StdParam(existing.MST);
+        var strDepartmentName = req.DepartmentName != null ? string.Format("{0}", req.DepartmentName).Trim() : existing.DepartmentName;
+        var strFlagActive = req.FlagActive != null ? StdFlag(req.FlagActive) : existing.FlagActive;
+
+        // Mở transaction cập nhật (Master.cs:36330)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Biz guard 1: Kiểm tra MST trong Mst_NNT qua Mst_NNT_CheckDB (Master.cs:36997-37004, 12001-12070)
+            if (string.IsNullOrEmpty(strMST))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", req.MST);
+            }
+
+            var nnt = await _db.Set<Mst_NNT>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
+
+            if (nnt == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", strMST);
+            }
+
+            if (nnt.FlagActive != "1")
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_CheckDB_FlagActiveNotMatched",
+                    "Check.MST", strMST,
+                    "Check.strFlagActiveListToCheck", "1",
+                    "DB.FlagActive", nnt.FlagActive);
+            }
+
+            // Biz guard 2: Kiểm tra DepartmentName không được rỗng khi cập nhật (Master.cs:37007-37018)
+            if (bUpd_DepartmentName && string.IsNullOrEmpty(strDepartmentName))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Department_UpdateX_InvalidDepartmentName", "Check.strDepartmentName", strDepartmentName);
+            }
+
+            // Lưu các cột hiệu lực theo Master.cs:37024-37038
+            if (bUpd_MST) existing.MST = strMST;
+            if (bUpd_DepartmentName) existing.DepartmentName = strDepartmentName;
+            if (bUpd_FlagActive) existing.FlagActive = strFlagActive;
+
+            var dtimeSys = DateTime.UtcNow;
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            existing.LogLUBy = userCode;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // Trả kết quả thành công khớp gate MVC (Mst_DepartmentController.cs:332-334)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Sửa bộ phận phòng ban thành công!" },
+                Title = "Sửa bộ phận phòng ban thành công!",
+                RedirectUrl = "/Mst_Department",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_Department_Update", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU (Master.cs:35700-35736).
     /// </summary>
     private async Task UpdBUAsync()
@@ -566,4 +725,25 @@ public class Mst_Department_UpdateData : Mst_Department
         ListMst_NNT = listNNT;
         List_Mst_NNT = listNNT;
     }
+}
+
+/// <summary>
+/// DTO tham số cho action Edit của Mst_DepartmentController.
+/// </summary>
+public class Mst_Department_EditReq
+{
+    // Chuỗi JSON model từ gate MVC (Mst_DepartmentController.cs:263, 273)
+    public string? Model { get; set; }
+
+    // Các trường của Mst_Department theo gate và BIZ Master.cs:36958-36964
+    public string? DepartmentCode { get; set; }
+    public string? DepartmentCodeParent { get; set; }
+    public string? DepartmentBUCode { get; set; }
+    public string? DepartmentBUPattern { get; set; }
+    public string? DepartmentLevel { get; set; }
+    public string? MST { get; set; }
+    public string? DepartmentName { get; set; }
+    public string? FlagActive { get; set; }
+    public string? NetworkID { get; set; }
+    public string? Ft_Cols_Upd { get; set; }
 }
