@@ -3098,6 +3098,263 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO CREATEINORDER (Port #172)
+    // Gate: Mst_CustomerController.cs:3603-3800 CreateInOrder(string model)
+    // API:  MstCustomerController.cs:19-89 WA_Mst_Customer_Save
+    // BIZ:  Customer.cs:2968-3070 WAS_Mst_Customer_Save -> 1619-1732 Mst_Customer_Save -> 2359-2966 Mst_Customer_SaveX_New20231205
+    // ==========================================
+
+    [Fact]
+    public async Task CreateInOrder_NullReq_ReturnsBadRequest_CheckStrJson()
+    {
+        var result = await _controller.CreateInOrder(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_CreateInOrder", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Params").GetProperty("Check.strJson").ValueKind);
+    }
+
+    [Fact]
+    public async Task CreateInOrder_EmptyReq_ReturnsBadRequest_CheckStrJson()
+    {
+        var req = new Mst_Customer_CreateInOrderReq();
+        var result = await _controller.CreateInOrder(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_CreateInOrder", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Params").GetProperty("Check.strJson").ValueKind);
+    }
+
+    [Fact]
+    public async Task CreateInOrder_DirectProperties_WithGroups_SuccessfullyCreatesCustomerAndGroups()
+    {
+        var req = new Mst_Customer_CreateInOrderReq
+        {
+            CustomerCode = "KH_ORDER_01",
+            CustomerName = "Công ty Cổ phần Đặt Hàng Mới",
+            CustomerType = "ENTERPRISE",
+            CustomerMobilePhone = "0988776655",
+            CustomerEmail = "order_cust01@domain.vn",
+            OrgID = "7200000001",
+            NetworkID = "1001",
+            BankName = "Ngân Hàng VCB",
+            CustomerGrpCode = "GRP01,GRP02",
+            FlagDealer = "1"
+        };
+
+        var result = await _controller.CreateInOrder(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tạo mới khách hàng thành công!", root.GetProperty("Messages").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("KH_ORDER_01", data.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Công ty Cổ phần Đặt Hàng Mới", data.GetProperty("CustomerName").GetString());
+        // Gate: CustomerNameEN gán bằng CustomerName (Mst_CustomerController.cs:3617)
+        Assert.Equal("Công ty Cổ phần Đặt Hàng Mới", data.GetProperty("CustomerNameEN").GetString());
+        // Gate: BankCode gán bằng BankName (Mst_CustomerController.cs:3633)
+        Assert.Equal("Ngân Hàng VCB", data.GetProperty("BankCode").GetString());
+        // Gate: FlagActive gán bằng "1" (Mst_CustomerController.cs:3664)
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        // Kiểm tra round-trip trong DB
+        var cusInDb = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_ORDER_01");
+        Assert.NotNull(cusInDb);
+        Assert.Equal("Công ty Cổ phần Đặt Hàng Mới", cusInDb.CustomerName);
+        Assert.Equal("0988776655", cusInDb.CustomerMobilePhone);
+        Assert.Equal("1", cusInDb.FlagActive);
+
+        // Kiểm tra nhóm khách hàng được lưu vào Mst_CustomerInCustomerGroup
+        var grpsInDb = await _db.Set<Mst_CustomerInCustomerGroup>()
+            .Where(x => x.CustomerCodeSys == cusInDb.CustomerCodeSys)
+            .ToListAsync();
+        Assert.Equal(2, grpsInDb.Count);
+        Assert.Contains(grpsInDb, g => g.CustomerGrpCode == "GRP01");
+        Assert.Contains(grpsInDb, g => g.CustomerGrpCode == "GRP02");
+    }
+
+    [Fact]
+    public async Task CreateInOrder_ViaModelJsonString_SuccessfullyCreatesCustomerAndReturnsOk()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            CustomerCode = "KH_ORDER_MODEL_01",
+            CustomerName = "Khách Hàng Tạo Qua Chuỗi Model Order",
+            CustomerMobilePhone = "0977889900",
+            CustomerEmail = "order_model@domain.vn",
+            OrgID = "7200000001",
+            NetworkID = "1001",
+            CustomerGrpCode = "GRP03"
+        });
+
+        var req = new Mst_Customer_CreateInOrderReq
+        {
+            Model = modelJson
+        };
+
+        var result = await _controller.CreateInOrder(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tạo mới khách hàng thành công!", root.GetProperty("Messages").GetString());
+
+        var cusInDb = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_ORDER_MODEL_01");
+        Assert.NotNull(cusInDb);
+        Assert.Equal("Khách Hàng Tạo Qua Chuỗi Model Order", cusInDb.CustomerName);
+        Assert.Equal("0977889900", cusInDb.CustomerMobilePhone);
+
+        var grpsInDb = await _db.Set<Mst_CustomerInCustomerGroup>()
+            .Where(x => x.CustomerCodeSys == cusInDb.CustomerCodeSys)
+            .ToListAsync();
+        Assert.Single(grpsInDb);
+        Assert.Equal("GRP03", grpsInDb[0].CustomerGrpCode);
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_CreateInOrder()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_order_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Guard check: Body rỗng {} -> 400 Bad Request
+            var reqEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/createinorder", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer CreateInOrder Empty: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_CreateInOrder", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 2. Round-trip CreateInOrder: Tạo khách hàng mới trong đơn hàng thành công
+            var newCustPayload = JsonSerializer.Serialize(new
+            {
+                CustomerCode = "KH_ORDER_SRV_01",
+                CustomerName = "Khách Hàng Đơn Hàng Máy Chủ Thật",
+                CustomerMobilePhone = "0933999111",
+                CustomerEmail = "order_srv@domain.vn",
+                OrgID = "7200000001",
+                CustomerGrpCode = "GRP01,GRP02",
+                FlagDealer = "1"
+            });
+            var reqValid = new StringContent(newCustPayload, Encoding.UTF8, "application/json");
+            var resValid = await http.PostAsync("/api/mst_customer/createinorder", reqValid);
+            var bodyValid = await resValid.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer CreateInOrder Valid: {bodyValid}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValid.StatusCode);
+            var docValid = JsonDocument.Parse(bodyValid);
+            Assert.True(docValid.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Tạo mới khách hàng thành công!", docValid.RootElement.GetProperty("Messages").GetString());
+
+            // 3. Round-trip CreateInOrder qua Model string
+            var modelPayload = JsonSerializer.Serialize(new
+            {
+                Model = JsonSerializer.Serialize(new
+                {
+                    CustomerCode = "KH_ORDER_SRV_MODEL",
+                    CustomerName = "Khách Hàng Đơn Hàng Qua Model",
+                    CustomerMobilePhone = "0944555666",
+                    OrgID = "7200000001"
+                })
+            });
+            var reqModel = new StringContent(modelPayload, Encoding.UTF8, "application/json");
+            var resModel = await http.PostAsync("/api/mst_customer/createinorder", reqModel);
+            var bodyModel = await resModel.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer CreateInOrder Model: {bodyModel}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resModel.StatusCode);
+            var docModel = JsonDocument.Parse(bodyModel);
+            Assert.True(docModel.RootElement.GetProperty("Success").GetBoolean());
+
+            // 4. Kiểm tra đọc lại qua DoSearch: thấy khách hàng vừa tạo
+            var searchPayload = JsonSerializer.Serialize(new { CustomerName = "KH_ORDER_SRV_01" });
+            var searchReq = new StringContent(searchPayload, Encoding.UTF8, "application/json");
+            var resSearch = await http.PostAsync("/api/mst_customer/dosearch", searchReq);
+            var bodySearch = await resSearch.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer DoSearch verify: {bodySearch}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resSearch.StatusCode);
+            var docSearch = JsonDocument.Parse(bodySearch);
+            var data = docSearch.RootElement.GetProperty("Data");
+            Assert.Equal(1, data.GetProperty("ItemCount").GetInt32());
+            var foundCust = data.GetProperty("DataList")[0];
+            Assert.Equal("KH_ORDER_SRV_01", foundCust.GetProperty("CustomerCode").GetString());
+            Assert.Equal("Khách Hàng Đơn Hàng Máy Chủ Thật", foundCust.GetProperty("CustomerName").GetString());
+            Assert.Equal("0933999111", foundCust.GetProperty("CustomerMobilePhone").GetString());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
