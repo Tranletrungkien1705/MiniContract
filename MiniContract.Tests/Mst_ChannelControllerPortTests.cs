@@ -215,6 +215,102 @@ public class Mst_ChannelControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Index_EmptyBody_ReturnsAllActiveChannelsAndSubmissionForms()
+    {
+        var result = await _controller.Index(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        // 2 active channels seeded (7200000001, 7200000002) - 7200000003 is FlagActive=0 so excluded
+        var channels = data.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(2, channels.GetArrayLength());
+
+        // 3 submission forms seeded
+        var forms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(3, forms.GetArrayLength());
+
+        // Zalo external service skipped -> flagZaloConnect is "0"
+        Assert.Equal("0", data.GetProperty("FlagZaloConnect").GetString());
+    }
+
+    [Fact]
+    public async Task Index_FilterByOrgId_ReturnsMatchingChannel()
+    {
+        var req = new Mst_Channel_IndexReq { OrgID = "7200000001" };
+        var result = await _controller.Index(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        var channels = data.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(1, channels.GetArrayLength());
+        Assert.Equal("7200000001", channels[0].GetProperty("OrgID").GetString());
+
+        var emails = data.GetProperty("Lst_Mst_ChannelEmail");
+        Assert.Equal(1, emails.GetArrayLength());
+        Assert.Equal("7200000001", emails[0].GetProperty("OrgID").GetString());
+
+        var sms = data.GetProperty("Lst_Mst_ChannelSMS");
+        Assert.Equal(1, sms.GetArrayLength());
+        Assert.Equal("7200000001", sms[0].GetProperty("OrgID").GetString());
+
+        var zalo = data.GetProperty("Lst_Mst_ChannelZalo");
+        Assert.Equal(1, zalo.GetArrayLength());
+        Assert.Equal("7200000001", zalo[0].GetProperty("OrgID").GetString());
+    }
+
+    [Fact]
+    public async Task Index_FilterByNonExistentOrgId_ReturnsZeroChannels()
+    {
+        var req = new Mst_Channel_IndexReq { OrgID = "NON_EXISTENT_ORG" };
+        var result = await _controller.Index(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        var channels = data.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(0, channels.GetArrayLength());
+
+        var emails = data.GetProperty("Lst_Mst_ChannelEmail");
+        Assert.Equal(0, emails.GetArrayLength());
+
+        // Submission forms are still returned
+        var forms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(3, forms.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Index_FilterByInactiveOrgId_ReturnsZeroChannels()
+    {
+        // 7200000003 is seeded with FlagActive="0"
+        var req = new Mst_Channel_IndexReq { OrgID = "7200000003" };
+        var result = await _controller.Index(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        var channels = data.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(0, channels.GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8538()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -312,6 +408,42 @@ public class Mst_ChannelControllerPortTests : IDisposable
             _output?.WriteLine($"REQ5: {body5}");
             Assert.Equal(System.Net.HttpStatusCode.OK, res5.StatusCode);
             Assert.Contains("Cập nhật cấu hình thành công!", body5);
+
+            // Request 6: POST /api/mst_channel/index with empty body -> 200 OK, returns active channels and submission forms
+            var req6 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_channel/index", req6);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ6: {body6}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res6.StatusCode);
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.True(doc6.RootElement.GetProperty("Success").GetBoolean());
+            var data6 = doc6.RootElement.GetProperty("Data");
+            Assert.True(data6.GetProperty("Lst_Mst_Channel").GetArrayLength() >= 2);
+            Assert.True(data6.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength() >= 3);
+            Assert.Equal("0", data6.GetProperty("FlagZaloConnect").GetString());
+
+            // Request 7: POST /api/mst_channel/index with OrgID='7200000001' -> 200 OK, returns 1 channel
+            var req7 = new StringContent("{\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_channel/index", req7);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ7: {body7}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res7.StatusCode);
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
+            var data7 = doc7.RootElement.GetProperty("Data");
+            Assert.Equal(1, data7.GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal("7200000001", data7.GetProperty("Lst_Mst_Channel")[0].GetProperty("OrgID").GetString());
+
+            // Request 8: POST /api/mst_channel/index with non-existent OrgID -> 200 OK, returns 0 channels
+            var req8 = new StringContent("{\"OrgID\":\"NON_EXISTENT_ORG\"}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_channel/index", req8);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ8: {body8}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res8.StatusCode);
+            var doc8 = JsonDocument.Parse(body8);
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+            var data8 = doc8.RootElement.GetProperty("Data");
+            Assert.Equal(0, data8.GetProperty("Lst_Mst_Channel").GetArrayLength());
         }
         finally
         {

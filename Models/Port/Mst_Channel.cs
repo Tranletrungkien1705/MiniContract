@@ -47,17 +47,41 @@ public class Mst_ChannelSeeder : IPortSeeder
         var set = db.Set<Mst_Channel>();
         if (await set.AnyAsync()) return;
 
-        set.Add(new Mst_Channel
-        {
-            OrgID = "7200000001",
-            NetworkID = "1001",
-            ChannelTypeContract = "EMAIL",
-            ChannelTypeOTP = "SMS",
-            ChannelTypeAccessKey = "EMAIL",
-            FlagActive = "1",
-            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-            LogLUBy = "port"
-        });
+        set.AddRange(
+            new Mst_Channel
+            {
+                OrgID = "7200000001",
+                NetworkID = "1001",
+                ChannelTypeContract = "EMAIL",
+                ChannelTypeOTP = "SMS",
+                ChannelTypeAccessKey = "EMAIL",
+                FlagActive = "1",
+                LogLUDTimeUTC = "2026-01-01 10:00:00",
+                LogLUBy = "port"
+            },
+            new Mst_Channel
+            {
+                OrgID = "7200000002",
+                NetworkID = "1001",
+                ChannelTypeContract = "SMS",
+                ChannelTypeOTP = "EMAIL",
+                ChannelTypeAccessKey = "SMS",
+                FlagActive = "1",
+                LogLUDTimeUTC = "2026-01-02 10:00:00",
+                LogLUBy = "port"
+            },
+            new Mst_Channel
+            {
+                OrgID = "7200000003",
+                NetworkID = "1001",
+                ChannelTypeContract = "ZALO",
+                ChannelTypeOTP = "SMS",
+                ChannelTypeAccessKey = "ZALO",
+                FlagActive = "0",
+                LogLUDTimeUTC = "2026-01-03 10:00:00",
+                LogLUBy = "port"
+            }
+        );
         await db.SaveChangesAsync();
     }
 }

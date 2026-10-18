@@ -286,6 +286,90 @@ public class Mst_ChannelControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Lấy thông tin cấu hình kênh gửi (Email, SMS, Zalo) và danh sách mẫu gửi.
+    /// Gate: Mst_ChannelController.cs:21-165 Index()
+    /// BIZ: MasterData.cs:18384-18780 Mst_Channel_GetX; 14059-14200 Mst_SubmissionForm_GetX
+    /// </summary>
+    [HttpPost("index")]
+    public async Task<IActionResult> Index([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Channel_IndexReq? req)
+    {
+        // 1. Lấy danh sách mẫu gửi (Mst_SubmissionForm) có FlagActive = '1'
+        // Gate: Mst_ChannelController.cs:41 stringWhereClauseMst_SubmissionForm = "Mst_SubmissionForm.FlagActive = '1'"
+        // BIZ: MasterData.cs:14169-14200 order by msf.LogLUDTimeUTC desc
+        var lstSubmissionForm = await _db.Set<Mst_SubmissionForm>()
+            .AsNoTracking()
+            .Where(x => x.FlagActive == "1")
+            .OrderByDescending(x => x.LogLUDTimeUTC)
+            .ToListAsync();
+
+        // 2. Lấy danh sách kênh cấu hình Mst_Channel
+        // Gate: Mst_ChannelController.cs:104-127 Ft_WhereClause = "Mst_Channel.OrgID = " + orgID + " and Mst_Channel.FlagActive = '1'"
+        // BIZ: MasterData.cs:18441-18506 order by mc.LogLUDTimeUTC asc
+        var query = _db.Set<Mst_Channel>()
+            .AsNoTracking()
+            .Where(x => x.FlagActive == "1");
+
+        var orgId = StdParam(req?.OrgID);
+        if (!string.IsNullOrEmpty(orgId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+        }
+
+        var networkId = StdParam(req?.NetworkID);
+        if (!string.IsNullOrEmpty(networkId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+        }
+
+        var lstChannel = await query.OrderBy(x => x.LogLUDTimeUTC).ToListAsync();
+
+        // 3. Lấy thông tin kênh chi tiết tương ứng (Email, SMS, Zalo) theo OrgID
+        // BIZ: MasterData.cs:18511-18570
+        var orgIds = lstChannel.Select(x => x.OrgID).Distinct().ToList();
+
+        var lstEmail = await _db.Set<Mst_ChannelEmail>()
+            .AsNoTracking()
+            .Where(x => orgIds.Contains(x.OrgID) && x.FlagActive == "1")
+            .OrderBy(x => x.OrgID)
+            .ToListAsync();
+
+        var lstSMS = await _db.Set<Mst_ChannelSMS>()
+            .AsNoTracking()
+            .Where(x => orgIds.Contains(x.OrgID) && x.FlagActive == "1")
+            .OrderBy(x => x.OrgID)
+            .ToListAsync();
+
+        var lstZalo = await _db.Set<Mst_ChannelZalo>()
+            .AsNoTracking()
+            .Where(x => orgIds.Contains(x.OrgID) && x.FlagActive == "1")
+            .OrderBy(x => x.OrgID)
+            .ToListAsync();
+
+        // 4. Kết nối Zalo (Gate: Mst_ChannelController.cs:75-104, 129-147)
+        // ZaloGateService gọi dịch vụ ngoài (ZaloGate_API) -> GAP (§1, §3), bỏ qua và trả flagZaloConnect = "0"
+        var flagZaloConnect = "0";
+
+        // 5. Trả kết quả khớp Gate (Mst_ChannelController.cs:141, 66, 154)
+        return Ok(new
+        {
+            Success = true,
+            Data = new Mst_Channel_IndexData
+            {
+                Lst_Mst_Channel = lstChannel,
+                Lst_Mst_ChannelZalo = lstZalo,
+                Lst_Mst_ChannelSMS = lstSMS,
+                Lst_Mst_ChannelEmail = lstEmail,
+                RT_Mst_SubmissionForm = new RT_Mst_SubmissionForm
+                {
+                    Lst_Mst_SubmissionForm = lstSubmissionForm
+                },
+                Lst_Mst_SubmissionForm = lstSubmissionForm,
+                FlagZaloConnect = flagZaloConnect
+            }
+        });
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -303,3 +387,30 @@ public class Mst_Channel_SaveReq
     public List<Mst_ChannelSMS>? Lst_Mst_ChannelSMS { get; set; }
     public List<Mst_ChannelZalo>? Lst_Mst_ChannelZalo { get; set; }
 }
+
+public class Mst_Channel_IndexReq
+{
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+public class RT_Mst_Channel
+{
+    public List<Mst_Channel> Lst_Mst_Channel { get; set; } = new();
+    public List<Mst_ChannelZalo> Lst_Mst_ChannelZalo { get; set; } = new();
+    public List<Mst_ChannelSMS> Lst_Mst_ChannelSMS { get; set; } = new();
+    public List<Mst_ChannelEmail> Lst_Mst_ChannelEmail { get; set; } = new();
+}
+
+public class RT_Mst_SubmissionForm
+{
+    public List<Mst_SubmissionForm> Lst_Mst_SubmissionForm { get; set; } = new();
+}
+
+public class Mst_Channel_IndexData : RT_Mst_Channel
+{
+    public RT_Mst_SubmissionForm? RT_Mst_SubmissionForm { get; set; }
+    public List<Mst_SubmissionForm> Lst_Mst_SubmissionForm { get; set; } = new();
+    public string FlagZaloConnect { get; set; } = "0";
+}
+
