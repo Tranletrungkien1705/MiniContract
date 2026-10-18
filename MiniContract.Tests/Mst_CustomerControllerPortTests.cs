@@ -1939,6 +1939,310 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO CREATE (Port #163)
+    // Gate: Mst_CustomerController.cs:1466-1799 (Create GET), 1801-2038 (Create POST)
+    // API:  MstCustomerController.cs:19-89 WA_Mst_Customer_Save
+    // BIZ:  Customer.cs:2968-3070 WAS_Mst_Customer_Save, 1619-1732 Mst_Customer_Save, 2359-2966 Mst_Customer_SaveX_New20231205
+    // ==========================================
+
+    [Fact]
+    public async Task Create_NullBody_ReturnsMst_Customer_Create_Check_strJson()
+    {
+        var result = await _controller.Create(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Create_EmptyObject_ReturnsMst_Customer_Create_Check_strJson()
+    {
+        var req = new Mst_Customer_CreateReq();
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Create_MissingCustomerCode_ReturnsBadRequest()
+    {
+        var req = new Mst_Customer_CreateReq
+        {
+            CustomerName = "Công ty TNHH Mới",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã khách hàng không được trống!", root.GetProperty("Params").GetProperty("Check.CustomerCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MissingCustomerName_ReturnsBadRequest()
+    {
+        var req = new Mst_Customer_CreateReq
+        {
+            CustomerCode = "KH_NEW_001",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Tên khách hàng không được trống!", root.GetProperty("Params").GetProperty("Check.CustomerName").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DuplicateCustomerCode_ReturnsBadRequest()
+    {
+        // KH001 đã có trong DB
+        var req = new Mst_Customer_CreateReq
+        {
+            CustomerCode = "KH001",
+            CustomerName = "Trùng mã khách hàng",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Create(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mã khách hàng đã tồn tại trong hệ thống!", root.GetProperty("Params").GetProperty("Check.CustomerCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ValidDirectFields_CreatesCustomerAndReturnsOk()
+    {
+        var req = new Mst_Customer_CreateReq
+        {
+            OrgID = "7200000001",
+            CustomerCode = "KH_CREATE_01",
+            CustomerName = "Công ty TNHH Sáng Tạo Mới",
+            CustomerType = "ENTERPRISE",
+            CustomerSourceCode = "SRC01",
+            CustomerMobilePhone = "0988777666",
+            CustomerEmail = "sangtao@domain.vn",
+            MST = "0109998888",
+            CustomerGrpCode = "GRP01,GRP02",
+            FlagDealer = "1"
+        };
+
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tạo mới khách hàng thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("/Mst_Customer/Index", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra round-trip trong DB
+        var cusInDb = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_CREATE_01");
+        Assert.NotNull(cusInDb);
+        Assert.Equal("Công ty TNHH Sáng Tạo Mới", cusInDb.CustomerName);
+        Assert.Equal("7200000001", cusInDb.OrgID);
+        Assert.Equal("0988777666", cusInDb.CustomerMobilePhone);
+        Assert.Equal("sangtao@domain.vn", cusInDb.CustomerEmail);
+        Assert.Equal("0109998888", cusInDb.MST);
+        Assert.Equal("1", cusInDb.FlagActive);
+
+        // Kiểm tra nhóm khách hàng được lưu vào Mst_CustomerInCustomerGroup
+        var grpsInDb = await _db.Set<Mst_CustomerInCustomerGroup>()
+            .Where(x => x.CustomerCodeSys == cusInDb.CustomerCodeSys)
+            .ToListAsync();
+        Assert.Equal(2, grpsInDb.Count);
+        Assert.Contains(grpsInDb, g => g.CustomerGrpCode == "GRP01");
+        Assert.Contains(grpsInDb, g => g.CustomerGrpCode == "GRP02");
+    }
+
+    [Fact]
+    public async Task Create_ViaModelJsonString_CreatesCustomerAndReturnsOk()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            OrgID = "7200000001",
+            CustomerCode = "KH_CREATE_MODEL_01",
+            CustomerName = "Khách Hàng Tạo Qua Chuỗi Model",
+            CustomerMobilePhone = "0977111222",
+            CustomerEmail = "model@domain.vn",
+            FlagRedirect = "1"
+        });
+
+        var req = new Mst_Customer_CreateReq
+        {
+            Model = modelJson
+        };
+
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tạo mới khách hàng thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("/Mst_Customer/Create", root.GetProperty("RedirectUrl").GetString());
+
+        var cusInDb = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH_CREATE_MODEL_01");
+        Assert.NotNull(cusInDb);
+        Assert.Equal("Khách Hàng Tạo Qua Chuỗi Model", cusInDb.CustomerName);
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Create()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_create_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Guard check: Body rỗng {} -> 400 Bad Request
+            var reqEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/create", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Create Empty: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Create", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 2. Guard check: Thiếu CustomerName -> 400 Bad Request
+            var reqMissingName = new StringContent("{\"CustomerCode\":\"KH_TEST_01\"}", Encoding.UTF8, "application/json");
+            var resMissingName = await http.PostAsync("/api/mst_customer/create", reqMissingName);
+            var bodyMissingName = await resMissingName.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Create Missing Name: {bodyMissingName}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resMissingName.StatusCode);
+            var docMissingName = JsonDocument.Parse(bodyMissingName);
+            Assert.False(docMissingName.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Tên khách hàng không được trống!", docMissingName.RootElement.GetProperty("Params").GetProperty("Check.CustomerName").GetString());
+
+            // 3. Guard check: Trùng CustomerCode đã có trong seed (KH001) -> 400 Bad Request
+            var reqDup = new StringContent("{\"CustomerCode\":\"KH001\",\"CustomerName\":\"Trùng KH001\"}", Encoding.UTF8, "application/json");
+            var resDup = await http.PostAsync("/api/mst_customer/create", reqDup);
+            var bodyDup = await resDup.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Create Duplicate: {bodyDup}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resDup.StatusCode);
+            var docDup = JsonDocument.Parse(bodyDup);
+            Assert.False(docDup.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã khách hàng đã tồn tại trong hệ thống!", docDup.RootElement.GetProperty("Params").GetProperty("Check.CustomerCode").GetString());
+
+            // 4. Round-trip Create: Tạo khách hàng mới thành công
+            var newCustPayload = JsonSerializer.Serialize(new
+            {
+                CustomerCode = "KH_SRV_NEW_99",
+                CustomerName = "Khách Hàng Máy Chủ Thật",
+                CustomerMobilePhone = "0966888999",
+                CustomerEmail = "real_server@domain.vn",
+                OrgID = "7200000001",
+                CustomerGrpCode = "GRP01",
+                FlagDealer = "1"
+            });
+            var reqValid = new StringContent(newCustPayload, Encoding.UTF8, "application/json");
+            var resValid = await http.PostAsync("/api/mst_customer/create", reqValid);
+            var bodyValid = await resValid.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Create Valid: {bodyValid}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValid.StatusCode);
+            var docValid = JsonDocument.Parse(bodyValid);
+            Assert.True(docValid.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Tạo mới khách hàng thành công!", docValid.RootElement.GetProperty("Title").GetString());
+
+            // 5. Kiểm tra đọc lại qua DoSearch: thấy khách hàng vừa tạo
+            var searchPayload = JsonSerializer.Serialize(new { CustomerName = "Máy Chủ Thật" });
+            var searchReq = new StringContent(searchPayload, Encoding.UTF8, "application/json");
+            var resSearch = await http.PostAsync("/api/mst_customer/dosearch", searchReq);
+            var bodySearch = await resSearch.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer DoSearch verify: {bodySearch}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resSearch.StatusCode);
+            var docSearch = JsonDocument.Parse(bodySearch);
+            var data = docSearch.RootElement.GetProperty("Data");
+            Assert.Equal(1, data.GetProperty("ItemCount").GetInt32());
+            var foundCust = data.GetProperty("DataList")[0];
+            Assert.Equal("KH_SRV_NEW_99", foundCust.GetProperty("CustomerCode").GetString());
+            Assert.Equal("Khách Hàng Máy Chủ Thật", foundCust.GetProperty("CustomerName").GetString());
+            Assert.Equal("0966888999", foundCust.GetProperty("CustomerMobilePhone").GetString());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));

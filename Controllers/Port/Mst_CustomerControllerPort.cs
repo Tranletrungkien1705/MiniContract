@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
@@ -1280,6 +1280,271 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Tạo mới khách hàng.
+    /// Gate: Mst_CustomerController.cs:1466-1799 (Create GET), 1801-2038 (Create POST)
+    /// API:  MstCustomerController.cs:19-89 WA_Mst_Customer_Save
+    /// BIZ:  Customer.cs:2968-3070 WAS_Mst_Customer_Save -> 1619-1732 Mst_Customer_Save -> 2359-2966 Mst_Customer_SaveX_New20231205
+    /// </summary>
+    [HttpPost("create")]
+    public async Task<IActionResult> Create([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_CreateReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc thiếu dữ liệu (LESSON A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_Customer_Create", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_CustomerController.cs:1803, 1808)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Customer_CreateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.OrgID ??= modelObj.OrgID;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.CustomerCode ??= modelObj.CustomerCode;
+                    req.CustomerCodeSys ??= modelObj.CustomerCodeSys;
+                    req.CustomerType ??= modelObj.CustomerType;
+                    req.CustomerGrpCode ??= modelObj.CustomerGrpCode;
+                    req.CustomerSourceCode ??= modelObj.CustomerSourceCode;
+                    req.CustomerSourceNameActual ??= modelObj.CustomerSourceNameActual;
+                    req.CustomerName ??= modelObj.CustomerName;
+                    req.CustomerNameEN ??= modelObj.CustomerNameEN;
+                    req.CustomerGender ??= modelObj.CustomerGender;
+                    req.CustomerPhoneNo ??= modelObj.CustomerPhoneNo;
+                    req.CustomerMobilePhone ??= modelObj.CustomerMobilePhone;
+                    req.ProvinceCode ??= modelObj.ProvinceCode;
+                    req.DistrictCode ??= modelObj.DistrictCode;
+                    req.WardCode ??= modelObj.WardCode;
+                    req.AreaCode ??= modelObj.AreaCode;
+                    req.CustomerAvatarName ??= modelObj.CustomerAvatarName;
+                    req.CustomerAvatarSpec ??= modelObj.CustomerAvatarSpec;
+                    req.FlagCustomerAvatarPath ??= modelObj.FlagCustomerAvatarPath;
+                    req.CustomerAvatarPath ??= modelObj.CustomerAvatarPath;
+                    req.CustomerAddress ??= modelObj.CustomerAddress;
+                    req.CustomerEmail ??= modelObj.CustomerEmail;
+                    req.CustomerDateOfBirth ??= modelObj.CustomerDateOfBirth;
+                    req.GovIDType ??= modelObj.GovIDType;
+                    req.GovIDCardNo ??= modelObj.GovIDCardNo;
+                    req.GovIDCardDate ??= modelObj.GovIDCardDate;
+                    req.GovIDCardPlace ??= modelObj.GovIDCardPlace;
+                    req.TaxCode ??= modelObj.TaxCode;
+                    req.BankCode ??= modelObj.BankCode;
+                    req.BankName ??= modelObj.BankName;
+                    req.BankAccountNo ??= modelObj.BankAccountNo;
+                    req.RepresentName ??= modelObj.RepresentName;
+                    req.RepresentPosition ??= modelObj.RepresentPosition;
+                    req.UserCodeOwner ??= modelObj.UserCodeOwner;
+                    req.ContactName ??= modelObj.ContactName;
+                    req.ContactPhone ??= modelObj.ContactPhone;
+                    req.ContactEmail ??= modelObj.ContactEmail;
+                    req.Fax ??= modelObj.Fax;
+                    req.Facebook ??= modelObj.Facebook;
+                    req.InvoiceCustomerName ??= modelObj.InvoiceCustomerName;
+                    req.InvoiceCustomerAddress ??= modelObj.InvoiceCustomerAddress;
+                    req.InvoiceOrgName ??= modelObj.InvoiceOrgName;
+                    req.InvoiceEmailSend ??= modelObj.InvoiceEmailSend;
+                    req.MST ??= modelObj.MST;
+                    req.ListOfCustDynamicFieldValue ??= modelObj.ListOfCustDynamicFieldValue;
+                    req.FlagDealer ??= modelObj.FlagDealer;
+                    req.FlagSupplier ??= modelObj.FlagSupplier;
+                    req.FlagEndUser ??= modelObj.FlagEndUser;
+                    req.FlagShipper ??= modelObj.FlagShipper;
+                    req.FlagBank ??= modelObj.FlagBank;
+                    req.FlagInsurrance ??= modelObj.FlagInsurrance;
+                    req.DTimeUsed ??= modelObj.DTimeUsed;
+                    req.Remark ??= modelObj.Remark;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.FlagRedirect ??= modelObj.FlagRedirect;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.CustomerCode) && string.IsNullOrWhiteSpace(req.CustomerName) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_Customer_Create", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào (Mst_CustomerController.cs:1811-1867)
+        var orgId = StdParam(req.OrgID) ?? Request?.Headers["OrgID"].FirstOrDefault() ?? _config?["Biz_OrgID"] ?? "7200000001";
+        var networkId = StdParam(req.NetworkID) ?? Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001";
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+        var customerCode = StdParam(req.CustomerCode);
+        if (string.IsNullOrWhiteSpace(customerCode))
+        {
+            return PortResult.Fail("Mst_Customer_Create", "Check.CustomerCode", "Mã khách hàng không được trống!");
+        }
+
+        var customerName = StdStr(req.CustomerName);
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            return PortResult.Fail("Mst_Customer_Create", "Check.CustomerName", "Tên khách hàng không được trống!");
+        }
+
+        // 3. Kiểm tra trùng CustomerCode trong cùng OrgID (Customer_Check / Import)
+        var exists = await _db.Set<Mst_Customer>().AnyAsync(x =>
+            EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc) &&
+            EF.Functions.Like((x.CustomerCode ?? "").ToLower(), PortQuery.Equal(customerCode), PortQuery.Esc));
+        if (exists)
+        {
+            return PortResult.Fail("Mst_Customer_Create", "Check.CustomerCode", "Mã khách hàng đã tồn tại trong hệ thống!");
+        }
+
+        var customerCodeSys = StdParam(req.CustomerCodeSys);
+        if (string.IsNullOrEmpty(customerCodeSys))
+        {
+            customerCodeSys = $"CUS{Guid.NewGuid():N}"[..12].ToUpperInvariant();
+        }
+
+        var dtimeNowStr = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+        // 4. Xử lý nhóm khách hàng (Mst_CustomerController.cs:1868-1884)
+        var customerGroupsToSave = new List<Mst_CustomerInCustomerGroup>();
+        var grpCodeStr = req.CustomerGrpCode?.Trim();
+        if (!string.IsNullOrEmpty(grpCodeStr))
+        {
+            var grpCodes = grpCodeStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var gc in grpCodes)
+            {
+                customerGroupsToSave.Add(new Mst_CustomerInCustomerGroup
+                {
+                    OrgID = orgId,
+                    CustomerCodeSys = customerCodeSys,
+                    CustomerGrpCode = gc.Trim(),
+                    NetworkID = networkId,
+                    LogLUDTimeUTC = dtimeNowStr,
+                    LogLUBy = userCode
+                });
+            }
+        }
+
+        // 5. Chuẩn bị entity Mst_Customer (Mst_CustomerController.cs:1811-1867)
+        var cus = new Mst_Customer
+        {
+            OrgID = orgId,
+            CustomerCodeSys = customerCodeSys,
+            NetworkID = networkId,
+            CustomerCode = customerCode,
+            CustomerName = customerName,
+            CustomerNameEN = StdStr(req.CustomerNameEN) ?? customerName,
+            CustomerType = StdParam(req.CustomerType),
+            CustomerSourceCode = StdParam(req.CustomerSourceCode),
+            CustomerSourceNameActual = StdStr(req.CustomerSourceNameActual),
+            CustomerPhoneNo = StdStr(req.CustomerPhoneNo),
+            CustomerMobilePhone = StdStr(req.CustomerMobilePhone),
+            CustomerAddress = StdStr(req.CustomerAddress),
+            ProvinceCode = StdParam(req.ProvinceCode),
+            DistrictCode = StdParam(req.DistrictCode),
+            WardCode = StdParam(req.WardCode),
+            AreaCode = StdParam(req.AreaCode),
+            CustomerAvatarName = StdStr(req.CustomerAvatarName),
+            CustomerAvatarSpec = StdStr(req.CustomerAvatarSpec),
+            FlagCustomerAvatarPath = StdFlag(req.FlagCustomerAvatarPath),
+            CustomerAvatarPath = StdStr(req.CustomerAvatarPath),
+            CustomerGender = StdStr(req.CustomerGender),
+            CustomerEmail = StdStr(req.CustomerEmail),
+            CustomerDateOfBirth = StdStr(req.CustomerDateOfBirth),
+            GovIDType = StdParam(req.GovIDType),
+            GovIDCardNo = StdStr(req.GovIDCardNo),
+            GovIDCardDate = StdStr(req.GovIDCardDate),
+            GovIDCardPlace = StdStr(req.GovIDCardPlace),
+            TaxCode = StdStr(req.TaxCode),
+            BankCode = StdStr(req.BankCode ?? req.BankName),
+            BankName = StdStr(req.BankName),
+            BankAccountNo = StdStr(req.BankAccountNo),
+            RepresentName = StdStr(req.RepresentName),
+            RepresentPosition = StdStr(req.RepresentPosition),
+            UserCodeOwner = StdParam(req.UserCodeOwner) ?? userCode,
+            ContactName = StdStr(req.ContactName),
+            ContactPhone = StdStr(req.ContactPhone),
+            ContactEmail = StdStr(req.ContactEmail),
+            Fax = StdStr(req.Fax),
+            Facebook = StdStr(req.Facebook),
+            InvoiceCustomerName = StdStr(req.InvoiceCustomerName),
+            InvoiceOrgName = StdStr(req.InvoiceOrgName),
+            MST = StdParam(req.MST),
+            InvoiceCustomerAddress = StdStr(req.InvoiceCustomerAddress),
+            InvoiceEmailSend = StdStr(req.InvoiceEmailSend),
+            ListOfCustDynamicFieldValue = req.ListOfCustDynamicFieldValue,
+            FlagDealer = StdFlag(req.FlagDealer),
+            FlagSupplier = StdFlag(req.FlagSupplier),
+            FlagShipper = StdFlag(req.FlagShipper),
+            FlagEndUser = StdFlag(req.FlagEndUser),
+            FlagBank = StdFlag(req.FlagBank),
+            FlagInsurrance = StdFlag(req.FlagInsurrance),
+            DTimeUsed = req.DTimeUsed,
+            Remark = StdStr(req.Remark),
+            CustomerGrpCode = "", // Gate line 1887: customer.CustomerGrpCode = ""
+            FlagActive = !string.IsNullOrEmpty(req.FlagActive) ? StdFlag(req.FlagActive) : "1",
+            CreateDTimeUTC = dtimeNowStr,
+            CreateBy = userCode,
+            LUDTimeUTC = dtimeNowStr,
+            LUBy = userCode,
+            LogLUDTimeUTC = dtimeNowStr,
+            LogLUBy = userCode
+        };
+
+        // 6. Mở Transaction và lưu vào DB (Customer.cs:1650, 2697-2949)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Xoá bản ghi cũ nếu cùng OrgID + CustomerCodeSys (Customer.cs:2651-2690)
+            var oldCus = await _db.Set<Mst_Customer>()
+                .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc) &&
+                            EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(customerCodeSys), PortQuery.Esc))
+                .ToListAsync();
+            if (oldCus.Count > 0)
+            {
+                _db.Set<Mst_Customer>().RemoveRange(oldCus);
+            }
+
+            var oldGrp = await _db.Set<Mst_CustomerInCustomerGroup>()
+                .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc) &&
+                            EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(customerCodeSys), PortQuery.Esc))
+                .ToListAsync();
+            if (oldGrp.Count > 0)
+            {
+                _db.Set<Mst_CustomerInCustomerGroup>().RemoveRange(oldGrp);
+            }
+
+            _db.Set<Mst_Customer>().Add(cus);
+            if (customerGroupsToSave.Count > 0)
+            {
+                _db.Set<Mst_CustomerInCustomerGroup>().AddRange(customerGroupsToSave);
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            var redirectUrl = string.Equals(req.FlagRedirect, "1", StringComparison.OrdinalIgnoreCase)
+                ? "/Mst_Customer/Create"
+                : "/Mst_Customer/Index";
+
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Tạo mới khách hàng thành công!" },
+                Title = "Tạo mới khách hàng thành công!",
+                RedirectUrl = redirectUrl,
+                Data = cus
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_Customer_Create", "Exception", ex.Message);
+        }
+    }
+
     private class CustomerDynamicFieldParamType
     {
         public string Title { get; set; } = "";
@@ -1493,5 +1758,70 @@ public class Mst_Customer_DeleteItem
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }
 }
+
+public class Mst_Customer_CreateReq
+{
+    // Hỗ trợ truyền chuỗi JSON model (Mst_CustomerController.cs:1803)
+    public string? Model { get; set; }
+
+    // Các tham số theo Mst_CustomerUI (Mst_CustomerController.cs:1811-1867)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? CustomerCode { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerType { get; set; }
+    public string? CustomerGrpCode { get; set; }
+    public string? CustomerSourceCode { get; set; }
+    public string? CustomerSourceNameActual { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerNameEN { get; set; }
+    public string? CustomerGender { get; set; }
+    public string? CustomerPhoneNo { get; set; }
+    public string? CustomerMobilePhone { get; set; }
+    public string? ProvinceCode { get; set; }
+    public string? DistrictCode { get; set; }
+    public string? WardCode { get; set; }
+    public string? AreaCode { get; set; }
+    public string? CustomerAvatarName { get; set; }
+    public string? CustomerAvatarSpec { get; set; }
+    public string? FlagCustomerAvatarPath { get; set; }
+    public string? CustomerAvatarPath { get; set; }
+    public string? CustomerAddress { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? CustomerDateOfBirth { get; set; }
+    public string? GovIDType { get; set; }
+    public string? GovIDCardNo { get; set; }
+    public string? GovIDCardDate { get; set; }
+    public string? GovIDCardPlace { get; set; }
+    public string? TaxCode { get; set; }
+    public string? BankCode { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccountNo { get; set; }
+    public string? RepresentName { get; set; }
+    public string? RepresentPosition { get; set; }
+    public string? UserCodeOwner { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? Fax { get; set; }
+    public string? Facebook { get; set; }
+    public string? InvoiceCustomerName { get; set; }
+    public string? InvoiceCustomerAddress { get; set; }
+    public string? InvoiceOrgName { get; set; }
+    public string? InvoiceEmailSend { get; set; }
+    public string? MST { get; set; }
+    public string? ListOfCustDynamicFieldValue { get; set; }
+    public string? FlagDealer { get; set; }
+    public string? FlagSupplier { get; set; }
+    public string? FlagShipper { get; set; }
+    public string? FlagEndUser { get; set; }
+    public string? FlagBank { get; set; }
+    public string? FlagInsurrance { get; set; }
+    public string? DTimeUsed { get; set; }
+    public string? Remark { get; set; }
+    public string? FlagActive { get; set; }
+    public string? FlagRedirect { get; set; }
+}
+
 
 
