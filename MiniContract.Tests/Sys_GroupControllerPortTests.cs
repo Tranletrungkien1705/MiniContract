@@ -766,6 +766,113 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_NullReq_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Delete(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyReq_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Delete(new Sys_Group_DeleteReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyGroupCode_ReturnsEmptyGroupCodeMessage()
+    {
+        var result = await _controller.Delete(new Sys_Group_DeleteReq { GroupCode = "   " });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng trống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentGroupCode_ReturnsNotFoundMessage()
+    {
+        var result = await _controller.Delete(new Sys_Group_DeleteReq { GroupCode = "GRP_NONEXISTENT" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!", messages[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_ValidGroupCode_DeletesGroupAndUsersInGroup_RoundTrip()
+    {
+        // GRP_ACCOUNTANT có 1 user (U03) trong Sys_UserInGroup
+        var beforeGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_ACCOUNTANT");
+        Assert.NotNull(beforeGroup);
+        var beforeUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_ACCOUNTANT").ToListAsync();
+        Assert.Single(beforeUsers);
+
+        var result = await _controller.Delete(new Sys_Group_DeleteReq { GroupCode = "grp_accountant" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var messages = doc.RootElement.GetProperty("Messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal("Xóa nhóm người dùng 'grp_accountant' thành công!", messages[0].GetString());
+
+        // Kiểm tra round-trip: Sys_Group và Sys_UserInGroup đều đã bị xóa
+        var afterGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_ACCOUNTANT");
+        Assert.Null(afterGroup);
+        var afterUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_ACCOUNTANT").ToListAsync();
+        Assert.Empty(afterUsers);
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJson_SuccessAndRoundTrip()
+    {
+        var beforeGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_STAFF");
+        Assert.NotNull(beforeGroup);
+
+        var result = await _controller.Delete(new Sys_Group_DeleteReq { Model = "{\"GroupCode\":\"GRP_STAFF\"}" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_STAFF");
+        Assert.Null(afterGroup);
+    }
+
+    [Fact]
+    public async Task Delete_ViaRawCodeInModel_SuccessAndRoundTrip()
+    {
+        // GRP_MANAGER có user U02 trong Sys_UserInGroup
+        var beforeGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_MANAGER");
+        Assert.NotNull(beforeGroup);
+        var beforeUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_MANAGER").ToListAsync();
+        Assert.Single(beforeUsers);
+
+        var result = await _controller.Delete(new Sys_Group_DeleteReq { Model = "GRP_MANAGER" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_MANAGER");
+        Assert.Null(afterGroup);
+        var afterUsers = await _db.Set<Sys_UserInGroup>().Where(x => x.GroupCode == "GRP_MANAGER").ToListAsync();
+        Assert.Empty(afterUsers);
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -1222,6 +1329,68 @@ public class Sys_GroupControllerPortTests : IDisposable
             var data38 = doc38.RootElement.GetProperty("Data");
             Assert.Equal(JsonValueKind.Object, data38.ValueKind);
             Assert.Equal("GRP_ACCOUNTANT", data38.GetProperty("GroupCode").GetString());
+
+            // 39. Ca Delete body rỗng: POST /api/sys_group/delete {} -> 200 OK, Success=false, Messages=["Mã nhóm người dùng trống!"]
+            var req39 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res39 = await http.PostAsync("/api/sys_group/delete", req39);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res39.StatusCode);
+            var body39 = await res39.Content.ReadAsStringAsync();
+            var doc39 = JsonDocument.Parse(body39);
+            Assert.False(doc39.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng trống!", doc39.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 40. Ca Delete GroupCode rỗng: POST /api/sys_group/delete {"GroupCode":""} -> 200 OK, Success=false, Messages=["Mã nhóm người dùng trống!"]
+            var req40 = new StringContent("{\"GroupCode\":\"\"}", Encoding.UTF8, "application/json");
+            var res40 = await http.PostAsync("/api/sys_group/delete", req40);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res40.StatusCode);
+            var body40 = await res40.Content.ReadAsStringAsync();
+            var doc40 = JsonDocument.Parse(body40);
+            Assert.False(doc40.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng trống!", doc40.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 41. Ca Delete GroupCode không tồn tại: POST /api/sys_group/delete {"GroupCode":"GRP_NONEXISTENT"} -> 200 OK, Success=false, Messages=["Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!"]
+            var req41 = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\"}", Encoding.UTF8, "application/json");
+            var res41 = await http.PostAsync("/api/sys_group/delete", req41);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res41.StatusCode);
+            var body41 = await res41.Content.ReadAsStringAsync();
+            var doc41 = JsonDocument.Parse(body41);
+            Assert.False(doc41.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã nhóm người dùng 'GRP_NONEXISTENT' không có trong hệ thống!", doc41.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 42. Ca Delete thành công round-trip: Xóa nhóm GRP_REAL_CREATED vừa tạo ở ca 15
+            var req42 = new StringContent("{\"GroupCode\":\"GRP_REAL_CREATED\"}", Encoding.UTF8, "application/json");
+            var res42 = await http.PostAsync("/api/sys_group/delete", req42);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res42.StatusCode);
+            var body42 = await res42.Content.ReadAsStringAsync();
+            var doc42 = JsonDocument.Parse(body42);
+            Assert.True(doc42.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa nhóm người dùng 'GRP_REAL_CREATED' thành công!", doc42.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Đọc lại qua /api/sys_group/index để xác minh nhóm GRP_REAL_CREATED đã bị xóa hoàn toàn (round-trip)
+            var req42Read = new StringContent("{\"GroupCode\":\"GRP_REAL_CREATED\"}", Encoding.UTF8, "application/json");
+            var res42Read = await http.PostAsync("/api/sys_group/index", req42Read);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res42Read.StatusCode);
+            var body42Read = await res42Read.Content.ReadAsStringAsync();
+            var doc42Read = JsonDocument.Parse(body42Read);
+            Assert.True(doc42Read.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, doc42Read.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 43. Ca Delete qua Model JSON string: Xóa nhóm GRP_INACTIVE
+            var req43 = new StringContent("{\"Model\":\"{\\\"GroupCode\\\":\\\"GRP_INACTIVE\\\"}\"}", Encoding.UTF8, "application/json");
+            var res43 = await http.PostAsync("/api/sys_group/delete", req43);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res43.StatusCode);
+            var body43 = await res43.Content.ReadAsStringAsync();
+            var doc43 = JsonDocument.Parse(body43);
+            Assert.True(doc43.RootElement.GetProperty("Success").GetBoolean());
+
+            // 44. Ca Delete qua query string ?groupcode=GRP_ACCOUNTANT
+            var req44 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res44 = await http.PostAsync("/api/sys_group/delete?groupcode=GRP_ACCOUNTANT", req44);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res44.StatusCode);
+            var body44 = await res44.Content.ReadAsStringAsync();
+            var doc44 = JsonDocument.Parse(body44);
+            Assert.True(doc44.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa nhóm người dùng 'GRP_ACCOUNTANT' thành công!", doc44.RootElement.GetProperty("Messages")[0].GetString());
         }
         finally
         {

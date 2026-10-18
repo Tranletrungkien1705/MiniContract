@@ -16,14 +16,17 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:218-266 (Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:270-341 (Edit)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:346-394 (Detail)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:398-470 (Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:93-147 (WA_Sys_Group_Create)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:168-239 (WA_Sys_Group_Update)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:242-313 (WA_Sys_Group_Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2710-2790 (WAS_Sys_Group_Create) -> zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3118-3201 (WAS_Sys_Group_Update) -> 2937-3116 / 2791-2935 (Sys_Group_Update)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3469-3548 (WAS_Sys_Group_Delete) -> 3318-3467 (Sys_Group_Delete), 13768-13783 (Sys_UserInGroup_Delete_ByGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:1341-1400 (Sys_Group_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3552-3611 (Sys_User_CheckDB)
 [ApiController]
@@ -708,6 +711,137 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Delete từ gate Sys_GroupController.cs:398-470.
+    /// Chuỗi gọi:
+    /// 1. Nhận groupcode (gate dòng 398).
+    /// 2. Khởi tạo JsonResultEntry { Success = false } (gate dòng 400).
+    /// 3. Kiểm tra if (!CUtils.IsNullOrEmpty(groupcode)) (gate dòng 409):
+    ///    Nếu rỗng: title = "Mã nhóm người dùng trống!", resultEntry.AddMessage(title), trả về JsonResultEntry với Success = false (gate dòng 458-461).
+    /// 4. Nếu groupcode có giá trị:
+    ///    - Dựng strWhereClause = strWhereClause_SysGroup(groupcode) (gate dòng 412, 1080-1091): Sys_Group.GroupCode = groupcode.
+    ///    - Đóng gói RQ_Sys_Group với Rt_Cols_Sys_Group = "*", Rt_Cols_Sys_UserInGroup = null (gate dòng 414-435).
+    ///    - Gọi Sys_GroupService.Instance.WA_Sys_Group_Get(objRQ_Sys_Group, addressAPIs) (gate dòng 437)
+    ///      -> API WA_Sys_Group_Get (SysGroupController.cs:20-91)
+    ///      -> BIZ WAS_Sys_Group_Get (System.cs:2283-2397)
+    ///      -> Sys_Group_Get_New20191102 (System.cs:1966-2281).
+    /// 5. Kiểm tra if (objRT_Sys_GroupCur.Lst_Sys_Group != null && objRT_Sys_GroupCur.Lst_Sys_Group.Count > 0) (gate dòng 438):
+    ///    Nếu không thấy: title = "Mã nhóm người dùng '" + groupcode + "' không có trong hệ thống!", resultEntry.AddMessage(title), trả về JsonResultEntry với Success = false (gate dòng 452-455).
+    /// 6. Nếu tìm thấy:
+    ///    - Gán objRQ_Sys_Group.Sys_Group = objRT_Sys_GroupCur.Lst_Sys_Group[0] (gate dòng 443).
+    ///    - Gọi Sys_GroupService.Instance.WA_Sys_Group_Delete(objRQ_Sys_Group, addressAPIs) (gate dòng 444)
+    ///      -> API WA_Sys_Group_Delete (SysGroupController.cs:242-313)
+    ///      -> BIZ WAS_Sys_Group_Delete (System.cs:3469-3548)
+    ///      -> Sys_Group_Delete (System.cs:3318-3467).
+    /// 7. BIZ Sys_Group_Delete (System.cs:3318-3467):
+    ///    - Mở transaction: _cf.db.BeginTransaction() (System.cs:3355).
+    ///    - Chuẩn hoá strGroupCode = StdParam(objGroupCode) (System.cs:3396).
+    ///    - Gọi Sys_Group_CheckDB(..., strGroupCode, FlagExistToCheck = "1", "", out dtDB_Sys_Group) (System.cs:3401-3407).
+    ///    - Xoá người dùng trong nhóm: gọi Sys_UserInGroup_Delete_ByGroup(strGroupCode) (System.cs:3409-3411, 13768-13783).
+    ///      SQL: delete from Sys_UserInGroup where GroupCode = @strGroupCode.
+    ///    - Xoá bản ghi nhóm Sys_Group: dtDB_Sys_Group.Rows[0].Delete(), SaveData("Sys_Group") (System.cs:3419-3426).
+    ///    - Commit transaction (System.cs:3430).
+    /// 8. Trả về kết quả khớp gate MVC (Sys_GroupController.cs:445-450):
+    ///    Success = true, Messages = ["Xóa nhóm người dùng '" + groupcode + "' thành công!"], RedirectUrl = Url.Action("Index").
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_DeleteReq? req)
+    {
+        try
+        {
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_DeleteReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.GroupCode ??= modelObj.GroupCode;
+                    }
+                }
+                catch
+                {
+                    req.GroupCode ??= req.Model;
+                }
+            }
+
+            // 1. Chuẩn hoá tham số đầu vào GroupCode (Gate: Sys_GroupController.cs:398, 409; BIZ: System.cs:3396)
+            var rawGroupCode = req?.GroupCode;
+            var groupCode = StdParam(rawGroupCode);
+            if (string.IsNullOrEmpty(groupCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupcode", out var qGroupCode))
+            {
+                rawGroupCode = qGroupCode.ToString();
+                groupCode = StdParam(rawGroupCode);
+            }
+
+            // Gate guard 1: Kiểm tra GroupCode không được rỗng (Sys_GroupController.cs:409, 458-461)
+            if (string.IsNullOrEmpty(groupCode))
+            {
+                return Ok(new
+                {
+                    Success = false,
+                    Messages = new[] { "Mã nhóm người dùng trống!" },
+                    Title = "Mã nhóm người dùng trống!"
+                });
+            }
+
+            // Gate guard 2: Tra cứu bản ghi nhóm hiện có trong DB qua WA_Sys_Group_Get (Sys_GroupController.cs:412-438, 452-455)
+            var existing = await _db.Set<Sys_Group>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                return Ok(new
+                {
+                    Success = false,
+                    Messages = new[] { $"Mã nhóm người dùng '{rawGroupCode}' không có trong hệ thống!" },
+                    Title = $"Mã nhóm người dùng '{rawGroupCode}' không có trong hệ thống!"
+                });
+            }
+
+            // Mở transaction xoá dữ liệu (System.cs:3355)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // BIZ: Sys_UserInGroup_Delete_ByGroup (System.cs:3409-3411, 13768-13783)
+                // Xoá tất cả người dùng thuộc nhóm trong Sys_UserInGroup
+                var usersInGroup = await _db.Set<Sys_UserInGroup>()
+                    .Where(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc))
+                    .ToListAsync();
+                if (usersInGroup.Count > 0)
+                {
+                    _db.Set<Sys_UserInGroup>().RemoveRange(usersInGroup);
+                }
+
+                // Xoá bản ghi Sys_Group (System.cs:3419-3426)
+                _db.Set<Sys_Group>().Remove(existing);
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // Trả về kết quả thành công khớp gate MVC (Sys_GroupController.cs:445-450)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Xóa nhóm người dùng '{rawGroupCode}' thành công!" },
+                    Title = $"Xóa nhóm người dùng '{rawGroupCode}' thành công!",
+                    RedirectUrl = "/Sys_Group",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_Group_Delete", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -802,5 +936,15 @@ public class Sys_Group_DetailReq
 {
     public string? GroupCode { get; set; }
     public string? MST { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Delete của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:398 Delete(string groupcode = "")
+/// </summary>
+public class Sys_Group_DeleteReq
+{
+    public string? GroupCode { get; set; }
     public string? Model { get; set; }
 }
