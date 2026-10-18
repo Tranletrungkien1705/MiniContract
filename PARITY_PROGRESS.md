@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 99/295 (33.56%)
+**Tiến độ hiện tại**: 100/295 (33.9%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -222,7 +222,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 210 | Mst_ProductController/GetBOM | Đã làm | 402c45f |
 | 211 | Mst_ProductController/SearchProduct | Đã làm | 3b21ede |
 | 212 | Mst_ProductController/GetSearch | Đã làm | 499a784 |
-| 213 | Mst_ProductController/ProductIngredient | Chưa làm | - |
+| 213 | Mst_ProductController/ProductIngredient | Đã làm | c1163c7 |
 | 214 | Mst_ProductController/Update | Chưa làm | - |
 | 215 | Mst_ProductController/Edit | Chưa làm | - |
 | 216 | Mst_ProductController/DeleteUnit | Chưa làm | - |
