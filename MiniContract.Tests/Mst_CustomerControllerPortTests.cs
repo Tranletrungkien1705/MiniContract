@@ -1,7 +1,10 @@
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using MiniContract.Controllers.Port;
 using MiniContract.Data;
 using MiniContract.Models.Port;
@@ -15,6 +18,7 @@ public class Mst_CustomerControllerPortTests : IDisposable
 {
     private readonly SqliteConnection _conn;
     private readonly AppDbContext _db;
+    private readonly TestWebHostEnvironment _env;
     private readonly Mst_CustomerControllerPort _controller;
 
     public Mst_CustomerControllerPortTests()
@@ -35,13 +39,22 @@ public class Mst_CustomerControllerPortTests : IDisposable
         new Mst_CustomerInCustomerGroupSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_CustomerSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
-        _controller = new Mst_CustomerControllerPort(_db);
+        _env = new TestWebHostEnvironment();
+        _controller = new Mst_CustomerControllerPort(_db, _env);
     }
 
     public void Dispose()
     {
         _conn.Dispose();
         _db.Dispose();
+        try
+        {
+            if (Directory.Exists(_env.WebRootPath))
+            {
+                Directory.Delete(_env.WebRootPath, true);
+            }
+        }
+        catch { }
     }
 
     [Fact]
@@ -830,6 +843,195 @@ public class Mst_CustomerControllerPortTests : IDisposable
 
         // Mst_NNT (Customer.cs:1184-1185)
         Assert.Equal("Công ty TNHH Giải Pháp Số Hà Nội", cus.GetProperty("Org_NNTFullName").GetString());
+    }
+
+    // ==========================================
+    // CÁC TEST CHO EXPORT (Port #159)
+    // Gate: Mst_CustomerController.cs:435-561
+    // ==========================================
+
+    [Fact]
+    public async Task Export_EmptyBody_ReturnsAllSeededItems()
+    {
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        Assert.Equal(39, ws.Row(1).LastCellUsed()?.Address.ColumnNumber);
+        Assert.Equal("Mã khách hàng(*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên khách hàng(*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Thuộc tính thêm", ws.Cell(1, 39).GetString());
+
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(6, lastRow); // Dòng 1 tiêu đề + 5 dòng dữ liệu
+
+        // Kiểm tra thứ tự sắp xếp theo CreateDTimeUTC desc (Customer.cs:1136, 1250)
+        Assert.Equal("KH005", ws.Cell(2, 1).GetString());
+        Assert.Equal("KH001", ws.Cell(6, 1).GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterByFlagDealer_1_Returns2Items()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            FlagDealer = "1"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(3, lastRow); // Dòng 1 tiêu đề + 2 dòng (CUS005, CUS001)
+    }
+
+    [Fact]
+    public async Task Export_FilterByFlagSupplier_1_Returns1Item()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            FlagSupplier = "1"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(2, lastRow); // Dòng 1 tiêu đề + 1 dòng (CUS002)
+        Assert.Equal("KH002", ws.Cell(2, 1).GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterByCustomerName_Returns1Item()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            CustomerName = "Alpha"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(2, lastRow); // Dòng 1 tiêu đề + 1 dòng (CUS001)
+        Assert.Equal("KH001", ws.Cell(2, 1).GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterByOrgID_Returns4Items()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(5, lastRow); // Dòng 1 tiêu đề + 4 dòng
+    }
+
+    [Fact]
+    public async Task Export_NoMatchingRecords_ReturnsHeaderOnly()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            CustomerName = "NON_EXISTENT_CUSTOMER_XYZ"
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(1, lastRow); // Chỉ có dòng 1 tiêu đề
+    }
+
+    [Fact]
+    public async Task Export_NegativePageIndexOrZeroCount_ReturnsHeaderOnly()
+    {
+        var req = new Mst_Customer_ExportReq
+        {
+            Ft_RecordStart = -1
+        };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Customer");
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(1, lastRow);
+    }
+
+    private class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
+        public IFileProvider WebRootFileProvider { get; set; } = null!;
+        public string ApplicationName { get; set; } = "MiniContract.Tests";
+        public IFileProvider ContentRootFileProvider { get; set; } = null!;
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public string EnvironmentName { get; set; } = "Development";
     }
 }
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get)
 [ApiController]
@@ -16,10 +17,56 @@ namespace MiniContract.Controllers.Port;
 public class Mst_CustomerControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_CustomerControllerPort(AppDbContext db)
+    // Từ điển cột xuất excel theo GetImportDicColumsTemplate() (Mst_CustomerController.cs:1322-1366)
+    private static readonly Dictionary<string, string> DicColNames = new()
+    {
+        { "CustomerCode", "Mã khách hàng(*)" },
+        { "CustomerName", "Tên khách hàng(*)" },
+        { "mct_CustomerTypeName", "Tên loại khách hàng" },
+        { "mcs_CustomerSourceName", "Tên nguồn khách hàng" },
+        { "mcg_CustomerGrpName", "Tên nhóm khách hàng" },
+        { "CustomerPhoneNo", "Điện thoại cố định" },
+        { "CustomerMobilePhone", "Điện thoại di động" },
+        { "CustomerAvatarPath", "Đường dẫn ảnh avatar" },
+        { "CustomerGender", "Giới tính" },
+        { "CustomerEmail", "Email khách hàng" },
+        { "CustomerAddress", "Địa chỉ" },
+        { "ProvinceCode", "Tỉnh thành" },
+        { "DistrictCode", "Quận huyện" },
+        { "WardCode", "Phường xã" },
+        { "AreaCode", "Khu vực" },
+        { "FlagDealer", "Là đại lý (1)" },
+        { "FlagSupplier", "Là nhà cung cấp (1)" },
+        { "FlagShipper", "Là đơn vị giao hàng (1)" },
+        { "FlagEndUser", "Là khách hàng cuối (1)" },
+        { "FlagBank", "Là ngân hàng (1)" },
+        { "FlagInsurrance", "Bảo hiểm (1)" },
+        { "RepresentName", "Người đại diện" },
+        { "RepresentPosition", "Chức vụ" },
+        { "GovIDCardNo", "Số giấy tờ" },
+        { "GovIDType", "Loại giấy tờ" },
+        { "BankAccountNo", "Số tài khoản" },
+        { "BankName", "Tên ngân hàng" },
+        { "ContactName", "Người liên hệ" },
+        { "ContactPhone", "Điện thoại liên hệ" },
+        { "ContactEmail", "Email liên hệ" },
+        { "Fax", "Fax" },
+        { "CustomerDateOfBirth", "Ngày sinh/ Ngày thành lập" },
+        { "Facebook", "Facebook" },
+        { "InvoiceCustomerName", "Người mua hàng" },
+        { "InvoiceOrgName", "Tên tổ chức" },
+        { "MST", "Mã số thuế" },
+        { "InvoiceCustomerAddress", "Địa chỉ hợp đồng" },
+        { "InvoiceEmailSend", "Email nhận hợp đồng" },
+        { "ListOfCustDynamicFieldValue", "Thuộc tính thêm" }
+    };
+
+    public Mst_CustomerControllerPort(AppDbContext db, IWebHostEnvironment? env = null)
     {
         _db = db;
+        _env = env;
     }
 
     /// <summary>
@@ -349,6 +396,178 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xuất danh sách khách hàng ra file Excel.
+    /// Gate: Mst_CustomerController.cs:435-561 Export(...)
+    /// API:  MstCustomerController.cs:92-162 WA_Mst_Customer_Get(...)
+    /// BIZ:  Customer.cs:1464-1612 WAS_Mst_Customer_Get, 996-1462 Mst_Customer_Get
+    /// </summary>
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_ExportReq? req)
+    {
+        try
+        {
+            // 1. Phân trang: Gate Mst_CustomerController.cs:448-449, 482-483 (BaseController.Ft_RecordCount = 123456000)
+            long recordStart = req?.Ft_RecordStart ?? ((long)(req?.Page ?? req?.PageIndex ?? 0) * (req?.RecordCount ?? req?.PageSize ?? 0));
+            long recordCount = req?.Ft_RecordCount ?? req?.RecordCount ?? req?.PageSize ?? int.MaxValue;
+
+            // 2. Dựng truy vấn lọc theo StrWhereClauseMst_CustomerSearch (Mst_CustomerController.cs:325-429, 453-467)
+            //    và các cột của Mst_Customer (Customer.cs:1120-1137, 1344-1386)
+            var query = _db.Set<Mst_Customer>().AsNoTracking();
+
+            var orgId = StdParam(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var networkId = StdParam(req?.NetworkID);
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(req?.FlagActive))
+            {
+                var flagActive = StdFlag(req?.FlagActive);
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            // Lọc theo mảng customerGrpCode (Gate Mst_CustomerController.cs:344-354, Customer.cs:1126-1128)
+            if (req?.CustomerGrpCode != null && req.CustomerGrpCode.Length > 0)
+            {
+                var grpCodes = req.CustomerGrpCode.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim().ToUpperInvariant()).ToList();
+                if (grpCodes.Count > 0)
+                {
+                    var matchingCusCodes = await _db.Set<Mst_CustomerInCustomerGroup>().AsNoTracking()
+                        .Where(cg => grpCodes.Contains((cg.CustomerGrpCode ?? "").ToUpper()))
+                        .Select(cg => cg.CustomerCodeSys)
+                        .Distinct()
+                        .ToListAsync();
+
+                    query = query.Where(x => matchingCusCodes.Contains(x.CustomerCodeSys));
+                }
+            }
+
+            // Lọc theo mảng customerType (Gate Mst_CustomerController.cs:356-367)
+            if (req?.CustomerType != null && req.CustomerType.Length > 0)
+            {
+                var types = req.CustomerType.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim().ToUpperInvariant()).ToList();
+                if (types.Count > 0)
+                {
+                    query = query.Where(x => types.Contains((x.CustomerType ?? "").ToUpper()));
+                }
+            }
+
+            // Lọc theo mảng customerSourceCode (Gate Mst_CustomerController.cs:369-380)
+            if (req?.CustomerSourceCode != null && req.CustomerSourceCode.Length > 0)
+            {
+                var sources = req.CustomerSourceCode.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim().ToUpperInvariant()).ToList();
+                if (sources.Count > 0)
+                {
+                    query = query.Where(x => sources.Contains((x.CustomerSourceCode ?? "").ToUpper()));
+                }
+            }
+
+            // Lọc theo customerName (Gate Mst_CustomerController.cs:383-393: CustomerName LIKE %..% OR CustomerCode LIKE %..%)
+            var customerName = StdStr(req?.CustomerName);
+            if (!string.IsNullOrEmpty(customerName))
+            {
+                var cnPattern = PortQuery.Contains(customerName);
+                query = query.Where(x => EF.Functions.Like((x.CustomerName ?? "").ToLower(), cnPattern, PortQuery.Esc)
+                                      || EF.Functions.Like((x.CustomerCode ?? "").ToLower(), cnPattern, PortQuery.Esc));
+            }
+
+            // Lọc theo customerMobilePhone (Gate Mst_CustomerController.cs:395-398: CustomerMobilePhone LIKE %..%)
+            var phone = StdStr(req?.CustomerMobilePhone);
+            if (!string.IsNullOrEmpty(phone))
+            {
+                query = query.Where(x => EF.Functions.Like((x.CustomerMobilePhone ?? "").ToLower(), PortQuery.Contains(phone), PortQuery.Esc));
+            }
+
+            // Lọc theo contactEmail (Gate Mst_CustomerController.cs:399-402: ContactEmail LIKE %..%)
+            var email = StdStr(req?.ContactEmail);
+            if (!string.IsNullOrEmpty(email))
+            {
+                var emailPattern = PortQuery.Contains(email);
+                query = query.Where(x => EF.Functions.Like((x.ContactEmail ?? "").ToLower(), emailPattern, PortQuery.Esc)
+                                      || EF.Functions.Like((x.CustomerEmail ?? "").ToLower(), emailPattern, PortQuery.Esc));
+            }
+
+            // Lọc theo flagDealer (Gate Mst_CustomerController.cs:403-406: FlagDealer = flagDealer)
+            var flagDealer = StdStr(req?.FlagDealer);
+            if (!string.IsNullOrEmpty(flagDealer))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagDealer ?? "").ToLower(), PortQuery.Equal(flagDealer), PortQuery.Esc));
+            }
+
+            // Lọc theo flagSupplier (Gate Mst_CustomerController.cs:407-410: FlagSupplier = flagSupplier)
+            var flagSupplier = StdStr(req?.FlagSupplier);
+            if (!string.IsNullOrEmpty(flagSupplier))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagSupplier ?? "").ToLower(), PortQuery.Equal(flagSupplier), PortQuery.Esc));
+            }
+
+            // Lọc theo flagShipper (Gate Mst_CustomerController.cs:411-414: FlagShipper = flagShipper)
+            var flagShipper = StdStr(req?.FlagShipper);
+            if (!string.IsNullOrEmpty(flagShipper))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagShipper ?? "").ToLower(), PortQuery.Equal(flagShipper), PortQuery.Esc));
+            }
+
+            // Lọc theo flagEndUser (Gate Mst_CustomerController.cs:415-418: FlagEndUser = flagEndUser)
+            var flagEndUser = StdStr(req?.FlagEndUser);
+            if (!string.IsNullOrEmpty(flagEndUser))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagEndUser ?? "").ToLower(), PortQuery.Equal(flagEndUser), PortQuery.Esc));
+            }
+
+            // Lọc theo flagBank (Gate Mst_CustomerController.cs:419-422: FlagBank = flagBank)
+            var flagBank = StdStr(req?.FlagBank);
+            if (!string.IsNullOrEmpty(flagBank))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagBank ?? "").ToLower(), PortQuery.Equal(flagBank), PortQuery.Esc));
+            }
+
+            // Lọc theo flagInsurrance (Gate Mst_CustomerController.cs:423-426: FlagInsurrance = flagInsurrance)
+            var flagInsurrance = StdStr(req?.FlagInsurrance);
+            if (!string.IsNullOrEmpty(flagInsurrance))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagInsurrance ?? "").ToLower(), PortQuery.Equal(flagInsurrance), PortQuery.Esc));
+            }
+
+            // 3. Sắp xếp: order by mc.CreateDTimeUTC desc (Customer.cs:1136, 1250)
+            query = query.OrderByDescending(x => x.CreateDTimeUTC).ThenBy(x => x.CustomerCodeSys);
+
+            // 4. Phân trang (Customer.cs:1143-1151, LESSON A.12)
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_Customer>()
+                : await query.Skip((int)Math.Min(recordStart, int.MaxValue))
+                             .Take((int)Math.Min(recordCount, int.MaxValue))
+                             .ToListAsync();
+
+            // 5. Nối thông tin từ các bảng liên kết (Customer.cs:1181-1250, Mst_CustomerController.cs:182-199)
+            await EnrichCustomersAsync(list);
+
+            // 6. Xuất Excel và trả URL (Mst_CustomerController.cs:555-560)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_Customer));
+            PortExcel.ExportToExcelFromList(list, DicColNames, filePath, nameof(Mst_Customer));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Export", "Exception", ex.Message);
+        }
+    }
+
     private async Task EnrichCustomersAsync(List<Mst_Customer> list)
     {
         if (list.Count == 0) return;
@@ -502,3 +721,35 @@ public class Mst_Customer_DoSearchReq
     public string? NetworkID { get; set; }
     public string? FlagActive { get; set; }
 }
+
+public class Mst_Customer_ExportReq
+{
+    // Tham số từ Gate MVC Mst_CustomerController.cs:435-450
+    public string? CustomerName { get; set; }
+    public string[]? CustomerType { get; set; }
+    public string[]? CustomerSourceCode { get; set; }
+    public string? CustomerMobilePhone { get; set; }
+    public string[]? CustomerGrpCode { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? FlagDealer { get; set; }
+    public string? FlagSupplier { get; set; }
+    public string? FlagShipper { get; set; }
+    public string? FlagEndUser { get; set; }
+    public string? FlagBank { get; set; }
+    public string? FlagInsurrance { get; set; }
+    public string? Init { get; set; } = "init";
+    public int? Page { get; set; }
+    public int? RecordCount { get; set; }
+
+    // Các alias phân trang (LESSON A.12, A.14, PortQuery.PageInfo)
+    public int? PageIndex { get; set; }
+    public int? PageSize { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+
+    // Bộ lọc theo ngữ cảnh / session (LESSON A.14, Customer.cs:1120-1137)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
+}
+
