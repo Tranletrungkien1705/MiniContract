@@ -890,4 +890,278 @@ public class Mst_ColumnConfigGroupControllerPortTests : IDisposable
             catch { }
         }
     }
+
+    [Fact]
+    public async Task Update_NullBody_ReturnsSuccessWithNullData()
+    {
+        var result = await _controller.Update(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_EmptyCode_ReturnsSuccessWithNullData()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq();
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_NonExistentCode_ReturnsSuccessWithNullData()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq { ColumnConfigGrpCode = "NON_EXIST" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ExistingCode_ReturnsMatchedRecord()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq { ColumnConfigGrpCode = "GRP01" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP01", data.GetProperty("ColumnConfigGrpCode").GetString());
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("Nhóm cấu hình tiền tệ", data.GetProperty("ColumnGrpName").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ExistingCodeAndOrgID_ReturnsMatchedRecord()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq
+        {
+            ColumnConfigGrpCode = "GRP01",
+            OrgID = "7200000002"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP01", data.GetProperty("ColumnConfigGrpCode").GetString());
+        Assert.Equal("7200000002", data.GetProperty("OrgID").GetString());
+        Assert.Equal("Nhóm cấu hình Org 2", data.GetProperty("ColumnGrpName").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ExistingCodeDifferentOrgID_ReturnsNullWhenMismatch()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq
+        {
+            ColumnConfigGrpCode = "GRP02",
+            OrgID = "7200000002"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ViaModelJsonString_ReturnsMatchedRecord()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq
+        {
+            Model = "{\"ColumnConfigGrpCode\":\"GRP03\",\"OrgID\":\"7200000001\"}"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP03", data.GetProperty("ColumnConfigGrpCode").GetString());
+        Assert.Equal("Nhóm cấu hình tỷ lệ phần trăm", data.GetProperty("ColumnGrpName").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ViaRawModelString_ReturnsMatchedRecord()
+    {
+        var req = new Mst_ColumnConfigGroup_UpdateReq
+        {
+            Model = "GRP02"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP02", data.GetProperty("ColumnConfigGrpCode").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Update_Verification_Port8543()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_update_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = "8543";
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8543"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, "MiniContract server failed to start within 15 seconds.");
+
+            // 1. Ca body rỗng: POST {} -> 200 OK, Success=true, Data=null
+            var req1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res1 = await http.PostAsync("/api/mst_columnconfiggroup/update", req1);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res1.StatusCode);
+            var body1 = await res1.Content.ReadAsStringAsync();
+            var doc1 = JsonDocument.Parse(body1);
+            Assert.True(doc1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc1.RootElement.GetProperty("Data").ValueKind);
+
+            // 2. Ca mã không tồn tại: POST {"ColumnConfigGrpCode":"NON_EXIST"} -> 200 OK, Success=true, Data=null
+            var req2 = new StringContent("{\"ColumnConfigGrpCode\":\"NON_EXIST\"}", Encoding.UTF8, "application/json");
+            var res2 = await http.PostAsync("/api/mst_columnconfiggroup/update", req2);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res2.StatusCode);
+            var body2 = await res2.Content.ReadAsStringAsync();
+            var doc2 = JsonDocument.Parse(body2);
+            Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc2.RootElement.GetProperty("Data").ValueKind);
+
+            // 3. Ca lọc bộ A (GRP01, OrgID=7200000001) -> 200 OK, Success=true, trả về bản ghi Org 1
+            var req3 = new StringContent("{\"ColumnConfigGrpCode\":\"GRP01\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var res3 = await http.PostAsync("/api/mst_columnconfiggroup/update", req3);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res3.StatusCode);
+            var body3 = await res3.Content.ReadAsStringAsync();
+            var doc3 = JsonDocument.Parse(body3);
+            Assert.True(doc3.RootElement.GetProperty("Success").GetBoolean());
+            var data3 = doc3.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data3.ValueKind);
+            Assert.Equal("GRP01", data3.GetProperty("ColumnConfigGrpCode").GetString());
+            Assert.Equal("7200000001", data3.GetProperty("OrgID").GetString());
+            Assert.Equal("Nhóm cấu hình tiền tệ", data3.GetProperty("ColumnGrpName").GetString());
+
+            // 4. Ca lọc bộ B (GRP01, OrgID=7200000002) -> 200 OK, Success=true, trả về bản ghi Org 2 (khác với ca 3)
+            var req4 = new StringContent("{\"ColumnConfigGrpCode\":\"GRP01\",\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var res4 = await http.PostAsync("/api/mst_columnconfiggroup/update", req4);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res4.StatusCode);
+            var body4 = await res4.Content.ReadAsStringAsync();
+            var doc4 = JsonDocument.Parse(body4);
+            Assert.True(doc4.RootElement.GetProperty("Success").GetBoolean());
+            var data4 = doc4.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data4.ValueKind);
+            Assert.Equal("GRP01", data4.GetProperty("ColumnConfigGrpCode").GetString());
+            Assert.Equal("7200000002", data4.GetProperty("OrgID").GetString());
+            Assert.Equal("Nhóm cấu hình Org 2", data4.GetProperty("ColumnGrpName").GetString());
+
+            // 5. Ca lọc bộ C (GRP02, OrgID=7200000002) -> 200 OK, Success=true, Data=null (GRP02 không thuộc Org 2)
+            var req5 = new StringContent("{\"ColumnConfigGrpCode\":\"GRP02\",\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var res5 = await http.PostAsync("/api/mst_columnconfiggroup/update", req5);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res5.StatusCode);
+            var body5 = await res5.Content.ReadAsStringAsync();
+            var doc5 = JsonDocument.Parse(body5);
+            Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc5.RootElement.GetProperty("Data").ValueKind);
+
+            // 6. Ca gửi qua Model JSON string -> 200 OK, Success=true, GRP03
+            var req6 = new StringContent("{\"Model\":\"{\\\"ColumnConfigGrpCode\\\":\\\"GRP03\\\"}\"}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_columnconfiggroup/update", req6);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res6.StatusCode);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.True(doc6.RootElement.GetProperty("Success").GetBoolean());
+            var data6 = doc6.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data6.ValueKind);
+            Assert.Equal("GRP03", data6.GetProperty("ColumnConfigGrpCode").GetString());
+            Assert.Equal("##0.00%", data6.GetProperty("ColumnGrpFormat").GetString());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(entireProcessTree: true);
+                    await proc.WaitForExitAsync();
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb))
+                {
+                    File.Delete(tempDb);
+                }
+                var shm = tempDb + "-shm";
+                var wal = tempDb + "-wal";
+                if (File.Exists(shm)) File.Delete(shm);
+                if (File.Exists(wal)) File.Delete(wal);
+            }
+            catch { }
+        }
+    }
 }

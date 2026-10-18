@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ColumnConfigGroupController.cs — Mst_ColumnConfigGroup
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96 (Index), 97-178 (DoSearch), 181-184 (Create GET), 185-233 (Create POST)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96 (Index), 97-178 (DoSearch), 181-184 (Create GET), 185-233 (Create POST), 239-290 (Update)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstColumnConfigGroupController.cs:19-75 (Index), 89-153 (Create)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:52007-52078 (CheckDB), 52296-52499 (WAS/Biz Create), 52908-53064 (GetX), 53065-53174 (CreateX)
 [ApiController]
@@ -291,6 +291,69 @@ public class Mst_ColumnConfigGroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Update từ gate Mst_ColumnConfigGroupController.cs:239-290.
+    /// Chuỗi gọi: gate :239-290 -> WA_Mst_ColumnConfigGroup_Get (:283) -> WAS_Mst_ColumnConfigGroup_Get -> Mst_ColumnConfigGroup_Get -> Mst_ColumnConfigGroup_GetX (Master.cs:52908-53064).
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ColumnConfigGroup_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào ColumnConfigGrpCode (Gate: Mst_ColumnConfigGroupController.cs:239, 252)
+            var code = StdParam(req?.ColumnConfigGrpCode);
+            var orgId = StdParam(req?.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault());
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault());
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(code) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_ColumnConfigGroup_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    code = StdParam(modelObj?.ColumnConfigGrpCode);
+                    orgId = StdParam(modelObj?.OrgID) ?? orgId;
+                    networkId = StdParam(modelObj?.NetworkID) ?? networkId;
+                }
+                catch
+                {
+                    code = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu mã rỗng, gate trả về View(new Mst_ColumnConfigGroup()) (Mst_ColumnConfigGroupController.cs:252, 289)
+            if (string.IsNullOrEmpty(code))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_ColumnConfigGroup?)null
+                });
+            }
+
+            // 3. Gọi GetXAsync tương ứng WA_Mst_ColumnConfigGroup_Get (Gate :283; Master.cs:52908-53064)
+            var queryReq = new Mst_ColumnConfigGroup_IndexReq
+            {
+                ColumnConfigGrpCode = code,
+                OrgID = orgId,
+                NetworkID = networkId
+            };
+            var (_, list) = await GetXAsync(queryReq, 0, 1);
+            var entity = list.FirstOrDefault();
+
+            // 4. Nếu tìm thấy trả về bản ghi đầu tiên, nếu không trả null (Gate :284-289)
+            return Ok(new
+            {
+                Success = true,
+                Data = entity
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_ColumnConfigGroup_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -326,4 +389,12 @@ public class Mst_ColumnConfigGroup_IndexReq
 
 public class Mst_ColumnConfigGroup_DoSearchReq : Mst_ColumnConfigGroup_IndexReq
 {
+}
+
+public class Mst_ColumnConfigGroup_UpdateReq
+{
+    public string? Model { get; set; }
+    public string? ColumnConfigGrpCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
 }
