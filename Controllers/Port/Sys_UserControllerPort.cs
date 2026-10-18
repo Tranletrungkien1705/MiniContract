@@ -15,6 +15,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:373-464 (LoadMstCustomer)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:468-473 (StopService)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:477-632 (Update GET View)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:636-725 (Edit POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
@@ -28,11 +29,13 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:421-492 (WA_Sys_User_Create)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:569-640 (WA_Sys_User_Update)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7011-7123 (WAS_Sys_User_Get) -> 6635-7009 (Sys_User_Get_New20191104)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12121-12218 (WAS_Mst_NNT_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35737-35835 (WAS_Mst_Department_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get) -> 996-1462 (Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:9907-9950 (WAS_Sys_User_Create) -> 7863-8027 (Sys_User_Create_New20200110)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:11620-11715 (WAS_Sys_User_Update) -> 11201-11618 (Sys_User_Update_New20231115)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:30-79 (Sys_User_GetAbilityViewOfUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:1990-2067 (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:631-1114 (Sys_User_CheckAuthorize - iNOS account service ngoài -> GAP)
@@ -891,6 +894,204 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Edit từ gate Sys_UserController.cs:636-725.
+    /// Chuỗi gọi:
+    /// 1. Deserialize model -> Sys_User (gate dòng 648).
+    /// 2. Kiểm tra if (objSys_UserInput != null && !CUtils.IsNullOrEmpty(objSys_UserInput.UserCode)) (gate dòng 649):
+    ///    Nếu rỗng: trả về Success = true, AddMessage("Mã người dùng trống!") (gate dòng 720-721).
+    /// 3. Dựng strWhereClause = strWhereClause_SysUser(UserCode) (gate dòng 651-652, 1936-1947).
+    ///    Gọi Sys_UserService.Instance.WA_Sys_User_Get(objRQ_Sys_User, addressAPIs) (gate dòng 675)
+    ///    -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///    -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///    -> BIZ Sys_User_Get_New20191104 (System.cs:6635-7009).
+    /// 4. Kiểm tra if (objRT_Sys_UserCur.Lst_Sys_User != null && objRT_Sys_UserCur.Lst_Sys_User.Count > 0) (gate dòng 676):
+    ///    Nếu không thấy: trả về Success = true, AddMessage("Mã người dùng '" + objSys_UserInput.UserCode + "' không có trong hệ thống!") (gate dòng 714-715).
+    /// 5. Nếu tìm thấy:
+    ///    - Sao chép các thuộc tính từ objSys_UserInput: UserName, PhoneNo, Position, DepartmentCode, FlagSysAdmin, FlagNNTAdmin, FlagViewOrgCreate, FlagViewOtherOrgCreate, FlagActive (gate dòng 678-686).
+    ///    - Dựng strFt_Cols_Upd (gate dòng 688-698).
+    ///    - Đóng gói objRQ_Sys_User và gọi Sys_UserService.Instance.WA_Sys_User_Update(objRQ_Sys_User, addressAPIs) (gate dòng 706)
+    ///      -> API WA_Sys_User_Update (SysUserController.cs:569-640)
+    ///      -> BIZ WAS_Sys_User_Update (System.cs:11620-11715)
+    ///      -> BIZ Sys_User_Update_New20231115 (System.cs:11201-11618).
+    /// 6. BIZ Sys_User_Update_New20231115:
+    ///    - Mở transaction: _cf.db.BeginTransaction() (System.cs:11269).
+    ///    - Chuẩn hoá tham số đầu vào: strUserCode, strUserName, strPhoneNo, strPosition, strDepartmentCode, các cờ FlagSysAdmin, FlagNNTAdmin, FlagActive, FlagViewOrgCreate, FlagViewOtherOrgCreate (System.cs:11310-11327).
+    ///    - Xác định bUpd_* từ strFt_Cols_Upd (System.cs:11330-11342).
+    ///    - Gọi Sys_User_CheckDB (System.cs:11348-11354, 3552-3611).
+    ///    - Biz Guard: nếu bUpd_UserName && strUserName.Length < 1 -> ném TError.ErridQContract.Sys_User_Update_InvalidUserName (System.cs:11356-11365).
+    ///    - Cập nhật các cột trong DB (System.cs:11390-11408).
+    ///    - Bỏ qua dịch vụ ngoài Inos_AccountService_EditProfileX, VelocaPortal (System.cs:11423-11562) -> GAP.
+    ///    - Commit transaction: TDALUtils.DBUtils.CommitSafety(_cf.db) (System.cs:11580).
+    /// 7. Trả về kết quả khớp gate MVC (Sys_UserController.cs:708-710):
+    ///    Success = true, Messages = ["Sửa người dùng thành công!"], RedirectUrl = Url.Action("Index"), Data = existing.
+    /// </summary>
+    [HttpPost("edit")]
+    [HttpPost("save")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_EditReq? req)
+    {
+        // 1. Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Sys_UserController.cs:636, 648)
+        if (!string.IsNullOrWhiteSpace(req?.Model))
+        {
+            try
+            {
+                var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_User_EditReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.UserCode ??= modelObj.UserCode;
+                    req.UserName ??= modelObj.UserName;
+                    req.PhoneNo ??= modelObj.PhoneNo;
+                    req.Position ??= modelObj.Position;
+                    req.DepartmentCode ??= modelObj.DepartmentCode;
+                    req.FlagSysAdmin ??= modelObj.FlagSysAdmin;
+                    req.FlagNNTAdmin ??= modelObj.FlagNNTAdmin;
+                    req.FlagViewOrgCreate ??= modelObj.FlagViewOrgCreate;
+                    req.FlagViewOtherOrgCreate ??= modelObj.FlagViewOtherOrgCreate;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.FlagDLAdmin ??= modelObj.FlagDLAdmin;
+                    req.EMail ??= modelObj.EMail;
+                    req.MST ??= modelObj.MST;
+                    req.Avatar ??= modelObj.Avatar;
+                    req.Ft_Cols_Upd ??= modelObj.Ft_Cols_Upd;
+                    req.WAUserCode ??= modelObj.WAUserCode;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.OrgID ??= modelObj.OrgID;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        // Gate guard 1: Kiểm tra model và UserCode không được rỗng (Sys_UserController.cs:649-650, 720-721)
+        var rawUserCode = req?.UserCode;
+        if (string.IsNullOrEmpty(rawUserCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+        {
+            rawUserCode = qUserCode.ToString();
+        }
+
+        if (req == null || string.IsNullOrWhiteSpace(rawUserCode))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Mã người dùng trống!" },
+                Title = "Mã người dùng trống!"
+            });
+        }
+
+        var userCode = StdParam(rawUserCode);
+        if (string.IsNullOrEmpty(userCode))
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Mã người dùng trống!" },
+                Title = "Mã người dùng trống!"
+            });
+        }
+
+        // Gate guard 2: Tra cứu bản ghi người dùng hiện có trong DB qua WA_Sys_User_Get (Sys_UserController.cs:651-676, 714-716)
+        var existing = await _db.Set<Sys_User>()
+            .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+        if (existing == null)
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { $"Mã người dùng '{rawUserCode}' không có trong hệ thống!" },
+                Title = $"Mã người dùng '{rawUserCode}' không có trong hệ thống!"
+            });
+        }
+
+        // Xác định các cột cập nhật theo gate (Sys_UserController.cs:688-698)
+        var defaultCols = "SYS_USER.USERNAME,SYS_USER.PHONENO,SYS_USER.POSITION,SYS_USER.DEPARTMENTCODE,SYS_USER.FLAGSYSADMIN,SYS_USER.FLAGNNTADMIN,SYS_USER.FLAGACTIVE,SYS_USER.FLAGVIEWORGCREATE,SYS_USER.FLAGVIEWOTHERORGCREATE,";
+        var strFt_Cols_Upd = (StdParam(req.Ft_Cols_Upd) ?? defaultCols).ToUpperInvariant();
+
+        bool bUpd_UserName = strFt_Cols_Upd.Contains("SYS_USER.USERNAME") || strFt_Cols_Upd.Contains("USERNAME");
+        bool bUpd_PhoneNo = strFt_Cols_Upd.Contains("SYS_USER.PHONENO") || strFt_Cols_Upd.Contains("PHONENO");
+        bool bUpd_Position = strFt_Cols_Upd.Contains("SYS_USER.POSITION") || strFt_Cols_Upd.Contains("POSITION");
+        bool bUpd_DepartmentCode = strFt_Cols_Upd.Contains("SYS_USER.DEPARTMENTCODE") || strFt_Cols_Upd.Contains("DEPARTMENTCODE");
+        bool bUpd_FlagSysAdmin = strFt_Cols_Upd.Contains("SYS_USER.FLAGSYSADMIN") || strFt_Cols_Upd.Contains("FLAGSYSADMIN");
+        bool bUpd_FlagNNTAdmin = strFt_Cols_Upd.Contains("SYS_USER.FLAGNNTADMIN") || strFt_Cols_Upd.Contains("FLAGNNTADMIN");
+        bool bUpd_FlagActive = strFt_Cols_Upd.Contains("SYS_USER.FLAGACTIVE") || strFt_Cols_Upd.Contains("FLAGACTIVE");
+        bool bUpd_FlagViewOrgCreate = strFt_Cols_Upd.Contains("SYS_USER.FLAGVIEWORGCREATE") || strFt_Cols_Upd.Contains("FLAGVIEWORGCREATE");
+        bool bUpd_FlagViewOtherOrgCreate = strFt_Cols_Upd.Contains("SYS_USER.FLAGVIEWOTHERORGCREATE") || strFt_Cols_Upd.Contains("FLAGVIEWOTHERORGCREATE");
+        bool bUpd_EMail = strFt_Cols_Upd.Contains("SYS_USER.EMAIL") || strFt_Cols_Upd.Contains("EMAIL");
+        bool bUpd_Avatar = strFt_Cols_Upd.Contains("SYS_USER.AVATAR") || strFt_Cols_Upd.Contains("AVATAR");
+        bool bUpd_FlagDLAdmin = strFt_Cols_Upd.Contains("SYS_USER.FLAGDLADMIN") || strFt_Cols_Upd.Contains("FLAGDLADMIN");
+
+        // Chuẩn hoá dữ liệu cập nhật theo System.cs:11313-11327
+        var strUserName = req.UserName != null ? string.Format("{0}", req.UserName).Trim() : (existing.UserName ?? "");
+        var strPhoneNo = req.PhoneNo != null ? string.Format("{0}", req.PhoneNo).Trim() : (existing.PhoneNo ?? "");
+        var strPosition = req.Position != null ? string.Format("{0}", req.Position) : (existing.Position ?? "");
+        var strDepartmentCode = req.DepartmentCode != null ? StdParam(req.DepartmentCode) : existing.DepartmentCode;
+        var strFlagSysAdmin = req.FlagSysAdmin != null ? StdFlag(req.FlagSysAdmin) : (existing.FlagSysAdmin ?? "0");
+        var strFlagNNTAdmin = req.FlagNNTAdmin != null ? StdFlag(req.FlagNNTAdmin) : (existing.FlagNNTAdmin ?? "0");
+        var strFlagActive = req.FlagActive != null ? StdFlag(req.FlagActive) : (existing.FlagActive ?? "1");
+        var strFlagViewOrgCreate = req.FlagViewOrgCreate != null ? StdFlag(req.FlagViewOrgCreate) : (existing.FlagViewOrgCreate ?? "0");
+        var strFlagViewOtherOrgCreate = req.FlagViewOtherOrgCreate != null ? StdFlag(req.FlagViewOtherOrgCreate) : (existing.FlagViewOtherOrgCreate ?? "0");
+        var strEMail = req.EMail != null ? string.Format("{0}", req.EMail).Trim() : (existing.EMail ?? "");
+        var strAvatar = req.Avatar != null ? string.Format("{0}", req.Avatar) : (existing.ACAvatar ?? "");
+        var strFlagDLAdmin = req.FlagDLAdmin != null ? StdFlag(req.FlagDLAdmin) : (existing.FlagDLAdmin ?? "0");
+
+        // Mở transaction cập nhật (System.cs:11269)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Biz guard: Nếu cập nhật UserName mà strUserName.Length < 1 -> ném Sys_User_Update_InvalidUserName (System.cs:11356-11365)
+            if (bUpd_UserName && strUserName.Length < 1)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_Update_InvalidUserName", "Check.strUserName", req.UserName ?? "");
+            }
+
+            if (bUpd_UserName) existing.UserName = strUserName;
+            if (bUpd_PhoneNo) existing.PhoneNo = strPhoneNo;
+            if (bUpd_Position) existing.Position = strPosition;
+            if (bUpd_DepartmentCode) existing.DepartmentCode = strDepartmentCode;
+            if (bUpd_FlagSysAdmin) existing.FlagSysAdmin = strFlagSysAdmin;
+            if (bUpd_FlagNNTAdmin) existing.FlagNNTAdmin = strFlagNNTAdmin;
+            if (bUpd_FlagActive) existing.FlagActive = strFlagActive;
+            if (bUpd_FlagViewOrgCreate) existing.FlagViewOrgCreate = strFlagViewOrgCreate;
+            if (bUpd_FlagViewOtherOrgCreate) existing.FlagViewOtherOrgCreate = strFlagViewOtherOrgCreate;
+            if (bUpd_EMail) existing.EMail = strEMail;
+            if (bUpd_Avatar) existing.ACAvatar = strAvatar;
+            if (bUpd_FlagDLAdmin) existing.FlagDLAdmin = strFlagDLAdmin;
+
+            var dtimeSys = DateTime.UtcNow;
+            var callerCode = Request?.Headers["WAUserCode"].FirstOrDefault() ?? req.WAUserCode ?? "port";
+
+            existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            existing.LogLUBy = callerCode;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            _db.Entry(existing).State = EntityState.Detached;
+
+            // Che mật khẩu trước khi trả về
+            existing.UserPassword = Default_PasswordMask;
+
+            // Trả kết quả thành công khớp gate MVC (Sys_UserController.cs:708-710)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Sửa người dùng thành công!" },
+                Title = "Sửa người dùng thành công!",
+                RedirectUrl = "/Sys_User",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Sys_User_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1079,6 +1280,33 @@ public class Sys_User_UpdateData : Sys_User
         InosBaseUrl = inosBaseUrl;
         Sys_User = src;
     }
+}
+
+/// <summary>
+/// Model nhận tham số cho action Edit/Save của Sys_UserController.
+/// Gate: Sys_UserController.cs:636 Edit(string model)
+/// </summary>
+public class Sys_User_EditReq
+{
+    public string? Model { get; set; }
+    public string? UserCode { get; set; }
+    public string? UserName { get; set; }
+    public string? PhoneNo { get; set; }
+    public string? Position { get; set; }
+    public string? DepartmentCode { get; set; }
+    public string? FlagSysAdmin { get; set; }
+    public string? FlagNNTAdmin { get; set; }
+    public string? FlagViewOrgCreate { get; set; }
+    public string? FlagViewOtherOrgCreate { get; set; }
+    public string? FlagActive { get; set; }
+    public string? FlagDLAdmin { get; set; }
+    public string? EMail { get; set; }
+    public string? MST { get; set; }
+    public string? Avatar { get; set; }
+    public string? Ft_Cols_Upd { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
 }
 
 

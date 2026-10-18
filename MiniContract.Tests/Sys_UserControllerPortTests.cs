@@ -762,6 +762,150 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_NullReq_ReturnsSuccessTrueWithMessageEmptyUserCode()
+    {
+        // Khi req null (body rỗng): trả về Success = true, Messages = ["Mã người dùng trống!"] (gate: Sys_UserController.cs:649-650, 720-721)
+        var result = await _controller.Edit(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyUserCode_ReturnsSuccessTrueWithMessageEmptyUserCode()
+    {
+        // Khi UserCode rỗng: trả về Success = true, Messages = ["Mã người dùng trống!"] (gate: Sys_UserController.cs:649-650, 720-721)
+        var req = new Sys_User_EditReq { UserCode = "   " };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentUserCode_ReturnsSuccessTrueWithMessageNotFound()
+    {
+        // Khi UserCode không tồn tại trong hệ thống: trả về Success = true, Messages = ["Mã người dùng '<UserCode>' không có trong hệ thống!"] (gate: Sys_UserController.cs:676, 714-716)
+        var req = new Sys_User_EditReq { UserCode = "NON_EXISTENT" };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_BizGuard_EmptyUserName_ReturnsSys_User_Update_InvalidUserName()
+    {
+        // Biz guard: Nếu cập nhật UserName mà strUserName.Length < 1 -> ném TError.ErridQContract.Sys_User_Update_InvalidUserName (System.cs:11356-11365)
+        var req = new Sys_User_EditReq
+        {
+            UserCode = "U01",
+            UserName = "   ",
+            Ft_Cols_Upd = "SYS_USER.USERNAME,"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Update_InvalidUserName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_ValidRoundTrip_UpdatesDatabaseAndReturnsSuccess()
+    {
+        // Gán mật khẩu trước khi sửa để kiểm tra mật khẩu trong DB không bị ghi đè
+        var u03 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U03");
+        u03.UserPassword = "Password123";
+        await _db.SaveChangesAsync();
+        _db.Entry(u03).State = EntityState.Detached;
+
+        // Cập nhật thành công thông tin người dùng U03
+        var req = new Sys_User_EditReq
+        {
+            UserCode = "u03",
+            UserName = "Kiem Thu Vien 03 Cap Nhat",
+            PhoneNo = "0988776655",
+            Position = "Chuyen Vien Test",
+            DepartmentCode = "DEPT_KT",
+            FlagActive = "1",
+            FlagSysAdmin = "0",
+            FlagNNTAdmin = "1"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Sửa người dùng thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("Sửa người dùng thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Sys_User", root.GetProperty("RedirectUrl").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("U03", data.GetProperty("UserCode").GetString());
+        Assert.Equal("Kiem Thu Vien 03 Cap Nhat", data.GetProperty("UserName").GetString());
+        Assert.Equal("0988776655", data.GetProperty("PhoneNo").GetString());
+        Assert.Equal("Chuyen Vien Test", data.GetProperty("Position").GetString());
+        Assert.Equal("DEPT_KT", data.GetProperty("DepartmentCode").GetString());
+        Assert.Equal("*********", data.GetProperty("UserPassword").GetString());
+
+        // Kiểm tra trong database: các cột cập nhật thành công, mật khẩu trong DB không bị sửa
+        var dbUser = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U03");
+        Assert.NotNull(dbUser);
+        Assert.Equal("Kiem Thu Vien 03 Cap Nhat", dbUser.UserName);
+        Assert.Equal("0988776655", dbUser.PhoneNo);
+        Assert.Equal("Chuyen Vien Test", dbUser.Position);
+        Assert.Equal("DEPT_KT", dbUser.DepartmentCode);
+        Assert.Equal("1", dbUser.FlagNNTAdmin);
+        // Mật khẩu thật trong DB vẫn giữ nguyên
+        Assert.Equal("Password123", dbUser.UserPassword);
+    }
+
+    [Fact]
+    public async Task Edit_ViaModelJsonString_Success()
+    {
+        // Hỗ trợ client truyền model qua chuỗi JSON (Gate MVC: Sys_UserController.cs:636, 648)
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            UserCode = "u02",
+            UserName = "Tester 02 Json Updated",
+            PhoneNo = "0912345678"
+        });
+
+        var req = new Sys_User_EditReq
+        {
+            Model = modelJson
+        };
+
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Sửa người dùng thành công!", root.GetProperty("Messages")[0].GetString());
+
+        var dbUser = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U02");
+        Assert.NotNull(dbUser);
+        Assert.Equal("Tester 02 Json Updated", dbUser.UserName);
+        Assert.Equal("0912345678", dbUser.PhoneNo);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -1082,6 +1226,80 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc28 = JsonDocument.Parse(await res28.Content.ReadAsStringAsync());
             Assert.True(doc28.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("U01", doc28.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 29. Action Edit: POST /api/sys_user/edit với body rỗng -> 200 OK, Messages = ["Mã người dùng trống!"]
+            var req29 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res29 = await http.PostAsync("/api/sys_user/edit", req29);
+            Assert.True(res29.IsSuccessStatusCode);
+            var doc29 = JsonDocument.Parse(await res29.Content.ReadAsStringAsync());
+            Assert.True(doc29.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng trống!", doc29.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 30. Action Edit: POST /api/sys_user/edit với UserCode không tồn tại -> 200 OK, Messages = ["Mã người dùng 'NONEXISTENT' không có trong hệ thống!"]
+            var req30 = new StringContent(JsonSerializer.Serialize(new { UserCode = "NONEXISTENT" }), Encoding.UTF8, "application/json");
+            var res30 = await http.PostAsync("/api/sys_user/edit", req30);
+            Assert.True(res30.IsSuccessStatusCode);
+            var doc30 = JsonDocument.Parse(await res30.Content.ReadAsStringAsync());
+            Assert.True(doc30.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng 'NONEXISTENT' không có trong hệ thống!", doc30.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 31. Action Edit: POST /api/sys_user/edit biz guard: UserName rỗng khi cập nhật UserName -> 400 BadRequest (Sys_User_Update_InvalidUserName)
+            var req31 = new StringContent(JsonSerializer.Serialize(new { UserCode = "U01", UserName = "", Ft_Cols_Upd = "SYS_USER.USERNAME," }), Encoding.UTF8, "application/json");
+            var res31 = await http.PostAsync("/api/sys_user/edit", req31);
+            Assert.False(res31.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res31.StatusCode);
+            var doc31 = JsonDocument.Parse(await res31.Content.ReadAsStringAsync());
+            Assert.False(doc31.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Sys_User_Update_InvalidUserName", doc31.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 32. Action Edit: POST /api/sys_user/edit sửa thành công round-trip -> 200 OK, Messages = ["Sửa người dùng thành công!"]
+            var req32 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "u01",
+                UserName = "Admin Solution Updated",
+                PhoneNo = "0999888777",
+                Position = "Giam Doc Dieu Hanh",
+                DepartmentCode = "DEPT_BGD"
+            }), Encoding.UTF8, "application/json");
+            var res32 = await http.PostAsync("/api/sys_user/edit", req32);
+            Assert.True(res32.IsSuccessStatusCode);
+            var doc32 = JsonDocument.Parse(await res32.Content.ReadAsStringAsync());
+            Assert.True(doc32.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa người dùng thành công!", doc32.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Sys_User", doc32.RootElement.GetProperty("RedirectUrl").GetString());
+            var data32 = doc32.RootElement.GetProperty("Data");
+            Assert.Equal("U01", data32.GetProperty("UserCode").GetString());
+            Assert.Equal("Admin Solution Updated", data32.GetProperty("UserName").GetString());
+            Assert.Equal("0999888777", data32.GetProperty("PhoneNo").GetString());
+            Assert.Equal("*********", data32.GetProperty("UserPassword").GetString());
+
+            // 33. Action Edit alias: POST /api/sys_user/save sửa thành công round-trip -> 200 OK
+            var req33 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "u02",
+                UserName = "Tester Solution Updated Via Save",
+                PhoneNo = "0888999000"
+            }), Encoding.UTF8, "application/json");
+            var res33 = await http.PostAsync("/api/sys_user/save", req33);
+            Assert.True(res33.IsSuccessStatusCode);
+            var doc33 = JsonDocument.Parse(await res33.Content.ReadAsStringAsync());
+            Assert.True(doc33.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa người dùng thành công!", doc33.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 34. Action Edit qua chuỗi JSON Model -> 200 OK
+            var modelJson34 = JsonSerializer.Serialize(new
+            {
+                UserCode = "u03",
+                UserName = "Tester 03 Updated Via Model String",
+                Position = "Lead QA"
+            });
+            var req34 = new StringContent(JsonSerializer.Serialize(new { Model = modelJson34 }), Encoding.UTF8, "application/json");
+            var res34 = await http.PostAsync("/api/sys_user/edit", req34);
+            Assert.True(res34.IsSuccessStatusCode);
+            var doc34 = JsonDocument.Parse(await res34.Content.ReadAsStringAsync());
+            Assert.True(doc34.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa người dùng thành công!", doc34.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("Tester 03 Updated Via Model String", doc34.RootElement.GetProperty("Data").GetProperty("UserName").GetString());
         }
         finally
         {
