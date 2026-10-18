@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update), 2609-2995 (Edit), 3603-3800 (CreateInOrder)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update), 2609-2995 (Edit), 3603-3800 (CreateInOrder), 3804-3859 (GetAllCustomerGroup)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
@@ -1793,6 +1794,136 @@ public class Mst_CustomerControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Lấy danh sách nhóm khách hàng / khu vực thị trường (Mst_Area) phục vụ dropdown.
+    /// LỖI NGUỒN GIỮ NGUYÊN: Action mang tên GetAllCustomerGroup nhưng trong thân hàm nghiệp vụ truy vấn bảng Mst_Area
+    /// (strWhereClause_Mst_Area, List_Mst_AreaExt_Async) và trả về partial view LoadMst_Area.cshtml (Mst_CustomerController.cs:3804-3859).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:3804-3859 GetAllCustomerGroup()
+    ///       hàm phụ: Mst_CustomerController.cs:4112-4131 (strWhereClause_Mst_Area), BaseController.cs:5021-5056 (List_Mst_AreaExt_Async),
+    ///                BaseController.cs:4986-5014 (List_Mst_Area_Task), BaseController.cs:504-507 (JsonView), BaseController.cs:563-605 (JsonViewError)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAreaController.cs:19-89 WA_Mst_Area_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:101-189 WAS_Mst_Area_Get -> 190-316 Mst_Area_Get -> 318-474 Mst_Area_GetX
+    /// Extensions: Mst_AreaExtension.cs:9-75 (GetGroupBaseList, BuildGroupBaseTree, ToGroupBaseTree, ToFlatGroupBaseTree), Mst_AreaExt.cs:10-80
+    /// </summary>
+    [HttpPost("getallcustomergroup")]
+    public async Task<IActionResult> GetAllCustomerGroup([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_GetAllCustomerGroupReq? req)
+    {
+        try
+        {
+            // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Customer_GetAllCustomerGroupReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                        req.FlagActive ??= modelObj.FlagActive;
+                        req.AreaCode ??= modelObj.AreaCode;
+                    }
+                }
+                catch
+                {
+                    // Giữ nguyên req nếu không parse được
+                }
+            }
+
+            // 1. Chuẩn hoá tham số bộ lọc strWhereClause_Mst_Area (Mst_CustomerController.cs:3810-3815, 4112-4131)
+            var orgId = StdParam(req?.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault()) ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault()) ?? _config?["Biz_NetworkID"];
+            var flagActive = req?.FlagActive != null ? StdParam(req.FlagActive) : "1"; // Mặc định Client_Flag.Active = "1" (Mst_CustomerController.cs:3814)
+
+            // 2. Truy vấn danh sách Mst_Area theo bộ lọc (Customer.cs:377, 417-420)
+            var query = _db.Set<Mst_Area>().AsNoTracking();
+
+            if (!string.IsNullOrEmpty(orgId) && orgId != "*")
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var areaCode = StdParam(req?.AreaCode);
+            if (!string.IsNullOrEmpty(areaCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.AreaCode ?? "").ToLower(), PortQuery.Equal(areaCode), PortQuery.Esc));
+            }
+
+            // Sắp xếp: order by mo.OrgID asc, AreaCode asc (Customer.cs:380, 420)
+            var listArea = await query.OrderBy(x => x.OrgID).ThenBy(x => x.AreaCode).ToListAsync();
+
+            // 3. Chuyển đổi và xây dựng phân cấp cây qua Mst_AreaExtension (BaseController.cs:5025-5054)
+            var listMst_AreaExt = new List<Mst_AreaExt>();
+            if (listArea.Count > 0)
+            {
+                var rawExtList = listArea.Select(item => new Mst_AreaExt
+                {
+                    OrgID = item.OrgID,
+                    AreaCode = item.AreaCode,
+                    NetworkID = item.NetworkID,
+                    AreaCodeParent = item.AreaCodeParent,
+                    AreaBUCode = item.AreaBUCode,
+                    AreaBUPattern = item.AreaBUPattern,
+                    AreaLevel = item.AreaLevel,
+                    AreaName = item.AreaName,
+                    AreaDesc = item.AreaDesc,
+                    FlagActive = item.FlagActive,
+                    LogLUDTimeUTC = item.LogLUDTimeUTC,
+                    LogLUBy = item.LogLUBy,
+                }).ToList();
+
+                var toGroupBaseTree = Mst_AreaExtension.ToGroupBaseTree(Mst_AreaExtension.GetGroupBaseList(rawExtList));
+                var toFlatGroupBaseTree = Mst_AreaExtension.ToFlatGroupBaseTree(toGroupBaseTree);
+                if (toFlatGroupBaseTree != null && toFlatGroupBaseTree.Count > 0)
+                {
+                    listMst_AreaExt.AddRange(toFlatGroupBaseTree);
+                }
+                else
+                {
+                    // Nếu không có phần tử gốc (AreaCodeParent == null), giữ nguyên danh sách phẳng để không bị mất dữ liệu
+                    listMst_AreaExt.AddRange(rawExtList);
+                }
+            }
+
+            // 4. Render chuỗi Razor HTML tương đương LoadMst_Area.cshtml (Mst_CustomerController.cs:3847, LoadMst_Area.cshtml:1-41)
+            var sb = new StringBuilder();
+            sb.Append("<optgroup label=\"\">\n");
+            sb.Append("    <option value=\"\">&nbsp;</option>\n");
+            foreach (var item in listMst_AreaExt)
+            {
+                var areaCodeCur = item.AreaCode ?? "";
+                var areaNameCur = item.HlevelTitle ?? "";
+                var areaLevelCur = item.AreaLevel ?? "";
+                sb.Append($"    <option value=\"{areaCodeCur}\" area-level=\"{areaLevelCur}\" desc=\"{areaNameCur}\">{areaNameCur}</option>\n");
+            }
+            sb.Append("</optgroup>\n");
+            sb.Append("<option value=\"ADDDATA\">Thêm</option>\n");
+            var html = sb.ToString();
+
+            // 5. Trả kết quả chuẩn JSON (Gate Mst_CustomerController.cs:3846-3847, BaseController.cs:517-522)
+            return Ok(new
+            {
+                Success = true,
+                Data = listMst_AreaExt,
+                ListMst_AreaExt = listMst_AreaExt,
+                Html = html
+            });
+        }
+        catch (Exception ex)
+        {
+            // BIZ Customer.cs:118, 173: strErrorCodeDefault = TError.ErridQContract.WAS_Mst_Area_Get
+            return PortResult.Fail("WAS_Mst_Area_Get", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Kiểm tra trùng khách hàng theo số điện thoại, email hoặc mã số thuế trước khi lưu.
     /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:2043-2166 Customer_Check(string model)
     ///       Mst_CustomerController.cs:3915-3937 strWhereClause_Mst_Customer_By_Or
@@ -2855,6 +2986,134 @@ public class Mst_Customer_UpdateData : Mst_Customer
         List_Mst_Area = listArea;
         ListMst_GovIDType = listGovIDType;
         List_Mst_GovIDType = listGovIDType;
+    }
+}
+
+public class Mst_Customer_GetAllCustomerGroupReq
+{
+    // Hỗ trợ truyền chuỗi JSON model (như gate MVC)
+    public string? Model { get; set; }
+
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
+    public string? AreaCode { get; set; }
+}
+
+/// <summary>
+/// Model mở rộng cho Mst_Area hỗ trợ cây phân cấp cha-con theo Mst_AreaExt nguồn
+/// (D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Extensions\Mst_AreaExt.cs:10-80).
+/// </summary>
+public class Mst_AreaExt : Mst_Area
+{
+    private Mst_AreaExt? _parent;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Mst_AreaExt Parent
+    {
+        get => _parent ??= new Mst_AreaExt { AreaCode = AreaCodeParent ?? "" };
+        set => _parent = value;
+    }
+
+    public List<Mst_AreaExt> Children { get; set; } = new();
+
+    public int HLevel { get; set; }
+
+    public string HlevelTitle
+    {
+        get
+        {
+            if (HLevel > 0)
+            {
+                var l = string.Concat(Enumerable.Repeat("|--", HLevel));
+                return $"{l}{AreaName}";
+            }
+            return AreaName ?? "";
+        }
+    }
+
+    public string HlevelCode
+    {
+        get
+        {
+            if (HLevel > 0)
+            {
+                var l = string.Concat(Enumerable.Repeat("|--", HLevel));
+                return $"{l}{AreaCode}";
+            }
+            return AreaCode ?? "";
+        }
+    }
+}
+
+/// <summary>
+/// Các hàm tiện ích dựng cây phân cấp vùng theo Mst_AreaExtension nguồn
+/// (D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Extensions\Mst_AreaExtension.cs:9-75).
+/// </summary>
+public static class Mst_AreaExtension
+{
+    public static List<Mst_AreaExt> GetGroupBaseList(List<Mst_AreaExt>? s)
+    {
+        var listPageBase = new List<Mst_AreaExt>();
+        if (s != null)
+        {
+            listPageBase.AddRange(s);
+        }
+        return listPageBase;
+    }
+
+    public static void BuildGroupBaseTree(this Mst_AreaExt groupBase, List<Mst_AreaExt> groupBaseList)
+    {
+        groupBase.Children ??= new List<Mst_AreaExt>();
+
+        foreach (var c in groupBaseList)
+        {
+            if (c.AreaCodeParent != null && c.AreaCodeParent.Equals(groupBase.AreaCode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!groupBase.Children.Contains(c))
+                {
+                    groupBase.Children.Add(c);
+                    c.Parent = groupBase;
+
+                    BuildGroupBaseTree(c, groupBaseList);
+                }
+            }
+        }
+    }
+
+    public static List<Mst_AreaExt> ToGroupBaseTree(List<Mst_AreaExt> groupBaseList)
+    {
+        var list = new List<Mst_AreaExt>();
+
+        foreach (var groupBase in groupBaseList)
+        {
+            if (string.IsNullOrEmpty(groupBase.AreaCodeParent?.Trim()))
+            {
+                if (groupBase.Children == null || groupBase.Children.Count == 0)
+                {
+                    groupBase.BuildGroupBaseTree(groupBaseList);
+                }
+                list.Add(groupBase);
+            }
+        }
+        return list;
+    }
+
+    public static List<Mst_AreaExt> ToFlatGroupBaseTree(this List<Mst_AreaExt> groupBaseList, int level = 0)
+    {
+        var list = new List<Mst_AreaExt>();
+
+        foreach (var groupBase in groupBaseList)
+        {
+            groupBase.HLevel = level;
+            list.Add(groupBase);
+            if (groupBase.Children != null && groupBase.Children.Count > 0)
+            {
+                list.AddRange(groupBase.Children.ToFlatGroupBaseTree(level + 1));
+            }
+        }
+
+        return list;
     }
 }
 

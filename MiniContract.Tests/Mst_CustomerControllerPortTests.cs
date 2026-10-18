@@ -3355,6 +3355,284 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO GETALLCUSTOMERGROUP (Port #173)
+    // Gate: Mst_CustomerController.cs:3804-3859 GetAllCustomerGroup()
+    // API:  MstAreaController.cs:19-89 WA_Mst_Area_Get
+    // BIZ:  Customer.cs:101-189 WAS_Mst_Area_Get -> 190-316 Mst_Area_Get -> 318-474 Mst_Area_GetX
+    // ==========================================
+
+    [Fact]
+    public async Task GetAllCustomerGroup_NullOrEmptyBody_ReturnsActiveAreasForDefaultOrg_MbAndMn()
+    {
+        // 1. null req -> mặc định OrgID = 7200000001, FlagActive = 1 (Client_Flag.Active)
+        var resNull = await _controller.GetAllCustomerGroup(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        var rootNull = docNull.RootElement;
+
+        Assert.True(rootNull.GetProperty("Success").GetBoolean());
+        var dataNull = rootNull.GetProperty("Data").EnumerateArray().ToList();
+        Assert.Equal(2, dataNull.Count); // MB, MN (MT có FlagActive = 0)
+        Assert.Equal("MB", dataNull[0].GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Bắc", dataNull[0].GetProperty("AreaName").GetString());
+        Assert.Equal(0, dataNull[0].GetProperty("HLevel").GetInt32());
+        Assert.Equal("Miền Bắc", dataNull[0].GetProperty("HlevelTitle").GetString());
+
+        Assert.Equal("MN", dataNull[1].GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Nam", dataNull[1].GetProperty("AreaName").GetString());
+        Assert.Equal(0, dataNull[1].GetProperty("HLevel").GetInt32());
+
+        // Kiểm tra Html chứa thẻ <option>
+        var html = rootNull.GetProperty("Html").GetString();
+        Assert.NotNull(html);
+        Assert.Contains("<option value=\"MB\"", html);
+        Assert.Contains("<option value=\"MN\"", html);
+        Assert.Contains("<option value=\"ADDDATA\">Thêm</option>", html);
+
+        // 2. empty req {} -> hành vi giống null
+        var resEmpty = await _controller.GetAllCustomerGroup(new Mst_Customer_GetAllCustomerGroupReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(2, docEmpty.RootElement.GetProperty("Data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetAllCustomerGroup_FilterByOrg2_ReturnsOnlyOrg2Area()
+    {
+        var req = new Mst_Customer_GetAllCustomerGroupReq { OrgID = "7200000002" };
+        var res = await _controller.GetAllCustomerGroup(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data").EnumerateArray().ToList();
+        Assert.Single(data);
+        Assert.Equal("7200000002", data[0].GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data[0].GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Bắc Org2", data[0].GetProperty("AreaName").GetString());
+    }
+
+    [Fact]
+    public async Task GetAllCustomerGroup_FilterByInactiveFlag_ReturnsInactiveArea()
+    {
+        var req = new Mst_Customer_GetAllCustomerGroupReq { OrgID = "7200000001", FlagActive = "0" };
+        var res = await _controller.GetAllCustomerGroup(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data").EnumerateArray().ToList();
+        Assert.Single(data);
+        Assert.Equal("MT", data[0].GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Trung", data[0].GetProperty("AreaName").GetString());
+        Assert.Equal("0", data[0].GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task GetAllCustomerGroup_FilterNonExistentOrg_ReturnsEmptyList()
+    {
+        var req = new Mst_Customer_GetAllCustomerGroupReq { OrgID = "NON_EXISTENT" };
+        var res = await _controller.GetAllCustomerGroup(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data").EnumerateArray().ToList();
+        Assert.Empty(data);
+
+        var html = doc.RootElement.GetProperty("Html").GetString();
+        Assert.NotNull(html);
+        Assert.Contains("<option value=\"ADDDATA\">Thêm</option>", html);
+    }
+
+    [Fact]
+    public async Task GetAllCustomerGroup_WithHierarchy_ReturnsFlattenedTreeWithHLevel()
+    {
+        // Thêm 1 khu vực con HN trực thuộc MB (AreaCodeParent = "MB")
+        var childArea = new Mst_Area
+        {
+            OrgID = "7200000001",
+            AreaCode = "HN",
+            NetworkID = "1001",
+            AreaName = "Hà Nội",
+            AreaDesc = "Khu vực Hà Nội",
+            AreaCodeParent = "MB",
+            AreaLevel = "2",
+            FlagActive = "1",
+            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = "port"
+        };
+        _db.Set<Mst_Area>().Add(childArea);
+        await _db.SaveChangesAsync();
+
+        try
+        {
+            var req = new Mst_Customer_GetAllCustomerGroupReq { OrgID = "7200000001" };
+            var res = await _controller.GetAllCustomerGroup(req);
+            var ok = Assert.IsType<OkObjectResult>(res);
+            var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+            Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+            var data = doc.RootElement.GetProperty("Data").EnumerateArray().ToList();
+            Assert.Equal(3, data.Count);
+
+            // Cây phân cấp làm phẳng: MB (cấp 0) -> HN (cấp 1, |--Hà Nội) -> MN (cấp 0)
+            Assert.Equal("MB", data[0].GetProperty("AreaCode").GetString());
+            Assert.Equal(0, data[0].GetProperty("HLevel").GetInt32());
+            Assert.Equal("Miền Bắc", data[0].GetProperty("HlevelTitle").GetString());
+
+            Assert.Equal("HN", data[1].GetProperty("AreaCode").GetString());
+            Assert.Equal(1, data[1].GetProperty("HLevel").GetInt32());
+            Assert.Equal("|--Hà Nội", data[1].GetProperty("HlevelTitle").GetString());
+
+            Assert.Equal("MN", data[2].GetProperty("AreaCode").GetString());
+            Assert.Equal(0, data[2].GetProperty("HLevel").GetInt32());
+            Assert.Equal("Miền Nam", data[2].GetProperty("HlevelTitle").GetString());
+        }
+        finally
+        {
+            _db.Set<Mst_Area>().Remove(childArea);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task GetAllCustomerGroup_ViaModelJsonString_SuccessfullyParsesAndFilters()
+    {
+        var modelJson = JsonSerializer.Serialize(new { OrgID = "7200000002" });
+        var req = new Mst_Customer_GetAllCustomerGroupReq { Model = modelJson };
+        var res = await _controller.GetAllCustomerGroup(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data").EnumerateArray().ToList();
+        Assert.Single(data);
+        Assert.Equal("7200000002", data[0].GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data[0].GetProperty("AreaCode").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_GetAllCustomerGroup()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_group_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. POST body rỗng {} -> 200 OK, trả về 2 bản ghi MB, MN thuộc Org mặc định 7200000001
+            var reqEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/getallcustomergroup", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer GetAllCustomerGroup Empty: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            var dataEmpty = docEmpty.RootElement.GetProperty("Data").EnumerateArray().ToList();
+            Assert.Equal(2, dataEmpty.Count);
+            Assert.Equal("MB", dataEmpty[0].GetProperty("AreaCode").GetString());
+            Assert.Equal("MN", dataEmpty[1].GetProperty("AreaCode").GetString());
+
+            // 2. POST Filter OrgID = 7200000002 -> 200 OK, trả về 1 bản ghi (MB Org2)
+            var reqOrg2 = new StringContent("{\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var resOrg2 = await http.PostAsync("/api/mst_customer/getallcustomergroup", reqOrg2);
+            var bodyOrg2 = await resOrg2.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer GetAllCustomerGroup Org2: {bodyOrg2}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resOrg2.StatusCode);
+            var docOrg2 = JsonDocument.Parse(bodyOrg2);
+            var dataOrg2 = docOrg2.RootElement.GetProperty("Data").EnumerateArray().ToList();
+            Assert.Single(dataOrg2);
+            Assert.Equal("7200000002", dataOrg2[0].GetProperty("OrgID").GetString());
+
+            // 3. POST Filter OrgID = 7200000001 AND FlagActive = 0 -> 200 OK, trả về 1 bản ghi (MT)
+            var reqInactive = new StringContent("{\"OrgID\":\"7200000001\",\"FlagActive\":\"0\"}", Encoding.UTF8, "application/json");
+            var resInactive = await http.PostAsync("/api/mst_customer/getallcustomergroup", reqInactive);
+            var bodyInactive = await resInactive.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer GetAllCustomerGroup Inactive: {bodyInactive}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resInactive.StatusCode);
+            var docInactive = JsonDocument.Parse(bodyInactive);
+            var dataInactive = docInactive.RootElement.GetProperty("Data").EnumerateArray().ToList();
+            Assert.Single(dataInactive);
+            Assert.Equal("MT", dataInactive[0].GetProperty("AreaCode").GetString());
+
+            // 4. POST Filter OrgID = NON_EXISTENT -> 200 OK, trả về 0 bản ghi ([])
+            var reqNonExist = new StringContent("{\"OrgID\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var resNonExist = await http.PostAsync("/api/mst_customer/getallcustomergroup", reqNonExist);
+            var bodyNonExist = await resNonExist.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer GetAllCustomerGroup NonExist: {bodyNonExist}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resNonExist.StatusCode);
+            var docNonExist = JsonDocument.Parse(bodyNonExist);
+            var dataNonExist = docNonExist.RootElement.GetProperty("Data").EnumerateArray().ToList();
+            Assert.Empty(dataNonExist);
+
+            // 5. POST Model JSON string
+            var reqModel = new StringContent("{\"Model\":\"{\\\"OrgID\\\":\\\"7200000002\\\"}\"}", Encoding.UTF8, "application/json");
+            var resModel = await http.PostAsync("/api/mst_customer/getallcustomergroup", reqModel);
+            var bodyModel = await resModel.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer GetAllCustomerGroup Model: {bodyModel}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resModel.StatusCode);
+            var docModel = JsonDocument.Parse(bodyModel);
+            Assert.Single(docModel.RootElement.GetProperty("Data").EnumerateArray().ToList());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
