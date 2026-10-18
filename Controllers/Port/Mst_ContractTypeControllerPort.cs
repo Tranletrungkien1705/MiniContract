@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index), 89-140 (Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44299-44548 (WAS/Biz Create), 45024-45180 (Search/Index), 45181-45278 (CreateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update), 89-140 (Create)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update), 44142-44297 (Biz Get/Update), 44299-44548 (WAS/Biz Create), 45024-45180 (Search/Index/Update GetX), 45181-45278 (CreateX)
 [ApiController]
 [Route("api/mst_contracttype")]
 public class Mst_ContractTypeControllerPort : ControllerBase
@@ -230,6 +230,88 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Lấy thông tin loại hợp đồng để nạp vào giao diện cập nhật (Update view).
+    /// Gate: Mst_ContractTypeController.cs:148-283 Update(string contracttype)
+    /// API:  MstContractTypeController.cs:20-88 WA_Mst_ContractType_Get
+    /// BIZ:  Master.cs:44050-44141 WAS_Mst_ContractType_Get -> Mst_ContractType_Get:44142-44297 -> Mst_ContractType_GetX:45024-45180
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ContractType_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào ContractType (Gate: Mst_ContractTypeController.cs:148, 159)
+            var contractType = StdParam(req?.ContractType);
+            if (string.IsNullOrEmpty(contractType) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_ContractType_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    contractType = StdParam(modelObj?.ContractType);
+                }
+                catch
+                {
+                    contractType = StdParam(req.Model);
+                }
+            }
+
+            // 2. Lấy danh sách mẫu gửi active (Gate: Mst_ContractTypeController.cs:165-193: Mst_SubmissionForm.FlagActive = '1')
+            var listSubmissionForm = await _db.Set<Mst_SubmissionForm>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == "1")
+                .OrderBy(x => x.SubFormCode)
+                .ToListAsync();
+
+            // 3. Dựng truy vấn cơ sở từ bảng Mst_ContractType (Master.cs:45078-45087, 45120-45127)
+            var query = _db.Set<Mst_ContractType>().AsNoTracking();
+
+            if (!string.IsNullOrEmpty(contractType))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
+            }
+
+            var networkId = StdParam(req?.NetworkID);
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var orgId = StdParam(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            // Sắp xếp: order by mo.NetworkID asc, then by ContractType (Master.cs:45086, 45126)
+            var item = await query.OrderBy(x => x.NetworkID)
+                                  .ThenBy(x => x.ContractType)
+                                  .FirstOrDefaultAsync();
+
+            // 4. Trả kết quả: nếu tìm thấy thì Data = Mst_ContractType_UpdateData (kèm List_Mst_SubmissionForm theo gate :193, 274),
+            //    nếu không tìm thấy thì Data = null (Gate: dòng 282 JsonView("Update") với model = null).
+            if (item == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_ContractType_UpdateData?)null
+                });
+            }
+
+            var resultData = new Mst_ContractType_UpdateData(item, listSubmissionForm);
+            return Ok(new
+            {
+                Success = true,
+                Data = resultData
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_ContractType_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -279,4 +361,42 @@ public class Mst_ContractType_CreateReq
     public string? ContractTypeName { get; set; }
     public string? Description { get; set; }
     public string? FlagActive { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Update.
+/// Gate: Mst_ContractTypeController.cs:148 Update(string contracttype)
+/// </summary>
+public class Mst_ContractType_UpdateReq
+{
+    public string? ContractType { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// Dữ liệu trả về cho action Update, bao gồm thực thể Mst_ContractType và danh sách mẫu gửi active (ViewBag.List_Mst_SubmissionForm).
+/// Gate: Mst_ContractTypeController.cs:193, 274
+/// </summary>
+public class Mst_ContractType_UpdateData : Mst_ContractType
+{
+    public Mst_ContractType? Mst_ContractType { get; set; }
+    public List<Mst_SubmissionForm>? List_Mst_SubmissionForm { get; set; }
+
+    public Mst_ContractType_UpdateData() { }
+
+    public Mst_ContractType_UpdateData(Mst_ContractType src, List<Mst_SubmissionForm>? submissionForms = null)
+    {
+        NetworkID = src.NetworkID;
+        ContractType = src.ContractType;
+        OrgID = src.OrgID;
+        ContractTypeName = src.ContractTypeName;
+        Description = src.Description;
+        FlagActive = src.FlagActive;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+        Mst_ContractType = src;
+        List_Mst_SubmissionForm = submissionForms;
+    }
 }
