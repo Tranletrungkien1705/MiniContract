@@ -34,6 +34,8 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
         new Mst_ChannelSMSSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_ChannelZaloSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_ParamContractSubmissFormSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_SubmissionFormMessageSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_SubmissionFormZNSSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
         _controller = new Mst_SubmissionFormControllerPort(_db);
     }
@@ -373,6 +375,150 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Detail_WithNullOrEmptyReq_ReturnsEmptyFormAndNullChannel()
+    {
+        // 1. null request
+        var res1 = await _controller.Detail(null);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var root1 = doc1.RootElement;
+
+        Assert.True(root1.GetProperty("Success").GetBoolean());
+        var data1 = root1.GetProperty("Data");
+        Assert.Equal("update", data1.GetProperty("ViewType").GetString());
+        Assert.Equal(0, data1.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+        Assert.Equal(0, data1.GetProperty("Lst_Mst_SubmissionFormMessage").GetArrayLength());
+        Assert.Equal(0, data1.GetProperty("Lst_Mst_SubmissionFormZNS").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, data1.GetProperty("RT_Mst_Channel").ValueKind);
+        Assert.Equal(0, data1.GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+        // 2. empty request {}
+        var res2 = await _controller.Detail(new Mst_SubmissionForm_DetailReq());
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(0, doc2.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, doc2.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_NonExistentSubFormCode_ReturnsEmptyFormAndNullChannel()
+    {
+        var req = new Mst_SubmissionForm_DetailReq { SubFormCode = "NON_EXISTENT_CODE" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("update", data.GetProperty("ViewType").GetString());
+        Assert.Equal(0, data.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+        Assert.Equal(0, data.GetProperty("Lst_Mst_SubmissionFormMessage").GetArrayLength());
+        Assert.Equal(0, data.GetProperty("Lst_Mst_SubmissionFormZNS").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, data.GetProperty("RT_Mst_Channel").ValueKind);
+    }
+
+    [Fact]
+    public async Task Detail_EmailSubForm_ReturnsFormMessageAndChannels()
+    {
+        var req = new Mst_SubmissionForm_DetailReq { SubFormCode = "SF_EMAIL_01" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("update", data.GetProperty("ViewType").GetString());
+
+        var forms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(1, forms.GetArrayLength());
+        Assert.Equal("SF_EMAIL_01", forms[0].GetProperty("SubFormCode").GetString());
+        Assert.Equal("Mẫu gửi Email 01", forms[0].GetProperty("SubFormName").GetString());
+        Assert.Equal("EMAIL", forms[0].GetProperty("ChannelType").GetString());
+
+        var msgs = data.GetProperty("Lst_Mst_SubmissionFormMessage");
+        Assert.Equal(1, msgs.GetArrayLength());
+        Assert.Equal("SF_EMAIL_01", msgs[0].GetProperty("SubFormCode").GetString());
+        Assert.Contains("hợp đồng của quý khách đã được tạo thành công", msgs[0].GetProperty("Message").GetString());
+
+        var zns = data.GetProperty("Lst_Mst_SubmissionFormZNS");
+        Assert.Equal(0, zns.GetArrayLength());
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_Channel").GetArrayLength());
+        Assert.Equal("7200000001", channel.GetProperty("Lst_Mst_Channel")[0].GetProperty("OrgID").GetString());
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+        Assert.Equal("support@qcontract.vn", channel.GetProperty("Lst_Mst_ChannelEmail")[0].GetProperty("MailFrom").GetString());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Detail_ZaloSubForm_ReturnsFormZNSWithParamInfoAndChannels()
+    {
+        var req = new Mst_SubmissionForm_DetailReq { SubFormCode = "SF_ZALO_01" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("update", data.GetProperty("ViewType").GetString());
+
+        var forms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(1, forms.GetArrayLength());
+        Assert.Equal("SF_ZALO_01", forms[0].GetProperty("SubFormCode").GetString());
+        Assert.Equal("ZALO", forms[0].GetProperty("ChannelType").GetString());
+        Assert.Equal("123456", forms[0].GetProperty("IDZNS").GetString());
+
+        var msgs = data.GetProperty("Lst_Mst_SubmissionFormMessage");
+        Assert.Equal(0, msgs.GetArrayLength());
+
+        var zns = data.GetProperty("Lst_Mst_SubmissionFormZNS");
+        Assert.Equal(2, zns.GetArrayLength());
+        Assert.Equal("contract_code", zns[0].GetProperty("ParamContractCodeZNS").GetString());
+        Assert.Equal("CONTRACTCODEOS", zns[0].GetProperty("ParamContractCode").GetString());
+        Assert.Equal("ContractCodeOS", zns[0].GetProperty("ParamContractName").GetString());
+        Assert.Equal("Contract_Contract", zns[0].GetProperty("ParamContractType").GetString());
+
+        Assert.Equal("payment_amount", zns[1].GetProperty("ParamContractCodeZNS").GetString());
+        Assert.Equal("VALPAYMENTED", zns[1].GetProperty("ParamContractCode").GetString());
+        Assert.Equal("ValPaymented", zns[1].GetProperty("ParamContractName").GetString());
+        Assert.Equal("Contract_ContractParty", zns[1].GetProperty("ParamContractType").GetString());
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
+        Assert.Equal("1358767413636684272", channel.GetProperty("Lst_Mst_ChannelZalo")[0].GetProperty("ZaloOAID").GetString());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Detail_FilterWithDifferentOrgId_ReturnsMatchingChannels()
+    {
+        var req = new Mst_SubmissionForm_DetailReq { SubFormCode = "SF_SMS_01", OrgID = "7200000002" };
+        var res = await _controller.Detail(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        var forms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(1, forms.GetArrayLength());
+        Assert.Equal("SF_SMS_01", forms[0].GetProperty("SubFormCode").GetString());
+
+        var msgs = data.GetProperty("Lst_Mst_SubmissionFormMessage");
+        Assert.Equal(1, msgs.GetArrayLength());
+        Assert.Equal("SF_SMS_01", msgs[0].GetProperty("SubFormCode").GetString());
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_Channel").GetArrayLength());
+        Assert.Equal("7200000002", channel.GetProperty("Lst_Mst_Channel")[0].GetProperty("OrgID").GetString());
+        Assert.Equal("SMS", channel.GetProperty("Lst_Mst_Channel")[0].GetProperty("ChannelTypeContract").GetString());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelSMS").GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_submissionform_{Guid.NewGuid():N}.db");
@@ -499,6 +645,59 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
             Assert.True(docCreate4.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(1, docCreate4.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
             Assert.Equal(1, docCreate4.RootElement.GetProperty("Data").GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+            // Ca 9 (Detail): POST body rỗng -> Form rỗng, RT_Mst_Channel = null
+            var reqDetail1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDetail1 = await http.PostAsync("/api/mst_submissionform/detail", reqDetail1);
+            var bodyDetail1 = await resDetail1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetail1.StatusCode);
+            var docDetail1 = JsonDocument.Parse(bodyDetail1);
+            Assert.True(docDetail1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, docDetail1.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+            Assert.Equal(JsonValueKind.Null, docDetail1.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").ValueKind);
+
+            // Ca 10 (Detail): POST subformcode không tồn tại -> Form rỗng, RT_Mst_Channel = null
+            var reqDetail2 = new StringContent("{\"SubFormCode\":\"NON_EXISTENT\"}", Encoding.UTF8, "application/json");
+            var resDetail2 = await http.PostAsync("/api/mst_submissionform/detail", reqDetail2);
+            var bodyDetail2 = await resDetail2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetail2.StatusCode);
+            var docDetail2 = JsonDocument.Parse(bodyDetail2);
+            Assert.True(docDetail2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, docDetail2.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+            Assert.Equal(JsonValueKind.Null, docDetail2.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").ValueKind);
+
+            // Ca 11 (Detail): POST lấy chi tiết mẫu Email "SF_EMAIL_01" -> 1 form, 1 message, channel Email, 4 params
+            var reqDetail3 = new StringContent("{\"SubFormCode\":\"SF_EMAIL_01\"}", Encoding.UTF8, "application/json");
+            var resDetail3 = await http.PostAsync("/api/mst_submissionform/detail", reqDetail3);
+            var bodyDetail3 = await resDetail3.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetail3.StatusCode);
+            var docDetail3 = JsonDocument.Parse(bodyDetail3);
+            Assert.True(docDetail3.RootElement.GetProperty("Success").GetBoolean());
+            var dataDetail3 = docDetail3.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataDetail3.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+            Assert.Equal("SF_EMAIL_01", dataDetail3.GetProperty("Lst_Mst_SubmissionForm")[0].GetProperty("SubFormCode").GetString());
+            Assert.Equal(1, dataDetail3.GetProperty("Lst_Mst_SubmissionFormMessage").GetArrayLength());
+            Assert.Contains("hợp đồng của quý khách đã được tạo thành công", dataDetail3.GetProperty("Lst_Mst_SubmissionFormMessage")[0].GetProperty("Message").GetString());
+            Assert.Equal(0, dataDetail3.GetProperty("Lst_Mst_SubmissionFormZNS").GetArrayLength());
+            Assert.Equal(1, dataDetail3.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal(4, dataDetail3.GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+            // Ca 12 (Detail): POST lấy chi tiết mẫu Zalo "SF_ZALO_01" -> 1 form (IDZNS 123456), 2 ZNS items kèm ParamContractName/ParamContractType, channel Zalo
+            var reqDetail4 = new StringContent("{\"subformcode\":\"SF_ZALO_01\"}", Encoding.UTF8, "application/json");
+            var resDetail4 = await http.PostAsync("/api/mst_submissionform/detail", reqDetail4);
+            var bodyDetail4 = await resDetail4.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDetail4.StatusCode);
+            var docDetail4 = JsonDocument.Parse(bodyDetail4);
+            Assert.True(docDetail4.RootElement.GetProperty("Success").GetBoolean());
+            var dataDetail4 = docDetail4.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataDetail4.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+            Assert.Equal("SF_ZALO_01", dataDetail4.GetProperty("Lst_Mst_SubmissionForm")[0].GetProperty("SubFormCode").GetString());
+            Assert.Equal("123456", dataDetail4.GetProperty("Lst_Mst_SubmissionForm")[0].GetProperty("IDZNS").GetString());
+            Assert.Equal(0, dataDetail4.GetProperty("Lst_Mst_SubmissionFormMessage").GetArrayLength());
+            Assert.Equal(2, dataDetail4.GetProperty("Lst_Mst_SubmissionFormZNS").GetArrayLength());
+            Assert.Equal("ContractCodeOS", dataDetail4.GetProperty("Lst_Mst_SubmissionFormZNS")[0].GetProperty("ParamContractName").GetString());
+            Assert.Equal("ValPaymented", dataDetail4.GetProperty("Lst_Mst_SubmissionFormZNS")[1].GetProperty("ParamContractName").GetString());
+            Assert.Equal(1, dataDetail4.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
         }
         finally
         {

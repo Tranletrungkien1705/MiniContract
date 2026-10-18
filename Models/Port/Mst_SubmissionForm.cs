@@ -78,6 +78,7 @@ public class Mst_SubmissionFormSeeder : IPortSeeder
                 OrgID = "7200000001",
                 ChannelType = "ZALO",
                 BulletinType = "ZNS_NOTIFY",
+                IDZNS = "123456",
                 FlagActive = "1",
                 LogLUDTimeUTC = "2024-01-03 10:00:00",
                 LogLUBy = "port"
