@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -1844,6 +1845,500 @@ public class Mst_ProductControllerPortTests : IDisposable
         Assert.Equal("Erridn.Skycic.QContract.Mst_Product_ExportTemplate", root.GetProperty("ErrorCode").GetString());
     }
 
+    #region Import Unit Tests
+
+    private static readonly string[] ProductImportHeaders = new[]
+    {
+        "Mã hàng(*)", "Tên hàng(*)", "Mã vạch", "Mã hàng liên quan", "Mã hàng gốc",
+        "Mã nhãn hiệu", "Nhóm hàng (*)", "Loại hàng", "Ảnh sản phẩm", "File đính kèm",
+        "QL Serial", "QL LOT", "Đơn vị", "Quy đổi", "Được bán", "Được mua",
+        "Giá mua", "Giá bán", "Tồn nhỏ nhất", "Tồn tối ưu", "Tồn lớn nhất",
+        "Thuộc tính", "Hàng thành phần", "List các trường động", "Tiêu chuẩn",
+        "Hạn sử dụng", "Quy cách", "Link quy trình sx", "Chi tiết sản phẩm",
+        "Hướng dẫn sử dụng", "Bản vẽ", "Xuất xứ", "Ghi chú"
+    };
+
+    private static string?[] CreateProductRow(
+        string code = "PRD_IMP_01",
+        string name = "Hàng nhập khẩu 01",
+        string? barCode = null,
+        string? codeBase = null,
+        string? codeRoot = null,
+        string? brandCode = "BRAND01",
+        string grpCode = "GRP01",
+        string type = "PRODUCT",
+        string? imagePath = null,
+        string? filePath = null,
+        string flagSerial = "0",
+        string flagLot = "0",
+        string? unitCode = "CAI",
+        string? valConvert = "1",
+        string flagSell = "1",
+        string flagBuy = "1",
+        string? upBuy = "10000",
+        string? upSell = "15000",
+        string? qtyMin = "5",
+        string? qtyEff = "10",
+        string? qtyMax = "50",
+        string? attribute = null,
+        string? bom = null,
+        string? dynamicField = null,
+        string? std = null,
+        string? expiry = null,
+        string? quyCach = null,
+        string? mnfUrl = null,
+        string? intro = null,
+        string? userGuide = null,
+        string? drawing = null,
+        string? origin = "VN",
+        string? remark = "Ghi chú test"
+    )
+    {
+        return new string?[]
+        {
+            code, name, barCode, codeBase, codeRoot, brandCode, grpCode, type,
+            imagePath, filePath, flagSerial, flagLot, unitCode, valConvert,
+            flagSell, flagBuy, upBuy, upSell, qtyMin, qtyEff, qtyMax,
+            attribute, bom, dynamicField, std, expiry, quyCach, mnfUrl,
+            intro, userGuide, drawing, origin, remark
+        };
+    }
+
+    private static byte[] CreateProductExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Mst_Product");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    private static IFormFile CreateProductFormFile(byte[] bytes, string fileName = "test.xlsx")
+    {
+        var ms = new MemoryStream(bytes);
+        return new FormFile(ms, 0, ms.Length, "file", fileName)
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        };
+    }
+
+    private static Mst_ProductControllerPort CreateControllerWithContext(AppDbContext db, string? flagimport = null, string? orgId = null)
+    {
+        var httpContext = new DefaultHttpContext();
+        if (!string.IsNullOrEmpty(flagimport))
+        {
+            httpContext.Request.QueryString = new QueryString($"?flagimport={flagimport}");
+        }
+        if (!string.IsNullOrEmpty(orgId))
+        {
+            httpContext.Request.Headers["OrgID"] = orgId;
+        }
+        return new Mst_ProductControllerPort(db)
+        {
+            ControllerContext = new ControllerContext { HttpContext = httpContext }
+        };
+    }
+
+    [Fact]
+    public async Task Import_WhenFileIsNull_ReturnsInvalidFileFail()
+    {
+        var result = await _controller.Import(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenFileLengthZero_ReturnsInvalidFileFail()
+    {
+        var file = CreateProductFormFile(Array.Empty<byte>(), "empty.xlsx");
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenFileExtensionNotExcel_ReturnsInvalidFileFail()
+    {
+        var bytes = Encoding.UTF8.GetBytes("not an excel file");
+        var file = CreateProductFormFile(bytes, "data.txt");
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenColumnCountMismatch_ReturnsInvalidFileFail()
+    {
+        var bytes = CreateProductExcelBytes(new[] { "Col1", "Col2" }, new List<string?[]>());
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenNoDataRows_ReturnsNoDataFail()
+    {
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]>());
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("File excel import không có dữ liệu!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenProductCodeUserEmpty_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hàng không được trống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenProductNameEmpty_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(name: "");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tên hàng không được trống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenProductGrpCodeEmpty_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(grpCode: "");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Nhóm hàng không được trống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenProductGrpCodeNotInDb_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(grpCode: "GRP_UNKNOWN");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Nhóm hàng GRP_UNKNOWN không có trong hệ thống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenProductTypeInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(type: "INVALID_TYPE");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Loại hàng INVALID_TYPE không có trong hệ thống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenValConvertInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "SP_L2_VAL", codeBase: "SP_BASE", codeRoot: "SP_ROOT", valConvert: "not_a_number");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Giá trị quy đổi không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenUPBuyInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(upBuy: "not_a_price");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Giá mua không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenUPSellInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(upSell: "not_a_price");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Giá bán không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenQtyMaxStInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(qtyMax: "not_a_qty");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tồn lớn nhất không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenQtyEffStInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(qtyEff: "not_a_qty");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tồn tối ưu không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenQtyMinStInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(qtyMin: "not_a_qty");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tồn nhỏ nhất không đúng định dạng! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenDynamicFieldInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "SP_DYN", dynamicField: "INVALID_FIELD_WITHOUT_COLON");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Trường động mã hàng'SP_DYN' không hợp lệ - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenAttributeInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "SP_ATTR", attribute: "INVALID_ATTR_NO_VAL");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Thuộc tính của mã hàng 'SP_ATTR' không hợp lệ - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenBOMFormatInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "SP_BOM_FMT", bom: "INVALID_BOM_FORMAT");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Hàng thành phần của mã hàng 'SP_BOM_FMT' không hợp lệ - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenFlagSerialInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(flagSerial: "9");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("QL Serial nhập '0' hoặc '1'! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenFlagLotInvalid_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(flagLot: "9");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("QL LOT nhập '0' hoặc '1'! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenBothFlagSerialAndLotAre1_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(flagSerial: "1", flagLot: "1");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("QL LOT và QL Serial chỉ chọn 1 trong 2! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenDuplicateRootInFile_ReturnsMessageFail()
+    {
+        var row1 = CreateProductRow(code: "SP_ROOT_DUP");
+        var row2 = CreateProductRow(code: "SP_ROOT_DUP");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row1, row2 });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hàng gốc 'SP_ROOT_DUP' bị lặp trong file import! - Dòng 4", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenDuplicateBaseInFile_ReturnsMessageFail()
+    {
+        var row1 = CreateProductRow(code: "SP_BASE_DUP", codeRoot: "SP_ROOT_01", codeBase: "SP_BASE_DUP");
+        var row2 = CreateProductRow(code: "SP_BASE_DUP", codeRoot: "SP_ROOT_01", codeBase: "SP_BASE_DUP");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row1, row2 });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hàng gốc 'SP_ROOT_01' - mã hàng liên quan 'SP_BASE_DUP' bị lặp trong file import! - Dòng 4", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenDuplicateL2InFile_ReturnsMessageFail()
+    {
+        var row1 = CreateProductRow(code: "SP_L2_DUP", codeRoot: "SP_ROOT_01", codeBase: "SP_BASE_01");
+        var row2 = CreateProductRow(code: "SP_L2_DUP", codeRoot: "SP_ROOT_01", codeBase: "SP_BASE_01");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row1, row2 });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hàng gốc 'SP_ROOT_01' - mã hàng liên quan 'SP_BASE_01' - mã hàng 'SP_L2_DUP' bị lặp trong file import! - Dòng 4", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_WhenMissingBOMComponent_ReturnsMessageFail()
+    {
+        var row = CreateProductRow(code: "SP_BOM_TEST", bom: "NON_EXISTENT_BOM:2");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+        var result = await _controller.Import(file);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hàng thành phần 'NON_EXISTENT_BOM' không có trên hệ thống! - Dòng 3", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_RoundTrip_CreateSuccess()
+    {
+        var controller = CreateControllerWithContext(_db, flagimport: "1");
+        var row1 = CreateProductRow(code: "SP_NEW_ROOT_01", name: "Sản phẩm mới nhập 01", upBuy: "12000", upSell: "18000");
+        var row2 = CreateProductRow(code: "SP_NEW_L2_01", name: "Sản phẩm cấp 2 nhập 01", codeRoot: "SP_NEW_ROOT_01", codeBase: "SP_NEW_ROOT_01", valConvert: "2");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row1, row2 });
+        var file = CreateProductFormFile(bytes);
+
+        var result = await controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", doc.RootElement.GetProperty("Title").GetString());
+        Assert.Equal("/Mst_Product", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        var dbRoot = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.ProductCodeUser == "SP_NEW_ROOT_01");
+        Assert.NotNull(dbRoot);
+        Assert.Equal("Sản phẩm mới nhập 01", dbRoot.ProductName);
+        Assert.Equal(12000.0, dbRoot.UPBuy);
+        Assert.Equal(18000.0, dbRoot.UPSell);
+
+        var dbL2 = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.ProductCodeUser == "SP_NEW_L2_01");
+        Assert.NotNull(dbL2);
+        Assert.Equal("Sản phẩm cấp 2 nhập 01", dbL2.ProductName);
+        Assert.Equal(2.0, dbL2.ValConvert);
+    }
+
+    [Fact]
+    public async Task Import_RoundTrip_UpdateSuccess()
+    {
+        var controller = CreateControllerWithContext(_db, flagimport: "0");
+        var row = CreateProductRow(code: "SP001", name: "Sản phẩm mẫu 01 đã cập nhật", upBuy: "22000", upSell: "33000");
+        var bytes = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { row });
+        var file = CreateProductFormFile(bytes);
+
+        var result = await controller.Import(file);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", doc.RootElement.GetProperty("Title").GetString());
+
+        var updated = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.ProductCodeUser == "SP001");
+        Assert.NotNull(updated);
+        Assert.Equal("Sản phẩm mẫu 01 đã cập nhật", updated.ProductName);
+        Assert.Equal(22000.0, updated.UPBuy);
+        Assert.Equal(33000.0, updated.UPSell);
+    }
+
+    #endregion
+
     [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
@@ -2433,6 +2928,118 @@ public class Mst_ProductControllerPortTests : IDisposable
             Assert.Equal(System.Net.HttpStatusCode.OK, res56.StatusCode);
             var doc56 = JsonDocument.Parse(body56);
             Assert.True(doc56.RootElement.GetProperty("Success").GetBoolean());
+
+            // Ca 57: POST /api/mst_product/import với body rỗng "" -> 400 Bad Request, "File excel import không hợp lệ!"
+            var req57 = new StringContent("", Encoding.UTF8, "application/json");
+            var res57 = await http.PostAsync("/api/mst_product/import", req57);
+            var body57 = await res57.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res57.StatusCode);
+            var doc57 = JsonDocument.Parse(body57);
+            Assert.False(doc57.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File excel import không hợp lệ!", doc57.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // Ca 58: POST /api/mst_product/import với multipart rỗng (0 file) -> 400 Bad Request, "File excel import không hợp lệ!"
+            using (var emptyMultipart = new MultipartFormDataContent())
+            {
+                var res58 = await http.PostAsync("/api/mst_product/import", emptyMultipart);
+                var body58 = await res58.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res58.StatusCode);
+                var doc58 = JsonDocument.Parse(body58);
+                Assert.False(doc58.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("File excel import không hợp lệ!", doc58.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Ca 59: POST /api/mst_product/import với file .txt -> 400 Bad Request, "File excel import không hợp lệ!"
+            using (var textMultipart = new MultipartFormDataContent())
+            {
+                textMultipart.Add(new ByteArrayContent(Encoding.UTF8.GetBytes("not excel")), "file", "test.txt");
+                var res59 = await http.PostAsync("/api/mst_product/import", textMultipart);
+                var body59 = await res59.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res59.StatusCode);
+                var doc59 = JsonDocument.Parse(body59);
+                Assert.False(doc59.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("File excel import không hợp lệ!", doc59.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Ca 60: POST /api/mst_product/import với Excel không có dòng dữ liệu (0 row) -> 400 Bad Request, "File excel import không có dữ liệu!"
+            using (var zeroRowMultipart = new MultipartFormDataContent())
+            {
+                var emptyExcel = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]>());
+                zeroRowMultipart.Add(new ByteArrayContent(emptyExcel), "file", "zero_rows.xlsx");
+                var res60 = await http.PostAsync("/api/mst_product/import", zeroRowMultipart);
+                var body60 = await res60.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res60.StatusCode);
+                var doc60 = JsonDocument.Parse(body60);
+                Assert.False(doc60.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("File excel import không có dữ liệu!", doc60.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Ca 61: POST /api/mst_product/import với nhóm hàng không tồn tại -> 400 Bad Request, "Nhóm hàng GRP_UNKNOWN không có trong hệ thống! - Dòng 3"
+            using (var invalidGrpMultipart = new MultipartFormDataContent())
+            {
+                var invalidGrpRow = CreateProductRow(code: "SP_LIVE_BAD_GRP", grpCode: "GRP_UNKNOWN");
+                var invalidGrpExcel = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { invalidGrpRow });
+                invalidGrpMultipart.Add(new ByteArrayContent(invalidGrpExcel), "file", "bad_grp.xlsx");
+                var res61 = await http.PostAsync("/api/mst_product/import", invalidGrpMultipart);
+                var body61 = await res61.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, res61.StatusCode);
+                var doc61 = JsonDocument.Parse(body61);
+                Assert.False(doc61.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Nhóm hàng GRP_UNKNOWN không có trong hệ thống! - Dòng 3", doc61.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+            }
+
+            // Ca 62: POST /api/mst_product/import tạo mới sản phẩm SP_LIVE_IMP_01 -> 200 OK, "Đã nhập dữ liệu excel thành công!"
+            using (var validCreateMultipart = new MultipartFormDataContent())
+            {
+                var createRow = CreateProductRow(code: "SP_LIVE_IMP_01", name: "Sản phẩm Live Import 01", upBuy: "55000", upSell: "75000");
+                var createExcel = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { createRow });
+                validCreateMultipart.Add(new ByteArrayContent(createExcel), "file", "valid_create.xlsx");
+                validCreateMultipart.Add(new StringContent("1"), "flagimport");
+                var res62 = await http.PostAsync("/api/mst_product/import", validCreateMultipart);
+                var body62 = await res62.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.OK, res62.StatusCode);
+                var doc62 = JsonDocument.Parse(body62);
+                Assert.True(doc62.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Đã nhập dữ liệu excel thành công!", doc62.RootElement.GetProperty("Title").GetString());
+            }
+
+            // Ca 63: Round-trip kiểm tra qua /api/mst_product/search_product_auto với "SP_LIVE_IMP_01" -> 200 OK, ListProduct có 1 phần tử
+            var req63 = new StringContent("{\"productcodename\":\"SP_LIVE_IMP_01\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res63 = await http.PostAsync("/api/mst_product/search_product_auto", req63);
+            var body63 = await res63.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res63.StatusCode);
+            var doc63 = JsonDocument.Parse(body63);
+            Assert.True(doc63.RootElement.GetProperty("Success").GetBoolean());
+            var list63 = doc63.RootElement.GetProperty("ListProduct");
+            Assert.Equal(1, list63.GetArrayLength());
+            Assert.Equal("SP_LIVE_IMP_01", list63[0].GetProperty("ProductCodeUser").GetString());
+            Assert.Equal("Sản phẩm Live Import 01", list63[0].GetProperty("ProductName").GetString());
+
+            // Ca 64: POST /api/mst_product/import cập nhật SP_LIVE_IMP_01 với flagimport = 0 -> 200 OK, "Đã nhập dữ liệu excel thành công!"
+            using (var validUpdateMultipart = new MultipartFormDataContent())
+            {
+                var updateRow = CreateProductRow(code: "SP_LIVE_IMP_01", name: "Sản phẩm Live Import 01 Đã Sửa", upBuy: "60000", upSell: "90000");
+                var updateExcel = CreateProductExcelBytes(ProductImportHeaders, new List<string?[]> { updateRow });
+                validUpdateMultipart.Add(new ByteArrayContent(updateExcel), "file", "valid_update.xlsx");
+                validUpdateMultipart.Add(new StringContent("0"), "flagimport");
+                var res64 = await http.PostAsync("/api/mst_product/import", validUpdateMultipart);
+                var body64 = await res64.Content.ReadAsStringAsync();
+                Assert.Equal(System.Net.HttpStatusCode.OK, res64.StatusCode);
+                var doc64 = JsonDocument.Parse(body64);
+                Assert.True(doc64.RootElement.GetProperty("Success").GetBoolean());
+                Assert.Equal("Đã nhập dữ liệu excel thành công!", doc64.RootElement.GetProperty("Title").GetString());
+            }
+
+            // Ca 65: Round-trip kiểm tra sau update qua /api/mst_product/search_product_auto -> 200 OK, ProductName mới = "Sản phẩm Live Import 01 Đã Sửa"
+            var req65 = new StringContent("{\"productcodename\":\"SP_LIVE_IMP_01\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json");
+            var res65 = await http.PostAsync("/api/mst_product/search_product_auto", req65);
+            var body65 = await res65.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res65.StatusCode);
+            var doc65 = JsonDocument.Parse(body65);
+            Assert.True(doc65.RootElement.GetProperty("Success").GetBoolean());
+            var list65 = doc65.RootElement.GetProperty("ListProduct");
+            Assert.Equal(1, list65.GetArrayLength());
+            Assert.Equal("Sản phẩm Live Import 01 Đã Sửa", list65[0].GetProperty("ProductName").GetString());
         }
         finally
         {

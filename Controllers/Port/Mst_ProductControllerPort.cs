@@ -2112,6 +2112,661 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Nhập danh sách hàng hóa từ file Excel.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:2964-4567 Import(HttpPostedFileWrapper file, string flagimport = "")
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:89-158 WA_Mst_Product_Save, MstProductGroupController.cs:19-89 WA_Mst_ProductGroup_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4805-4941 (Mst_Product_Save) -> 4943-5621 (Mst_Product_SaveX)
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import()
+    {
+        IFormFile? file = null;
+        try
+        {
+            if (Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+            {
+                file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+            }
+        }
+        catch { }
+        return await ProcessImportAsync(file);
+    }
+
+    [NonAction]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        return await ProcessImportAsync(file);
+    }
+
+    private async Task<IActionResult> ProcessImportAsync(IFormFile? file)
+    {
+        try
+        {
+            if (file == null && Request?.HasFormContentType == true)
+            {
+                try
+                {
+                    if (Request.Form.Files.Count > 0)
+                    {
+                        file = Request.Form.Files["file"] ?? Request.Form.Files[0];
+                    }
+                }
+                catch { }
+            }
+
+            // 1. Kiểm tra file upload (Gate lines 2971-2987)
+            if (file == null || file.Length == 0)
+            {
+                return PortResult.Fail("Mst_Product_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".xlsx" && ext != ".xls")
+            {
+                return PortResult.Fail("Mst_Product_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 2. Đọc bảng tính bằng PortExcel.ReadSheet (Gate line 2990 ExcelImportNew.Query(filePath, "A2"))
+            var keysInOrder = ExportTemplateDicColumns.Keys.ToList(); // 33 cột từ GetImportDicColumsTemplate()
+            int columnCount;
+            List<Dictionary<string, string?>> rows;
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var (cols, readRows) = PortExcel.ReadSheet(stream, keysInOrder, firstDataRow: 2);
+                columnCount = cols;
+                rows = readRows;
+            }
+            catch
+            {
+                return PortResult.Fail("Mst_Product_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 3. Kiểm tra số cột (Gate lines 2993-2996: table.Columns.Count != GetImportDicColumsTemplate().Count)
+            if (columnCount != 33)
+            {
+                return PortResult.Fail("Mst_Product_Import", "Message", "File excel import không hợp lệ!");
+            }
+
+            // 4. Kiểm tra bảng rỗng (Gate lines 2991, 4556-4558)
+            if (rows == null || rows.Count == 0)
+            {
+                return PortResult.Fail("Mst_Product_Import", "Message", "File excel import không có dữ liệu!");
+            }
+
+            // 5. Chuẩn bị cờ flagimport ("1": tạo mới, "0": sửa/cập nhật) và context OrgID, NetworkID, UserCode (Gate lines 3920-3921, 4364-4368)
+            string? flagimport = null;
+            if (Request?.HasFormContentType == true)
+            {
+                try
+                {
+                    flagimport = Request.Form["flagimport"].FirstOrDefault()
+                              ?? Request.Form["importChoose"].FirstOrDefault();
+                }
+                catch { }
+            }
+            if (string.IsNullOrEmpty(flagimport))
+            {
+                flagimport = Request?.Query["flagimport"].FirstOrDefault()
+                          ?? Request?.Query["importChoose"].FirstOrDefault();
+            }
+            if (string.IsNullOrEmpty(flagimport))
+            {
+                flagimport = Request?.Headers["flagimport"].FirstOrDefault();
+            }
+            if (string.IsNullOrEmpty(flagimport))
+            {
+                flagimport = "1"; // Mặc định tạo mới theo form UI checked="1" (Gate _ImportExcel.cshtml:18)
+            }
+
+            var orgId = StdParam(Request?.Headers["OrgID"].FirstOrDefault())
+                     ?? _config?["Biz_OrgID"]
+                     ?? "1001";
+            var networkId = StdParam(Request?.Headers["NetworkID"].FirstOrDefault())
+                         ?? _config?["Biz_NetworkID"]
+                         ?? orgId;
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            // 6. Vòng lặp kiểm tra tính hợp lệ từng dòng dữ liệu (Gate lines 3111-3733)
+            var parsedItems = new List<Mst_Product_ParsedImportItem>();
+            var idx = 0;
+
+            foreach (var dr in rows)
+            {
+                var strRows = $" - Dòng {idx + 3}"; // Gate lines 3119-3122: iRows = 2 + idx + 1 = idx + 3
+
+                #region Check null và bắt buộc
+                var productCodeUserCur = dr.GetValueOrDefault("ProductCodeUser")?.Trim();
+                if (string.IsNullOrEmpty(productCodeUserCur))
+                {
+                    var exitsData = "Mã hàng không được trống!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var productCodeCur = productCodeUserCur;
+
+                var productNameCur = dr.GetValueOrDefault("ProductName")?.Trim();
+                if (string.IsNullOrEmpty(productNameCur))
+                {
+                    var exitsData = "Tên hàng không được trống!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var productGrpCodeCur = dr.GetValueOrDefault("ProductGrpCode")?.Trim();
+                if (string.IsNullOrEmpty(productGrpCodeCur))
+                {
+                    var exitsData = "Nhóm hàng không được trống!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                // Kiểm tra nhóm hàng trong CSDL (Gate lines 3196-3207: list_Mst_ProductGroup_Async)
+                var grp = await _db.Set<Mst_ProductGroup>()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(x => EF.Functions.Like((x.ProductGrpName ?? "").ToLower(), PortQuery.Equal(productGrpCodeCur), PortQuery.Esc)
+                                           || EF.Functions.Like((x.ProductGrpCode ?? "").ToLower(), PortQuery.Equal(productGrpCodeCur), PortQuery.Esc));
+                if (grp != null)
+                {
+                    productGrpCodeCur = grp.ProductGrpCode;
+                }
+                else
+                {
+                    var exitsData = "Nhóm hàng " + productGrpCodeCur + " không có trong hệ thống!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var productTypeCur = dr.GetValueOrDefault("ProductType")?.Trim();
+                if (string.IsNullOrEmpty(productTypeCur))
+                {
+                    productTypeCur = "PRODUCT";
+                }
+                else
+                {
+                    if (string.Equals(productTypeCur, "Sản phẩm", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(productTypeCur, "PRODUCT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        productTypeCur = "PRODUCT";
+                    }
+                    else if (string.Equals(productTypeCur, "Dịch vụ", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(productTypeCur, "SERVICES", StringComparison.OrdinalIgnoreCase))
+                    {
+                        productTypeCur = "SERVICES";
+                    }
+                    else if (string.Equals(productTypeCur, "Combo", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(productTypeCur, "COMBO", StringComparison.OrdinalIgnoreCase))
+                    {
+                        productTypeCur = "COMBO";
+                    }
+                    else
+                    {
+                        var exitsData = "Loại hàng " + productTypeCur + " không có trong hệ thống!" + strRows;
+                        return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                    }
+                }
+                #endregion
+
+                #region Phân cấp ProductLevelSys (Gate lines 3232-3250)
+                var productCodeBaseCur = dr.GetValueOrDefault("ProductCodeBase")?.Trim();
+                if (string.IsNullOrEmpty(productCodeBaseCur))
+                {
+                    productCodeBaseCur = productCodeCur;
+                }
+                var productLevelSysCur = "L2PRD";
+                if (string.Equals(productCodeCur, productCodeBaseCur, StringComparison.OrdinalIgnoreCase))
+                {
+                    productLevelSysCur = "BASEPRD";
+                }
+                var productCodeRootCur = dr.GetValueOrDefault("ProductCodeRoot")?.Trim();
+                if (string.IsNullOrEmpty(productCodeRootCur))
+                {
+                    productCodeRootCur = productCodeCur;
+                }
+                if (string.Equals(productCodeCur, productCodeBaseCur, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(productCodeCur, productCodeRootCur, StringComparison.OrdinalIgnoreCase))
+                {
+                    productLevelSysCur = "ROOTPRD";
+                }
+                #endregion
+
+                #region BrandCode, BarCode, UnitCode, ValConvert, Flags, Prices, Stocks (Gate lines 3253-3347)
+                var brandCodeCur = dr.GetValueOrDefault("BrandCode")?.Trim();
+                var productBarCodeCur = dr.GetValueOrDefault("ProductBarCode")?.Trim();
+                var unitCodeCur = dr.GetValueOrDefault("UnitCode")?.Trim();
+                var valConvertCur = dr.GetValueOrDefault("ValConvert")?.Trim();
+
+                if (productLevelSysCur == "ROOTPRD" || productLevelSysCur == "BASEPRD")
+                {
+                    valConvertCur = "1";
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(valConvertCur))
+                    {
+                        if (!IsNumeric(valConvertCur))
+                        {
+                            var exitsData = "Giá trị quy đổi không đúng định dạng!" + strRows;
+                            return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                        }
+                    }
+                }
+
+                var flagSellCur = dr.GetValueOrDefault("FlagSell")?.Trim();
+                if (string.IsNullOrEmpty(flagSellCur)) flagSellCur = "1";
+
+                var flagBuyCur = dr.GetValueOrDefault("FlagBuy")?.Trim();
+                if (string.IsNullOrEmpty(flagBuyCur)) flagBuyCur = "1";
+
+                var uPBuyCur = dr.GetValueOrDefault("UPBuy")?.Trim();
+                if (!string.IsNullOrEmpty(uPBuyCur) && !IsNumeric(uPBuyCur))
+                {
+                    var exitsData = "Giá mua không đúng định dạng!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var uPSellCur = dr.GetValueOrDefault("UPSell")?.Trim();
+                if (!string.IsNullOrEmpty(uPSellCur) && !IsNumeric(uPSellCur))
+                {
+                    var exitsData = "Giá bán không đúng định dạng!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var qtyMaxStCur = dr.GetValueOrDefault("QtyMaxSt")?.Trim();
+                if (!string.IsNullOrEmpty(qtyMaxStCur) && !IsNumeric(qtyMaxStCur))
+                {
+                    var exitsData = "Tồn lớn nhất không đúng định dạng!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var qtyEffStCur = dr.GetValueOrDefault("QtyEffSt")?.Trim();
+                if (!string.IsNullOrEmpty(qtyEffStCur) && !IsNumeric(qtyEffStCur))
+                {
+                    var exitsData = "Tồn tối ưu không đúng định dạng!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var qtyMinStCur = dr.GetValueOrDefault("QtyMinSt")?.Trim();
+                if (!string.IsNullOrEmpty(qtyMinStCur) && !IsNumeric(qtyMinStCur))
+                {
+                    var exitsData = "Tồn nhỏ nhất không đúng định dạng!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+                #endregion
+
+                #region Trường động, Thuộc tính, BOM, Serial, Lot (Gate lines 3348-3635)
+                var listOfPrdDynamicFieldValueCur = dr.GetValueOrDefault("ListOfPrdDynamicFieldValue")?.Trim();
+                if (!string.IsNullOrEmpty(listOfPrdDynamicFieldValueCur))
+                {
+                    var arr = listOfPrdDynamicFieldValueCur.Split('|');
+                    if (arr != null && arr.Length > 0)
+                    {
+                        for (int i = 0; i < arr.Length; i++)
+                        {
+                            var arrSub = arr[i].Split(':');
+                            if (arrSub == null || arrSub.Length != 2 || string.IsNullOrWhiteSpace(arrSub[0]))
+                            {
+                                var exitsData = "Trường động mã hàng'" + productCodeUserCur + "' không hợp lệ" + strRows;
+                                return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                            }
+                        }
+                    }
+                }
+
+                var listAttributeCur = dr.GetValueOrDefault("ListAttribute")?.Trim();
+                if (!string.IsNullOrEmpty(listAttributeCur))
+                {
+                    var arr = listAttributeCur.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (arr != null && arr.Length > 0)
+                    {
+                        for (int i = 0; i < arr.Length; i++)
+                        {
+                            var arrSub = arr[i].Split(':');
+                            if (arrSub == null || arrSub.Length != 2 || string.IsNullOrWhiteSpace(arrSub[0]) || string.IsNullOrWhiteSpace(arrSub[1]))
+                            {
+                                var exitsData = "Thuộc tính của mã hàng '" + productCodeUserCur + "' không hợp lệ" + strRows;
+                                return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                            }
+                        }
+                    }
+                }
+
+                var listBOMCur = dr.GetValueOrDefault("ListBOM")?.Trim();
+                var bomComponentNames = new List<string>();
+                if (!string.IsNullOrEmpty(listBOMCur))
+                {
+                    var arr = listBOMCur.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (arr != null && arr.Length > 0)
+                    {
+                        for (int i = 0; i < arr.Length; i++)
+                        {
+                            var arrSub = arr[i].Split(':');
+                            if (arrSub == null || arrSub.Length != 2 || string.IsNullOrWhiteSpace(arrSub[0]) || string.IsNullOrWhiteSpace(arrSub[1]))
+                            {
+                                var exitsData = "Hàng thành phần của mã hàng '" + productCodeUserCur + "' không hợp lệ" + strRows;
+                                return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                            }
+                            bomComponentNames.Add(arrSub[0].Trim());
+                        }
+                    }
+                }
+
+                var flagSerialCur = dr.GetValueOrDefault("FlagSerial")?.Trim();
+                if (string.IsNullOrEmpty(flagSerialCur))
+                {
+                    flagSerialCur = "0";
+                }
+                else if (flagSerialCur != "0" && flagSerialCur != "1")
+                {
+                    var exitsData = "QL Serial nhập '0' hoặc '1'!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+
+                var flagLotCur = dr.GetValueOrDefault("FlagLot")?.Trim();
+                if (string.IsNullOrEmpty(flagLotCur))
+                {
+                    flagLotCur = "0";
+                }
+                else if (flagLotCur != "0" && flagLotCur != "1")
+                {
+                    var exitsData = "QL LOT nhập '0' hoặc '1'!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+                else if (flagSerialCur == "1" && flagLotCur == "1")
+                {
+                    var exitsData = "QL LOT và QL Serial chỉ chọn 1 trong 2!" + strRows;
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+                #endregion
+
+                #region Các trường bổ sung (Gate lines 3637-3733)
+                var productImagePathListCur = dr.GetValueOrDefault("ProductImagePathList")?.Trim();
+                var productFilePathListCur = dr.GetValueOrDefault("ProductFilePathList")?.Trim();
+                var productStdCur = dr.GetValueOrDefault("ProductStd")?.Trim();
+                var productExpiryCur = dr.GetValueOrDefault("ProductExpiry")?.Trim();
+                var productQuyCachCur = dr.GetValueOrDefault("ProductQuyCach")?.Trim();
+                var productMnfUrlCur = dr.GetValueOrDefault("ProductMnfUrl")?.Trim();
+                var productIntroCur = dr.GetValueOrDefault("ProductIntro")?.Trim();
+                var productUserGuideCur = dr.GetValueOrDefault("ProductUserGuide")?.Trim();
+                var productDrawingCur = dr.GetValueOrDefault("ProductDrawing")?.Trim();
+                var productOriginCur = dr.GetValueOrDefault("ProductOrigin")?.Trim();
+                var remarkCur = dr.GetValueOrDefault("Remark")?.Trim();
+                #endregion
+
+                #region Kiểm tra trùng lặp trong file Import theo cấp (Gate lines 3735-3901)
+                if (productLevelSysCur == "ROOTPRD")
+                {
+                    var existsRoot = parsedItems.Any(x => x.ProductLevelSys == "ROOTPRD" && string.Equals(x.ProductCodeRoot, productCodeRootCur, StringComparison.OrdinalIgnoreCase));
+                    if (existsRoot)
+                    {
+                        var exitsData = "Mã hàng gốc '" + productCodeRootCur + "' bị lặp trong file import!" + strRows;
+                        return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                    }
+                }
+                else if (productLevelSysCur == "BASEPRD")
+                {
+                    var existsBase = parsedItems.Any(x => string.Equals(x.ProductCodeRoot, productCodeRootCur, StringComparison.OrdinalIgnoreCase)
+                                                       && string.Equals(x.ProductCodeBase, productCodeBaseCur, StringComparison.OrdinalIgnoreCase));
+                    if (existsBase)
+                    {
+                        var exitsData = "Mã hàng gốc '" + productCodeRootCur + "' - mã hàng liên quan '" + productCodeBaseCur + "' bị lặp trong file import!" + strRows;
+                        return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                    }
+                }
+                else // L2PRD
+                {
+                    var existsL2 = parsedItems.Any(x => string.Equals(x.ProductCodeRoot, productCodeRootCur, StringComparison.OrdinalIgnoreCase)
+                                                     && string.Equals(x.ProductCodeBase, productCodeBaseCur, StringComparison.OrdinalIgnoreCase)
+                                                     && string.Equals(x.ProductCode, productCodeCur, StringComparison.OrdinalIgnoreCase));
+                    if (existsL2)
+                    {
+                        var exitsData = "Mã hàng gốc '" + productCodeRootCur + "' - mã hàng liên quan '" + productCodeBaseCur + "' - mã hàng '" + productCodeCur + "' bị lặp trong file import!" + strRows;
+                        return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                    }
+
+                    var rootItem = parsedItems.FirstOrDefault(x => x.ProductLevelSys == "ROOTPRD" && string.Equals(x.ProductCodeRoot, productCodeRootCur, StringComparison.OrdinalIgnoreCase));
+                    if (rootItem != null)
+                    {
+                        if (rootItem.ProductType == "COMBO" && !string.Equals(productTypeCur, "COMBO", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var exitsData = "Mã hàng '" + productCodeUserCur + "' phải có loại hàng là " + rootItem.ProductType + "!" + strRows;
+                            return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                        }
+                        if (rootItem.ProductType == "COMBO" && string.Equals(productTypeCur, "COMBO", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!string.Equals(rootItem.UnitCode ?? "", unitCodeCur ?? "", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var exitsData = "Mã hàng gốc '" + productCodeRootCur + "' không có đơn vị quy đổi!" + strRows;
+                                return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                            }
+                        }
+                        if (rootItem.FlagSerial != "1")
+                        {
+                            if (!string.Equals(rootItem.UnitCode ?? "", unitCodeCur ?? "", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var exitsData = "Mã hàng gốc '" + productCodeRootCur + "' không có đơn vị quy đổi khi cờ Flag Serial là '1'!" + strRows;
+                                return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                var entity = new Mst_Product
+                {
+                    OrgID = orgId,
+                    ProductCode = productCodeCur,
+                    NetworkID = networkId,
+                    ProductCodeUser = productCodeUserCur,
+                    ProductName = productNameCur,
+                    ProductNameEN = productNameCur,
+                    ProductLevelSys = productLevelSysCur,
+                    ProductCodeBase = productCodeBaseCur,
+                    ProductCodeRoot = productCodeRootCur,
+                    BrandCode = brandCodeCur,
+                    ProductType = productTypeCur,
+                    ProductGrpCode = productGrpCodeCur,
+                    ProductBarCode = productBarCodeCur,
+                    UnitCode = unitCodeCur,
+                    ValConvert = ParseDouble(valConvertCur),
+                    FlagBuy = StdFlag(flagBuyCur),
+                    FlagSell = StdFlag(flagSellCur),
+                    FlagActive = "1",
+                    UPBuy = ParseDouble(uPBuyCur),
+                    UPSell = ParseDouble(uPSellCur),
+                    QtyMaxSt = ParseDouble(qtyMaxStCur),
+                    QtyMinSt = ParseDouble(qtyMinStCur),
+                    QtyEffSt = ParseDouble(qtyEffStCur),
+                    ListOfPrdDynamicFieldValue = listOfPrdDynamicFieldValueCur,
+                    ProductImagePathList = productImagePathListCur,
+                    ProductFilePathList = productFilePathListCur,
+                    FlagSerial = flagSerialCur,
+                    FlagLot = flagLotCur,
+                    FlagFG = "0",
+                    ProductStd = productStdCur,
+                    ProductExpiry = productExpiryCur,
+                    ProductQuyCach = productQuyCachCur,
+                    ProductMnfUrl = productMnfUrlCur,
+                    ProductIntro = productIntroCur,
+                    ProductUserGuide = productUserGuideCur,
+                    ProductDrawing = productDrawingCur,
+                    ProductOrigin = productOriginCur,
+                    Remark = remarkCur,
+                    CreateBy = userCode,
+                    LUBy = userCode,
+                    LogLUBy = userCode
+                };
+
+                parsedItems.Add(new Mst_Product_ParsedImportItem
+                {
+                    Product = entity,
+                    ProductCodeUser = productCodeUserCur,
+                    ProductCodeRoot = productCodeRootCur,
+                    ProductCodeBase = productCodeBaseCur,
+                    ProductCode = productCodeCur,
+                    ProductLevelSys = productLevelSysCur,
+                    ProductType = productTypeCur,
+                    UnitCode = unitCodeCur,
+                    FlagSerial = flagSerialCur,
+                    BOMComponentNames = bomComponentNames
+                });
+
+                idx++;
+            }
+
+            // 7. Kiểm tra hàng thành phần trong CSDL (Gate lines 4167-4285)
+            var allBomNames = parsedItems.SelectMany(x => x.BOMComponentNames).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (allBomNames.Count > 0)
+            {
+                var existingProducts = await _db.Set<Mst_Product>()
+                    .AsNoTracking()
+                    .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc)
+                             && (x.FlagActive == "1")
+                             && (x.FlagFG == "0" || x.FlagFG == null))
+                    .ToListAsync();
+
+                var missingBoms = new List<string>();
+                foreach (var bomName in allBomNames)
+                {
+                    var found = existingProducts.Any(p => string.Equals(p.ProductCodeUser, bomName, StringComparison.OrdinalIgnoreCase)
+                                                       || string.Equals(p.ProductName, bomName, StringComparison.OrdinalIgnoreCase)
+                                                       || string.Equals(p.ProductCode, bomName, StringComparison.OrdinalIgnoreCase));
+                    if (!found)
+                    {
+                        missingBoms.Add(bomName);
+                    }
+                }
+
+                if (missingBoms.Count > 0)
+                {
+                    var strMissing = string.Join(", ", missingBoms);
+                    var exitsData = "Mã hàng thành phần '" + strMissing + "' không có trên hệ thống! - Dòng " + (rows.Count + 2);
+                    return PortResult.Fail("Mst_Product_Import", "Message", exitsData);
+                }
+            }
+
+            // 8. Thực hiện lưu vào CSDL trong transaction (Gate lines 3927-4547; BIZ Product.cs:4842, 5327-5366)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+                if (flagimport != "0") // Tạo mới
+                {
+                    foreach (var item in parsedItems)
+                    {
+                        item.Product.CreateDTimeUTC = dtimeSys;
+                        item.Product.LUDTimeUTC = dtimeSys;
+                        item.Product.LogLUDTimeUTC = dtimeSys;
+
+                        var existing = await _db.Set<Mst_Product>()
+                            .FirstOrDefaultAsync(x => x.OrgID == orgId && (x.ProductCodeUser == item.ProductCodeUser || x.ProductCode == item.ProductCode));
+                        if (existing != null)
+                        {
+                            _db.Set<Mst_Product>().Remove(existing);
+                            await _db.SaveChangesAsync();
+                        }
+
+                        _db.Set<Mst_Product>().Add(item.Product);
+                        await _db.SaveChangesAsync();
+                    }
+                }
+                else // Cập nhật
+                {
+                    foreach (var item in parsedItems)
+                    {
+                        var existing = await _db.Set<Mst_Product>()
+                            .FirstOrDefaultAsync(x => x.OrgID == orgId && (x.ProductCodeUser == item.ProductCodeUser || x.ProductCode == item.ProductCode));
+                        if (existing != null)
+                        {
+                            existing.ProductName = item.Product.ProductName;
+                            existing.ProductNameEN = item.Product.ProductNameEN;
+                            existing.ProductBarCode = item.Product.ProductBarCode;
+                            existing.BrandCode = item.Product.BrandCode;
+                            existing.ProductGrpCode = item.Product.ProductGrpCode;
+                            existing.ProductType = item.Product.ProductType;
+                            existing.UnitCode = item.Product.UnitCode;
+                            existing.ValConvert = item.Product.ValConvert;
+                            existing.FlagSell = item.Product.FlagSell;
+                            existing.FlagBuy = item.Product.FlagBuy;
+                            existing.FlagActive = item.Product.FlagActive;
+                            existing.UPBuy = item.Product.UPBuy;
+                            existing.UPSell = item.Product.UPSell;
+                            existing.QtyMaxSt = item.Product.QtyMaxSt;
+                            existing.QtyMinSt = item.Product.QtyMinSt;
+                            existing.QtyEffSt = item.Product.QtyEffSt;
+                            existing.Remark = item.Product.Remark;
+                            existing.FlagSerial = item.Product.FlagSerial;
+                            existing.FlagLot = item.Product.FlagLot;
+                            existing.ProductStd = item.Product.ProductStd;
+                            existing.ProductExpiry = item.Product.ProductExpiry;
+                            existing.ProductQuyCach = item.Product.ProductQuyCach;
+                            existing.ProductMnfUrl = item.Product.ProductMnfUrl;
+                            existing.ProductIntro = item.Product.ProductIntro;
+                            existing.ProductUserGuide = item.Product.ProductUserGuide;
+                            existing.ProductDrawing = item.Product.ProductDrawing;
+                            existing.ProductOrigin = item.Product.ProductOrigin;
+                            existing.LUDTimeUTC = dtimeSys;
+                            existing.LUBy = userCode;
+                            existing.LogLUDTimeUTC = dtimeSys;
+                            existing.LogLUBy = userCode;
+
+                            await _db.SaveChangesAsync();
+                        }
+                    }
+                }
+
+                await tx.CommitAsync();
+
+                // 9. Trả kết quả thành công khớp gate MVC (Gate lines 4549-4552)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Đã nhập dữ liệu excel thành công!" },
+                    Title = "Đã nhập dữ liệu excel thành công!",
+                    RedirectUrl = "/Mst_Product"
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Product_Import", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Product_Import", "Exception", ex.Message);
+        }
+    }
+
+    private class Mst_Product_ParsedImportItem
+    {
+        public Mst_Product Product { get; set; } = null!;
+        public string ProductCodeUser { get; set; } = "";
+        public string ProductCodeRoot { get; set; } = "";
+        public string ProductCodeBase { get; set; } = "";
+        public string ProductCode { get; set; } = "";
+        public string ProductLevelSys { get; set; } = "";
+        public string ProductType { get; set; } = "";
+        public string? UnitCode { get; set; }
+        public string? FlagSerial { get; set; }
+        public List<string> BOMComponentNames { get; set; } = new();
+    }
+
+    private static bool IsNumeric(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        return double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out _)
+            || double.TryParse(s, out _);
+    }
+
+    private static double? ParseDouble(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        if (double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v1)) return v1;
+        if (double.TryParse(s, out var v2)) return v2;
+        return null;
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
