@@ -407,6 +407,123 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Update_NullReq_ReturnsNullData()
+    {
+        var result = await _controller.Update(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_EmptyReq_ReturnsNullData()
+    {
+        var result = await _controller.Update(new Sys_Group_UpdateReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_NonExistentGroup_ReturnsNullData()
+    {
+        var req = new Sys_Group_UpdateReq { GroupCode = "GRP_NONEXISTENT" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ValidGroupCode_AdminGroup_ReturnsAdmin()
+    {
+        var req = new Sys_Group_UpdateReq { GroupCode = "GRP_ADMIN" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP_ADMIN", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("Nhóm Quản trị hệ thống", data.GetProperty("GroupName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ValidGroupCode_ManagerGroup_ReturnsManager()
+    {
+        var req = new Sys_Group_UpdateReq { GroupCode = "grp_manager" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP_MANAGER", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("Nhóm Quản lý hợp đồng", data.GetProperty("GroupName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0100000001", data.GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ValidGroupCode_WithMatchingMst_ReturnsGroup()
+    {
+        var req = new Sys_Group_UpdateReq { GroupCode = "GRP_INACTIVE", MST = "0100000002" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP_INACTIVE", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("0100000002", data.GetProperty("MST").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ValidGroupCode_WithMismatchedMst_ReturnsNull()
+    {
+        var req = new Sys_Group_UpdateReq { GroupCode = "GRP_INACTIVE", MST = "0100000001" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ViaModelJson_ReturnsGroup()
+    {
+        var req = new Sys_Group_UpdateReq { Model = "{\"GroupCode\":\"GRP_STAFF\"}" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP_STAFF", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("Nhóm Nhân viên kinh doanh", data.GetProperty("GroupName").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ViaRawCodeInModel_ReturnsGroup()
+    {
+        var req = new Sys_Group_UpdateReq { Model = "GRP_ACCOUNTANT" };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal(JsonValueKind.Object, data.ValueKind);
+        Assert.Equal("GRP_ACCOUNTANT", data.GetProperty("GroupCode").GetString());
+        Assert.Equal("Nhóm Kế toán", data.GetProperty("GroupName").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -620,6 +737,95 @@ public class Sys_GroupControllerPortTests : IDisposable
             Assert.Equal("GRP_REAL_CREATED", itemCreated.GetProperty("GroupCode").GetString());
             Assert.Equal("Nhóm Tạo Mới Thật Sự", itemCreated.GetProperty("GroupName").GetString());
             Assert.Equal("1", itemCreated.GetProperty("FlagActive").GetString());
+
+            // 16. Ca Update body rỗng: POST /api/sys_group/update {} -> 200 OK, Success=true, Data=null
+            var req16 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/sys_group/update", req16);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res16.StatusCode);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            var doc16 = JsonDocument.Parse(body16);
+            Assert.True(doc16.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc16.RootElement.GetProperty("Data").ValueKind);
+
+            // 17. Ca Update nhóm không tồn tại: POST /api/sys_group/update {"GroupCode":"GRP_NONEXISTENT"} -> 200 OK, Success=true, Data=null
+            var req17 = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\"}", Encoding.UTF8, "application/json");
+            var res17 = await http.PostAsync("/api/sys_group/update", req17);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res17.StatusCode);
+            var body17 = await res17.Content.ReadAsStringAsync();
+            var doc17 = JsonDocument.Parse(body17);
+            Assert.True(doc17.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc17.RootElement.GetProperty("Data").ValueKind);
+
+            // 18. Ca Update nhóm GRP_ADMIN (Bộ lọc A) -> 200 OK, Success=true, Data=GRP_ADMIN
+            var req18 = new StringContent("{\"GroupCode\":\"GRP_ADMIN\"}", Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/sys_group/update", req18);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res18.StatusCode);
+            var body18 = await res18.Content.ReadAsStringAsync();
+            var doc18 = JsonDocument.Parse(body18);
+            Assert.True(doc18.RootElement.GetProperty("Success").GetBoolean());
+            var data18 = doc18.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data18.ValueKind);
+            Assert.Equal("GRP_ADMIN", data18.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Quản trị hệ thống", data18.GetProperty("GroupName").GetString());
+            Assert.Equal("1", data18.GetProperty("FlagActive").GetString());
+
+            // 19. Ca Update nhóm GRP_MANAGER (Bộ lọc B, ra kết quả khác ca 18) -> 200 OK, Success=true, Data=GRP_MANAGER
+            var req19 = new StringContent("{\"GroupCode\":\"GRP_MANAGER\"}", Encoding.UTF8, "application/json");
+            var res19 = await http.PostAsync("/api/sys_group/update", req19);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res19.StatusCode);
+            var body19 = await res19.Content.ReadAsStringAsync();
+            var doc19 = JsonDocument.Parse(body19);
+            Assert.True(doc19.RootElement.GetProperty("Success").GetBoolean());
+            var data19 = doc19.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data19.ValueKind);
+            Assert.Equal("GRP_MANAGER", data19.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Quản lý hợp đồng", data19.GetProperty("GroupName").GetString());
+            Assert.Equal("1", data19.GetProperty("FlagActive").GetString());
+
+            // 20. Ca Update nhóm GRP_INACTIVE kèm MST đúng 0100000002 -> 200 OK, Success=true, Data=GRP_INACTIVE
+            var req20 = new StringContent("{\"GroupCode\":\"GRP_INACTIVE\", \"MST\":\"0100000002\"}", Encoding.UTF8, "application/json");
+            var res20 = await http.PostAsync("/api/sys_group/update", req20);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res20.StatusCode);
+            var body20 = await res20.Content.ReadAsStringAsync();
+            var doc20 = JsonDocument.Parse(body20);
+            Assert.True(doc20.RootElement.GetProperty("Success").GetBoolean());
+            var data20 = doc20.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data20.ValueKind);
+            Assert.Equal("GRP_INACTIVE", data20.GetProperty("GroupCode").GetString());
+            Assert.Equal("0", data20.GetProperty("FlagActive").GetString());
+
+            // 21. Ca Update nhóm GRP_INACTIVE kèm MST không khớp 0100000001 -> 200 OK, Success=true, Data=null
+            var req21 = new StringContent("{\"GroupCode\":\"GRP_INACTIVE\", \"MST\":\"0100000001\"}", Encoding.UTF8, "application/json");
+            var res21 = await http.PostAsync("/api/sys_group/update", req21);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res21.StatusCode);
+            var body21 = await res21.Content.ReadAsStringAsync();
+            var doc21 = JsonDocument.Parse(body21);
+            Assert.True(doc21.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc21.RootElement.GetProperty("Data").ValueKind);
+
+            // 22. Ca Update qua Model JSON string -> 200 OK, Success=true, Data=GRP_STAFF
+            var req22 = new StringContent("{\"Model\":\"{\\\"GroupCode\\\":\\\"GRP_STAFF\\\"}\"}", Encoding.UTF8, "application/json");
+            var res22 = await http.PostAsync("/api/sys_group/update", req22);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res22.StatusCode);
+            var body22 = await res22.Content.ReadAsStringAsync();
+            var doc22 = JsonDocument.Parse(body22);
+            Assert.True(doc22.RootElement.GetProperty("Success").GetBoolean());
+            var data22 = doc22.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data22.ValueKind);
+            Assert.Equal("GRP_STAFF", data22.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Nhân viên kinh doanh", data22.GetProperty("GroupName").GetString());
+
+            // 23. Ca Update qua query string ?groupcode=GRP_ACCOUNTANT -> 200 OK, Success=true, Data=GRP_ACCOUNTANT
+            var req23 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res23 = await http.PostAsync("/api/sys_group/update?groupcode=GRP_ACCOUNTANT", req23);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res23.StatusCode);
+            var body23 = await res23.Content.ReadAsStringAsync();
+            var doc23 = JsonDocument.Parse(body23);
+            Assert.True(doc23.RootElement.GetProperty("Success").GetBoolean());
+            var data23 = doc23.RootElement.GetProperty("Data");
+            Assert.Equal(JsonValueKind.Object, data23.ValueKind);
+            Assert.Equal("GRP_ACCOUNTANT", data23.GetProperty("GroupCode").GetString());
+            Assert.Equal("Nhóm Kế toán", data23.GetProperty("GroupName").GetString());
         }
         finally
         {

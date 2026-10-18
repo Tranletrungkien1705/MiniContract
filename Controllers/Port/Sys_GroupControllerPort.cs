@@ -13,6 +13,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:107-156 (GetDetailData)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:161-171 (Create GET)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:173-213 (Create POST)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:218-266 (Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
@@ -382,6 +383,96 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Update từ gate Sys_GroupController.cs:218-266.
+    /// Chuỗi gọi:
+    /// 1. SysAccessCheckDeny(UserState, "MENU_QL_NHOM_NGUOI_DUNG_SUA") (gate dòng 220-224).
+    /// 2. Đọc UserState, AddressAPIs, WAUserCode, WAUserPassword (gate dòng 225-229).
+    /// 3. Nếu groupcode rỗng/null, gate trả về View(new Sys_Group()) (gate dòng 231, 265).
+    ///    Ở API Port trả về Success = true, Data = null.
+    /// 4. Nếu groupcode có giá trị:
+    ///    - Dựng strWhereClause_SysGroup(groupcode) (gate dòng 234, 1080-1091): Sys_Group.GroupCode = groupcode.
+    ///    - Đóng gói RQ_Sys_Group với Rt_Cols_Sys_Group = "*", Rt_Cols_Sys_UserInGroup = null (gate dòng 236-257).
+    ///    - Gọi Sys_GroupService.Instance.WA_Sys_Group_Get(objRQ_Sys_Group, addressAPIs) (gate dòng 259)
+    ///      -> API WA_Sys_Group_Get (SysGroupController.cs:20-91)
+    ///      -> BIZ WAS_Sys_Group_Get (System.cs:2283-2397)
+    ///      -> Sys_Group_Get_New20191102 (System.cs:1966-2281).
+    ///      SQL: lọc nhóm theo sg.GroupCode = @groupcode qua #tbl_Sys_Group_Filter_Draft và #tbl_Sys_Group_Filter (System.cs:2076-2106).
+    ///      Lấy dữ liệu Sys_Group: select t.MyIdxSeq, sg.* from #tbl_Sys_Group_Filter t inner join Sys_Group sg on t.GroupCode = sg.GroupCode order by t.MyIdxSeq asc (System.cs:2127-2138).
+    /// 5. Nếu tìm thấy (Lst_Sys_Group có phần tử): trả về View(objRT_Sys_GroupCur.Lst_Sys_Group[0]) (gate dòng 260-263).
+    ///    Ở API Port trả về Success = true, Data = item.
+    ///    Nếu không tìm thấy: trả về View(new Sys_Group()) (gate dòng 265).
+    ///    Ở API Port trả về Success = true, Data = null.
+    /// 6. Bắt ngoại lệ catch (Exception ex) -> PortResult.Fail("Sys_Group_Get", "Exception", ex.Message) (SysGroupController.cs:28, System.cs:1992).
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào GroupCode (Gate: Sys_GroupController.cs:218, 231)
+            var groupCode = StdParam(req?.GroupCode);
+            if (string.IsNullOrEmpty(groupCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupcode", out var qGroupCode))
+            {
+                groupCode = StdParam(qGroupCode.ToString());
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(groupCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_UpdateReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    groupCode = StdParam(modelObj?.GroupCode);
+                }
+                catch
+                {
+                    groupCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu groupcode rỗng hoặc null, gate trả về View(new Sys_Group()) (Sys_GroupController.cs:231, 265)
+            if (string.IsNullOrEmpty(groupCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Sys_Group?)null
+                });
+            }
+
+            // 3. Chuẩn hoá MST nếu có truyền (System.cs:2083, 2181-2184)
+            var mst = StdParam(req?.MST);
+            if (string.IsNullOrEmpty(mst) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("mst", out var qMst))
+            {
+                mst = StdParam(qMst.ToString());
+            }
+
+            // 4. Truy vấn nhóm người dùng theo GroupCode (System.cs:2081, 2133: select * from Sys_Group where GroupCode = @groupcode)
+            var query = _db.Set<Sys_Group>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+
+            if (!string.IsNullOrEmpty(mst))
+            {
+                query = query.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+
+            var group = await query.OrderBy(x => x.GroupCode).FirstOrDefaultAsync();
+
+            // 5. Nếu không tìm thấy, gate trả về View(new Sys_Group()) (Sys_GroupController.cs:265)
+            //    Nếu tìm thấy, gate trả về View(Lst_Sys_Group[0]) (Sys_GroupController.cs:262)
+            return Ok(new
+            {
+                Success = true,
+                Data = group
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -438,4 +529,15 @@ public class Sys_Group_CreateReq
     public string? UserCode { get; set; }
     public string? WAUserCode { get; set; }
     public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Update của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:218 Update(string groupcode)
+/// </summary>
+public class Sys_Group_UpdateReq
+{
+    public string? GroupCode { get; set; }
+    public string? MST { get; set; }
+    public string? Model { get; set; }
 }
