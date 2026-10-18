@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,8 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:884-946 (Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:951-965 (ShowPopupChangePassword)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:968-982 (ShowPopupChangePasswordCheckOld)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:986-1093 (ChangePassword)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203 (GetEncodedHash)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
@@ -1680,6 +1683,171 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action ChangePassword từ gate Sys_UserController.cs:986-1093.
+    /// Nguồn:
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:986-1093 (ChangePassword)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203 (GetEncodedHash)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:199-270 (WA_Sys_User_Get)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:569-640 (WA_Sys_User_Update)
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7011-7123 (WAS_Sys_User_Get) -> 6635-7009 (Sys_User_Get_New20191104)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:11620-11715 (WAS_Sys_User_Update) -> 11201-11618 (Sys_User_Update_New20231115)
+    /// </summary>
+    [HttpGet("changepassword")]
+    [HttpPost("changepassword")]
+    [HttpPost("change_password")]
+    public async Task<IActionResult> ChangePassword([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_ChangePasswordReq? req = null)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Sys_User_ChangePasswordReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.UserCode ??= modelObj.UserCode;
+                        req.PassNew ??= modelObj.PassNew;
+                        req.ConfPass ??= modelObj.ConfPass;
+                        req.WAUserCode ??= modelObj.WAUserCode;
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi deserialize chuỗi Model
+                }
+            }
+
+            var rawUserCode = req?.UserCode;
+            if (string.IsNullOrEmpty(rawUserCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+            {
+                rawUserCode = qUserCode.ToString();
+            }
+
+            var rawPassNew = req?.PassNew;
+            if (string.IsNullOrEmpty(rawPassNew) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("passnew", out var qPassNew))
+            {
+                rawPassNew = qPassNew.ToString();
+            }
+
+            var rawConfPass = req?.ConfPass;
+            if (string.IsNullOrEmpty(rawConfPass) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("confpass", out var qConfPass))
+            {
+                rawConfPass = qConfPass.ToString();
+            }
+
+            var waUserCode = StdParam(req?.WAUserCode)
+                ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault());
+
+            string title;
+            string? redirectUrl = null;
+            Sys_User? updatedUser = null;
+
+            // Guard 1: Kiểm tra usercode không được rỗng (Sys_UserController.cs:997, 1073-1076)
+            if (string.IsNullOrWhiteSpace(rawUserCode))
+            {
+                title = "Mã người dùng trống!";
+            }
+            else
+            {
+                // Guard 2: Kiểm tra passnew không được rỗng (Sys_UserController.cs:999, 1068-1071)
+                if (string.IsNullOrWhiteSpace(rawPassNew))
+                {
+                    title = "Mật khẩu mới trống!";
+                }
+                else
+                {
+                    var passNewTrimmed = rawPassNew.Trim();
+
+                    // Guard 3: Kiểm tra confpass không được rỗng (Sys_UserController.cs:1002, 1063-1066)
+                    if (string.IsNullOrWhiteSpace(rawConfPass))
+                    {
+                        title = "Nhập lại khẩu mới trống!";
+                    }
+                    else
+                    {
+                        var confPassTrimmed = rawConfPass.Trim();
+
+                        // Guard 4: So khớp passnew.Equals(confpass) (Sys_UserController.cs:1005, 1058-1061)
+                        if (!passNewTrimmed.Equals(confPassTrimmed, StringComparison.Ordinal))
+                        {
+                            title = "Nhập lại mật khẩu mới không đúng, Vui lòng nhập lại!";
+                        }
+                        else
+                        {
+                            // Guard 5: Tìm kiếm người dùng trong hệ thống (Sys_UserController.cs:1007-1034, 1053-1056)
+                            var userCode = StdParam(rawUserCode)!;
+                            var existing = await _db.Set<Sys_User>()
+                                .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+                            if (existing == null)
+                            {
+                                title = $"Mã người dùng '{rawUserCode}' không có trong hệ thống!";
+                            }
+                            else
+                            {
+                                // Cập nhật mật khẩu trong DB (Sys_UserController.cs:1036-1050)
+                                await using var tx = await _db.Database.BeginTransactionAsync();
+                                try
+                                {
+                                    var encodedPass = GetEncodedHash(passNewTrimmed);
+                                    existing.UserPassword = encodedPass;
+                                    var dtimeSys = DateTime.UtcNow;
+                                    existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+                                    existing.LogLUBy = waUserCode ?? "port";
+
+                                    await _db.SaveChangesAsync();
+                                    await tx.CommitAsync();
+
+                                    title = "Thay đổi mật khẩu thành công!";
+                                    if (!string.IsNullOrEmpty(waUserCode) && string.Equals(existing.UserCode, waUserCode, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        redirectUrl = "/Account/LogOff";
+                                    }
+
+                                    _db.Entry(existing).State = EntityState.Detached;
+                                    updatedUser = existing;
+                                }
+                                catch (Exception ex)
+                                {
+                                    await tx.RollbackAsync();
+                                    return PortResult.Fail("Sys_User_Update", "Exception", ex.Message);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { title },
+                Title = title,
+                RedirectUrl = redirectUrl,
+                Data = updatedUser
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_Update", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Mã hoá mật khẩu bằng thuật toán chuẩn idocNet: Base64(MD5(password + "idocNet")) bỏ 2 ký tự cuối ("==").
+    /// Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Utils\Utils.cs:2197-2203.
+    /// </summary>
+    public static string GetEncodedHash(string password)
+    {
+        using var md5 = System.Security.Cryptography.MD5.Create();
+        var digest = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password + "idocNet"));
+        var base64 = Convert.ToBase64String(digest);
+        return base64.Length > 2 ? base64[..^2] : base64;
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1970,6 +2138,20 @@ public class Sys_User_ShowPopupChangePasswordCheckOldData
 {
     public string? UserCode { get; set; }
 }
+
+/// <summary>
+/// Model nhận tham số cho action ChangePassword của Sys_UserController.
+/// Gate: Sys_UserController.cs:986 ChangePassword(string usercode, string passnew, string confpass)
+/// </summary>
+public class Sys_User_ChangePasswordReq
+{
+    public string? UserCode { get; set; }
+    public string? PassNew { get; set; }
+    public string? ConfPass { get; set; }
+    public string? Model { get; set; }
+    public string? WAUserCode { get; set; }
+}
+
 
 
 
