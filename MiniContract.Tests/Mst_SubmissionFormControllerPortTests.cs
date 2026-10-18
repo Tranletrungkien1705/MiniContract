@@ -36,6 +36,19 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
         new Mst_ParamContractSubmissFormSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_SubmissionFormMessageSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_SubmissionFormZNSSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ChannelTypeSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_BulletinTypeSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+
+        // Thêm kênh không hoạt động để test guard FlagActive
+        _db.Set<Mst_ChannelType>().Add(new Mst_ChannelType
+        {
+            ChannelType = "INACTIVE_CHANNEL",
+            ChannelTypeName = "Kênh tạm dừng",
+            FlagActive = "0",
+            LogLUDTimeUTC = "2024-01-01 10:00:00",
+            LogLUBy = "port"
+        });
+        _db.SaveChanges();
 
         _controller = new Mst_SubmissionFormControllerPort(_db);
     }
@@ -519,6 +532,245 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateCopy_WithNullOrEmptyReq_ReturnsInvalidSubFormCodeGuard()
+    {
+        // 1. null request
+        var res1 = await _controller.CreateCopy(null);
+        var bad1 = Assert.IsType<BadRequestObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(bad1.Value));
+        Assert.False(doc1.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc1.RootElement.GetProperty("ErrorCode").GetString());
+
+        // 2. empty request
+        var res2 = await _controller.CreateCopy(new Mst_SubmissionForm_CreateCopyReq());
+        var bad2 = Assert.IsType<BadRequestObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(bad2.Value));
+        Assert.False(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc2.RootElement.GetProperty("ErrorCode").GetString());
+
+        // 3. SubFormCode rỗng
+        var res3 = await _controller.CreateCopy(new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm { SubFormCode = "" }
+        });
+        var bad3 = Assert.IsType<BadRequestObjectResult>(res3);
+        var doc3 = JsonDocument.Parse(JsonSerializer.Serialize(bad3.Value));
+        Assert.False(doc3.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", doc3.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithNonExistentSubFormCode_ReturnsSubFormCodeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_NOT_FOUND",
+                ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.CreateCopy(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithNonExistentChannelType_ReturnsChannelTypeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "NON_EXISTENT_CHANNEL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.CreateCopy(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_ChannelTypeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithInactiveChannelType_ReturnsChannelTypeFlagActiveNotMatchedGuard()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "INACTIVE_CHANNEL",
+                BulletinType = "CONTRACT_NOTIFY"
+            }
+        };
+        var res = await _controller.CreateCopy(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithNonExistentBulletinType_ReturnsBulletinTypeNotFoundGuard()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "EMAIL",
+                BulletinType = "NON_EXISTENT_BULLETIN"
+            }
+        };
+        var res = await _controller.CreateCopy(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_BulletinTypeNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithInactiveBulletinType_ReturnsBulletinTypeFlagActiveNotMatchedGuard()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                ChannelType = "EMAIL",
+                BulletinType = "INACTIVE_BULLETIN"
+            }
+        };
+        var res = await _controller.CreateCopy(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateCopy_RoundTrip_UpdateAndReturnClearedSubFormCode()
+    {
+        var req = new Mst_SubmissionForm_CreateCopyReq
+        {
+            Mst_SubmissionForm = new Mst_SubmissionForm
+            {
+                SubFormCode = "SF_EMAIL_01",
+                SubFormName = "Mẫu gửi Email 01 Đã Cập Nhật",
+                OrgID = "7200000001",
+                ChannelType = "EMAIL",
+                BulletinType = "CONTRACT_NOTIFY",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormMessage = new List<Mst_SubmissionFormMessage>
+            {
+                new()
+                {
+                    Message = "Nội dung email mới cập nhật cho mẫu 01"
+                }
+            }
+        };
+
+        var res = await _controller.CreateCopy(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("createcopy", data.GetProperty("ViewType").GetString());
+
+        var subForms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(1, subForms.GetArrayLength());
+        // SubFormCode đã được xoá để làm mẫu mới
+        Assert.Equal("", subForms[0].GetProperty("SubFormCode").GetString());
+        Assert.Equal("Mẫu gửi Email 01 Đã Cập Nhật", subForms[0].GetProperty("SubFormName").GetString());
+        Assert.Equal("EMAIL", subForms[0].GetProperty("ChannelType").GetString());
+        Assert.Equal("CONTRACT_NOTIFY", subForms[0].GetProperty("BulletinType").GetString());
+
+        var msgs = data.GetProperty("Lst_Mst_SubmissionFormMessage");
+        Assert.Equal(1, msgs.GetArrayLength());
+        Assert.Equal("Nội dung email mới cập nhật cho mẫu 01", msgs[0].GetProperty("Message").GetString());
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_Channel").GetArrayLength());
+        Assert.Equal(1, channel.GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+        Assert.Equal(4, data.GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+        // Round-trip kiểm tra dữ liệu thật trong DB
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_EMAIL_01");
+        Assert.NotNull(dbItem);
+        Assert.Equal("Mẫu gửi Email 01 Đã Cập Nhật", dbItem.SubFormName);
+        Assert.Equal("EMAIL", dbItem.ChannelType);
+
+        var dbMsgs = await _db.Set<Mst_SubmissionFormMessage>().Where(x => x.SubFormCode == "SF_EMAIL_01").ToListAsync();
+        Assert.Equal(1, dbMsgs.Count);
+        Assert.Equal("Nội dung email mới cập nhật cho mẫu 01", dbMsgs[0].Message);
+    }
+
+    [Fact]
+    public async Task CreateCopy_WithJsonModelString_RoundTrip_WithZns()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            Mst_SubmissionForm = new
+            {
+                SubFormCode = "SF_ZALO_01",
+                SubFormName = "Mẫu Zalo Đã Cập Nhật",
+                OrgID = "7200000001",
+                ChannelType = "ZALO",
+                BulletinType = "ZNS_NOTIFY",
+                IDZNS = "999999",
+                FlagActive = "1"
+            },
+            Lst_Mst_SubmissionFormZNS = new[]
+            {
+                new
+                {
+                    ParamContractCodeZNS = "order_id",
+                    SourceDataType = "SYSTEM",
+                    ParamContractCode = "CONTRACTCODEOS",
+                    ParamValue = "ORD-999"
+                }
+            }
+        });
+
+        var req = new Mst_SubmissionForm_CreateCopyReq { Model = modelJson };
+        var res = await _controller.CreateCopy(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("createcopy", data.GetProperty("ViewType").GetString());
+        var subForms = data.GetProperty("Lst_Mst_SubmissionForm");
+        Assert.Equal(1, subForms.GetArrayLength());
+        Assert.Equal("", subForms[0].GetProperty("SubFormCode").GetString());
+        Assert.Equal("Mẫu Zalo Đã Cập Nhật", subForms[0].GetProperty("SubFormName").GetString());
+        Assert.Equal("999999", subForms[0].GetProperty("IDZNS").GetString());
+
+        var znsList = data.GetProperty("Lst_Mst_SubmissionFormZNS");
+        Assert.Equal(1, znsList.GetArrayLength());
+        Assert.Equal("order_id", znsList[0].GetProperty("ParamContractCodeZNS").GetString());
+
+        // Round-trip kiểm tra DB
+        var dbItem = await _db.Set<Mst_SubmissionForm>().FirstOrDefaultAsync(x => x.SubFormCode == "SF_ZALO_01");
+        Assert.NotNull(dbItem);
+        Assert.Equal("999999", dbItem.IDZNS);
+        Assert.Equal("Mẫu Zalo Đã Cập Nhật", dbItem.SubFormName);
+
+        var dbZns = await _db.Set<Mst_SubmissionFormZNS>().Where(x => x.SubFormCode == "SF_ZALO_01").ToListAsync();
+        Assert.Equal(1, dbZns.Count);
+        Assert.Equal("order_id", dbZns[0].ParamContractCodeZNS);
+        Assert.Equal("ORD-999", dbZns[0].ParamValue);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_submissionform_{Guid.NewGuid():N}.db");
@@ -698,6 +950,69 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
             Assert.Equal("ContractCodeOS", dataDetail4.GetProperty("Lst_Mst_SubmissionFormZNS")[0].GetProperty("ParamContractName").GetString());
             Assert.Equal("ValPaymented", dataDetail4.GetProperty("Lst_Mst_SubmissionFormZNS")[1].GetProperty("ParamContractName").GetString());
             Assert.Equal(1, dataDetail4.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
+
+            // Ca 13 (CreateCopy Guard): POST body rỗng -> 400 InvalidSubFormCode
+            var reqCopyGuard1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resCopyGuard1 = await http.PostAsync("/api/mst_submissionform/createcopy", reqCopyGuard1);
+            var bodyCopyGuard1 = await resCopyGuard1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resCopyGuard1.StatusCode);
+            var docCopyGuard1 = JsonDocument.Parse(bodyCopyGuard1);
+            Assert.False(docCopyGuard1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_SaveX_InvalidSubFormCode", docCopyGuard1.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 14 (CreateCopy Guard): POST SubFormCode không tồn tại -> 400 SubFormCodeNotFound
+            var reqCopyGuard2 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_NOT_FOUND\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"CONTRACT_NOTIFY\"}}", Encoding.UTF8, "application/json");
+            var resCopyGuard2 = await http.PostAsync("/api/mst_submissionform/createcopy", reqCopyGuard2);
+            var bodyCopyGuard2 = await resCopyGuard2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resCopyGuard2.StatusCode);
+            var docCopyGuard2 = JsonDocument.Parse(bodyCopyGuard2);
+            Assert.False(docCopyGuard2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_SubmissionForm_CheckDB_SubFormCodeNotFound", docCopyGuard2.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 15 (CreateCopy Guard): POST ChannelType không tồn tại -> 400 ChannelTypeNotFound
+            var reqCopyGuard3 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_EMAIL_01\",\"ChannelType\":\"UNKNOWN_CHANNEL\",\"BulletinType\":\"CONTRACT_NOTIFY\"}}", Encoding.UTF8, "application/json");
+            var resCopyGuard3 = await http.PostAsync("/api/mst_submissionform/createcopy", reqCopyGuard3);
+            var bodyCopyGuard3 = await resCopyGuard3.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resCopyGuard3.StatusCode);
+            var docCopyGuard3 = JsonDocument.Parse(bodyCopyGuard3);
+            Assert.False(docCopyGuard3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ChannelType_CheckDB_ChannelTypeNotFound", docCopyGuard3.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 16 (CreateCopy Guard): POST BulletinType không tồn tại -> 400 BulletinTypeNotFound
+            var reqCopyGuard4 = new StringContent("{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_EMAIL_01\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"UNKNOWN_BULLETIN\"}}", Encoding.UTF8, "application/json");
+            var resCopyGuard4 = await http.PostAsync("/api/mst_submissionform/createcopy", reqCopyGuard4);
+            var bodyCopyGuard4 = await resCopyGuard4.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resCopyGuard4.StatusCode);
+            var docCopyGuard4 = JsonDocument.Parse(bodyCopyGuard4);
+            Assert.False(docCopyGuard4.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_BulletinType_CheckDB_BulletinTypeNotFound", docCopyGuard4.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 17 (CreateCopy Round-trip): POST cập nhật SF_EMAIL_01 thành công, trả về SubFormCode = "" và đọc lại thấy dữ liệu đã được update
+            var copyPayload = "{\"Mst_SubmissionForm\":{\"SubFormCode\":\"SF_EMAIL_01\",\"SubFormName\":\"Email 01 Ban Sao\",\"ChannelType\":\"EMAIL\",\"BulletinType\":\"CONTRACT_NOTIFY\",\"FlagActive\":\"1\"},\"Lst_Mst_SubmissionFormMessage\":[{\"Message\":\"Thong bao cap nhat ban sao\"}]}";
+            var reqCopySuccess = new StringContent(copyPayload, Encoding.UTF8, "application/json");
+            var resCopySuccess = await http.PostAsync("/api/mst_submissionform/createcopy", reqCopySuccess);
+            var bodyCopySuccess = await resCopySuccess.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCopySuccess.StatusCode);
+            var docCopySuccess = JsonDocument.Parse(bodyCopySuccess);
+            Assert.True(docCopySuccess.RootElement.GetProperty("Success").GetBoolean());
+            var copyData = docCopySuccess.RootElement.GetProperty("Data");
+            Assert.Equal("createcopy", copyData.GetProperty("ViewType").GetString());
+            Assert.Equal("", copyData.GetProperty("Lst_Mst_SubmissionForm")[0].GetProperty("SubFormCode").GetString());
+            Assert.Equal("Email 01 Ban Sao", copyData.GetProperty("Lst_Mst_SubmissionForm")[0].GetProperty("SubFormName").GetString());
+
+            // Đọc lại Detail SF_EMAIL_01 trên server để xác nhận round-trip đã lưu vào DB
+            var reqVerifyDetail = new StringContent("{\"SubFormCode\":\"SF_EMAIL_01\"}", Encoding.UTF8, "application/json");
+            var resVerifyDetail = await http.PostAsync("/api/mst_submissionform/detail", reqVerifyDetail);
+            var bodyVerifyDetail = await resVerifyDetail.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resVerifyDetail.StatusCode);
+            var docVerifyDetail = JsonDocument.Parse(bodyVerifyDetail);
+            Assert.True(docVerifyDetail.RootElement.GetProperty("Success").GetBoolean());
+            var verifyForms = docVerifyDetail.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionForm");
+            Assert.Equal(1, verifyForms.GetArrayLength());
+            Assert.Equal("Email 01 Ban Sao", verifyForms[0].GetProperty("SubFormName").GetString());
+            var verifyMsgs = docVerifyDetail.RootElement.GetProperty("Data").GetProperty("Lst_Mst_SubmissionFormMessage");
+            Assert.Equal(1, verifyMsgs.GetArrayLength());
+            Assert.Equal("Thong bao cap nhat ban sao", verifyMsgs[0].GetProperty("Message").GetString());
         }
         finally
         {
