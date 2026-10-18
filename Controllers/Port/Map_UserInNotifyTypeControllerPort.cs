@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Map_UserInNotifyTypeController.cs — Map_UserInNotifyType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Map_UserInNotifyTypeController.cs:20-92 (Index)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Map_UserInNotifyTypeController.cs:20-92 (Index), 96-144 (DoSearch)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MapUserInNotifyTypeController.cs:92-160 (WA_Map_UserInNotifyType_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:20-89 (WA_Mst_NNT_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:56083-56200 (WAS_Map_UserInNotifyType_Get) -> 56201-56331 (Map_UserInNotifyType_Get) -> 56333-56616 (Map_UserInNotifyType_GetX)
@@ -45,21 +45,11 @@ public class Map_UserInNotifyTypeControllerPort : ControllerBase
     {
         try
         {
-            // 1. Chuẩn hoá tham số đầu vào (LESSONS A.14, A.21, PORT_RULES §3)
-            var strMST = StdParam(req?.MST);
-            var strUserName = StdStr(req?.Email ?? req?.UserName);
-            var strUserCode = StdParam(req?.UserCode);
-            var strNotifyType = StdParam(req?.NotifyType);
+            var data = await GetMapUserInNotifyTypeCoreAsync(req);
+
+            // Lấy danh sách đơn vị Mst_NNT (gate dòng 31-60; BIZ Master.cs:12121-12218)
             var strNetworkID = StdParam(req?.NetworkID);
             var strOrgID = StdParam(req?.OrgID);
-
-            // 2. Chuẩn hoá tham số phân trang (LESSONS A.7, A.12)
-            var pageSize = req?.RecordCount ?? req?.PageSize ?? (int?)(req?.Ft_RecordCount) ?? 10;
-            var pageIndex = req?.Page ?? req?.PageIndex ?? 0;
-            long recordStart = req?.Ft_RecordStart ?? ((long)pageIndex * pageSize);
-            long recordCount = req?.Ft_RecordCount ?? pageSize;
-
-            // 3. Lấy danh sách đơn vị Mst_NNT (gate dòng 31-60; BIZ Master.cs:12121-12218)
             var nntQuery = _db.Set<Mst_NNT>().AsNoTracking();
             if (!string.IsNullOrEmpty(strNetworkID))
             {
@@ -69,84 +59,7 @@ public class Map_UserInNotifyTypeControllerPort : ControllerBase
             {
                 nntQuery = nntQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(strOrgID), PortQuery.Esc));
             }
-            var listMst_NNT = await nntQuery.OrderBy(x => x.MST).ToListAsync();
-
-            // 4. Dựng truy vấn Map_UserInNotifyType theo Map_UserInNotifyType_GetX (Master.cs:56389-56594)
-            var query = _db.Set<Map_UserInNotifyType>().AsNoTracking();
-
-            if (!string.IsNullOrEmpty(strUserCode))
-            {
-                query = query.Where(mo => EF.Functions.Like((mo.UserCode ?? "").ToLower(), PortQuery.Equal(strUserCode), PortQuery.Esc));
-            }
-            if (!string.IsNullOrEmpty(strNotifyType))
-            {
-                query = query.Where(mo => EF.Functions.Like((mo.NotifyType ?? "").ToLower(), PortQuery.Equal(strNotifyType), PortQuery.Esc));
-            }
-
-            // Lọc theo điều kiện người dùng từ Sys_User (tương ứng strWhereClause_Sys_UserSearch trong gate dòng 62-66, 203-236)
-            if (!string.IsNullOrEmpty(strMST) || !string.IsNullOrEmpty(strUserName))
-            {
-                var users = _db.Set<Sys_User>().AsNoTracking();
-                if (!string.IsNullOrEmpty(strMST))
-                {
-                    users = users.Where(u => EF.Functions.Like((u.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
-                }
-                if (!string.IsNullOrEmpty(strUserName))
-                {
-                    users = users.Where(u => EF.Functions.Like((u.EMail ?? "").ToLower(), PortQuery.Contains(strUserName), PortQuery.Esc)
-                                          || EF.Functions.Like((u.UserName ?? "").ToLower(), PortQuery.Contains(strUserName), PortQuery.Esc));
-                }
-                query = query.Where(mo => users.Any(u => u.UserCode == mo.UserCode));
-            }
-
-            // 5. Đếm tổng số bản ghi (Master.cs:56411 select Count(0) MyCount)
-            var itemCount = await query.CountAsync();
-
-            // 6. Sắp xếp theo UserCode asc, NotifyType asc (Master.cs:56407 order by mo.UserCode asc)
-            var ordered = query.OrderBy(x => x.UserCode).ThenBy(x => x.NotifyType);
-
-            // 7. Lấy danh sách trang (LESSONS A.7, A.12)
-            var pagedList = (recordCount <= 0 || recordStart < 0)
-                ? new List<Map_UserInNotifyType>()
-                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
-                               .Take((int)Math.Min(recordCount, int.MaxValue))
-                               .ToListAsync();
-
-            // 8. Lấy các loại thông báo Mst_NotifyType liên quan của trang (Master.cs:56466-56486)
-            var pagedNotifyTypes = pagedList.Select(x => x.NotifyType).Distinct().ToList();
-            var listMst_NotifyType = pagedNotifyTypes.Count == 0
-                ? new List<Mst_NotifyType>()
-                : await _db.Set<Mst_NotifyType>().AsNoTracking()
-                    .Where(x => pagedNotifyTypes.Contains(x.NotifyType))
-                    .OrderBy(x => x.NotifyType)
-                    .ToListAsync();
-
-            // 9. Lấy thông tin người dùng quản lý thông báo Mst_ManageNotify liên quan của trang (Master.cs:56495-56518)
-            var pagedUserCodes = pagedList.Select(x => x.UserCode).Distinct().ToList();
-            var listMst_ManageNotify = pagedUserCodes.Count == 0
-                ? new List<Mst_ManageNotify>()
-                : await _db.Set<Mst_ManageNotify>().AsNoTracking()
-                    .Where(x => pagedUserCodes.Contains(x.UserCode))
-                    .OrderBy(x => x.UserCode)
-                    .ToListAsync();
-
-            // 10. Tính số trang
-            var ps = pageSize <= 0 ? 10 : pageSize;
-            var pageCount = pagedList.Count == 0 ? 0 : (itemCount % ps == 0 ? itemCount / ps : itemCount / ps + 1);
-
-            // 11. Đóng gói kết quả khớp RT_Map_UserInNotifyType và ViewBag.ListMst_NNT của gate MVC
-            var data = new RT_Map_UserInNotifyType
-            {
-                MySummaryTable = new MySummaryTable { MyCount = itemCount },
-                Lst_Map_UserInNotifyType = pagedList,
-                Lst_Mst_NotifyType = listMst_NotifyType,
-                Lst_Mst_ManageNotify = listMst_ManageNotify,
-                ListMst_NNT = listMst_NNT,
-                ItemCount = itemCount,
-                PageCount = pageCount,
-                PageIndex = pageIndex,
-                PageSize = pageSize
-            };
+            data.ListMst_NNT = await nntQuery.OrderBy(x => x.MST).ToListAsync();
 
             return Ok(new
             {
@@ -158,6 +71,128 @@ public class Map_UserInNotifyTypeControllerPort : ControllerBase
         {
             return PortResult.Fail("Map_UserInNotifyType_Get", "Exception", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Port 1:1 action DoSearch từ gate Map_UserInNotifyTypeController.cs:96-144.
+    /// Chuỗi gọi:
+    /// 1. Dựng biểu thức strWhereClauseSys_UserSearch theo Sys_User (gate dòng 104-107, 203-236).
+    /// 2. Map_UserInNotifyTypeService.Instance.WA_Map_UserInNotifyType_Get (gate dòng 135)
+    ///    -> API WA_Map_UserInNotifyType_Get -> WAS_Map_UserInNotifyType_Get -> Map_UserInNotifyType_Get -> Map_UserInNotifyType_GetX (Master.cs:56083-56616).
+    ///    Lấy thông tin Map_UserInNotifyType, Mst_NotifyType, Mst_ManageNotify.
+    /// 3. Trả về JsonView("BindDataMap_UserInNotifyType", objRT_Map_UserInNotifyType) (gate dòng 136).
+    /// </summary>
+    [HttpPost("dosearch")]
+    [HttpPost("search")]
+    public async Task<IActionResult> DoSearch([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Map_UserInNotifyType_DoSearchReq? req)
+    {
+        try
+        {
+            var data = await GetMapUserInNotifyTypeCoreAsync(req);
+            return Ok(new
+            {
+                Success = true,
+                Data = data
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Map_UserInNotifyType_Get", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Hàm xử lý nghiệp vụ tìm kiếm Map_UserInNotifyType dùng chung cho Index và DoSearch
+    /// theo Master.cs:56083-56616 (WAS_Map_UserInNotifyType_Get -> Map_UserInNotifyType_Get -> Map_UserInNotifyType_GetX).
+    /// </summary>
+    private async Task<RT_Map_UserInNotifyType> GetMapUserInNotifyTypeCoreAsync(Map_UserInNotifyType_IndexReq? req)
+    {
+        // 1. Chuẩn hoá tham số đầu vào (LESSONS A.14, A.21, PORT_RULES §3)
+        var strMST = StdParam(req?.MST);
+        var strUserName = StdStr(req?.Email ?? req?.UserName);
+        var strUserCode = StdParam(req?.UserCode);
+        var strNotifyType = StdParam(req?.NotifyType);
+
+        // 2. Chuẩn hoá tham số phân trang (LESSONS A.7, A.12)
+        var pageSize = req?.RecordCount ?? req?.PageSize ?? (int?)(req?.Ft_RecordCount) ?? 10;
+        var pageIndex = req?.Page ?? req?.PageIndex ?? 0;
+        long recordStart = req?.Ft_RecordStart ?? ((long)pageIndex * pageSize);
+        long recordCount = req?.Ft_RecordCount ?? pageSize;
+
+        // 3. Dựng truy vấn Map_UserInNotifyType theo Map_UserInNotifyType_GetX (Master.cs:56389-56594)
+        var query = _db.Set<Map_UserInNotifyType>().AsNoTracking();
+
+        if (!string.IsNullOrEmpty(strUserCode))
+        {
+            query = query.Where(mo => EF.Functions.Like((mo.UserCode ?? "").ToLower(), PortQuery.Equal(strUserCode), PortQuery.Esc));
+        }
+        if (!string.IsNullOrEmpty(strNotifyType))
+        {
+            query = query.Where(mo => EF.Functions.Like((mo.NotifyType ?? "").ToLower(), PortQuery.Equal(strNotifyType), PortQuery.Esc));
+        }
+
+        // Lọc theo điều kiện người dùng từ Sys_User (tương ứng strWhereClause_Sys_UserSearch trong gate dòng 62-66, 104-107, 203-236)
+        if (!string.IsNullOrEmpty(strMST) || !string.IsNullOrEmpty(strUserName))
+        {
+            var users = _db.Set<Sys_User>().AsNoTracking();
+            if (!string.IsNullOrEmpty(strMST))
+            {
+                users = users.Where(u => EF.Functions.Like((u.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(strUserName))
+            {
+                users = users.Where(u => EF.Functions.Like((u.EMail ?? "").ToLower(), PortQuery.Contains(strUserName), PortQuery.Esc)
+                                      || EF.Functions.Like((u.UserName ?? "").ToLower(), PortQuery.Contains(strUserName), PortQuery.Esc));
+            }
+            query = query.Where(mo => users.Any(u => u.UserCode == mo.UserCode));
+        }
+
+        // 4. Đếm tổng số bản ghi (Master.cs:56411 select Count(0) MyCount)
+        var itemCount = await query.CountAsync();
+
+        // 5. Sắp xếp theo UserCode asc, NotifyType asc (Master.cs:56407 order by mo.UserCode asc)
+        var ordered = query.OrderBy(x => x.UserCode).ThenBy(x => x.NotifyType);
+
+        // 6. Lấy danh sách trang (LESSONS A.7, A.12)
+        var pagedList = (recordCount <= 0 || recordStart < 0)
+            ? new List<Map_UserInNotifyType>()
+            : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                           .Take((int)Math.Min(recordCount, int.MaxValue))
+                           .ToListAsync();
+
+        // 7. Lấy các loại thông báo Mst_NotifyType liên quan của trang (Master.cs:56466-56486)
+        var pagedNotifyTypes = pagedList.Select(x => x.NotifyType).Distinct().ToList();
+        var listMst_NotifyType = pagedNotifyTypes.Count == 0
+            ? new List<Mst_NotifyType>()
+            : await _db.Set<Mst_NotifyType>().AsNoTracking()
+                .Where(x => pagedNotifyTypes.Contains(x.NotifyType))
+                .OrderBy(x => x.NotifyType)
+                .ToListAsync();
+
+        // 8. Lấy thông tin người dùng quản lý thông báo Mst_ManageNotify liên quan của trang (Master.cs:56495-56518)
+        var pagedUserCodes = pagedList.Select(x => x.UserCode).Distinct().ToList();
+        var listMst_ManageNotify = pagedUserCodes.Count == 0
+            ? new List<Mst_ManageNotify>()
+            : await _db.Set<Mst_ManageNotify>().AsNoTracking()
+                .Where(x => pagedUserCodes.Contains(x.UserCode))
+                .OrderBy(x => x.UserCode)
+                .ToListAsync();
+
+        // 9. Tính số trang
+        var ps = pageSize <= 0 ? 10 : pageSize;
+        var pageCount = pagedList.Count == 0 ? 0 : (itemCount % ps == 0 ? itemCount / ps : itemCount / ps + 1);
+
+        return new RT_Map_UserInNotifyType
+        {
+            MySummaryTable = new MySummaryTable { MyCount = itemCount },
+            Lst_Map_UserInNotifyType = pagedList,
+            Lst_Mst_NotifyType = listMst_NotifyType,
+            Lst_Mst_ManageNotify = listMst_ManageNotify,
+            ItemCount = itemCount,
+            PageCount = pageCount,
+            PageIndex = pageIndex,
+            PageSize = pageSize
+        };
     }
 
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
@@ -183,6 +218,13 @@ public class Map_UserInNotifyType_IndexReq
     public int? PageIndex { get; set; }
     public int? RecordCount { get; set; }
     public int? PageSize { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action DoSearch của Map_UserInNotifyTypeController.
+/// </summary>
+public class Map_UserInNotifyType_DoSearchReq : Map_UserInNotifyType_IndexReq
+{
 }
 
 /// <summary>

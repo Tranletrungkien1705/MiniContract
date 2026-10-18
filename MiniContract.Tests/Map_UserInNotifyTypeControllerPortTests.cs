@@ -198,6 +198,144 @@ public class Map_UserInNotifyTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task DoSearch_NullReq_ReturnsAllRecords()
+    {
+        var result = await _controller.DoSearch(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(4, data.GetProperty("ItemCount").GetInt32());
+
+        var listMap = data.GetProperty("Lst_Map_UserInNotifyType");
+        Assert.Equal(4, listMap.GetArrayLength());
+
+        var listNotifyType = data.GetProperty("Lst_Mst_NotifyType");
+        Assert.Equal(3, listNotifyType.GetArrayLength());
+
+        var listManageNotify = data.GetProperty("Lst_Mst_ManageNotify");
+        Assert.Equal(3, listManageNotify.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task DoSearch_EmptyReq_ReturnsAllRecords()
+    {
+        var req = new Map_UserInNotifyType_DoSearchReq();
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(4, data.GetProperty("ItemCount").GetInt32());
+
+        var summary = data.GetProperty("MySummaryTable");
+        Assert.Equal(4, summary.GetProperty("MyCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task DoSearch_FilterByMST_0100000001_Returns3Records()
+    {
+        // MST 0100000001 có U01 (2 loại thông báo) và U02 (1 loại thông báo) -> tổng 3 bản ghi
+        var req = new Map_UserInNotifyType_DoSearchReq { MST = "0100000001" };
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal(3, data.GetProperty("ItemCount").GetInt32());
+        var listMap = data.GetProperty("Lst_Map_UserInNotifyType");
+        Assert.Equal(3, listMap.GetArrayLength());
+
+        var listNotify = data.GetProperty("Lst_Mst_NotifyType");
+        Assert.Equal(2, listNotify.GetArrayLength()); // NT01, NT02
+
+        var listManage = data.GetProperty("Lst_Mst_ManageNotify");
+        Assert.Equal(2, listManage.GetArrayLength()); // U01, U02
+    }
+
+    [Fact]
+    public async Task DoSearch_FilterByMST_0100000002_Returns1Record()
+    {
+        // MST 0100000002 chỉ có U03 -> tổng 1 bản ghi
+        var req = new Map_UserInNotifyType_DoSearchReq { MST = "0100000002" };
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal(1, data.GetProperty("ItemCount").GetInt32());
+        var listMap = data.GetProperty("Lst_Map_UserInNotifyType");
+        Assert.Equal(1, listMap.GetArrayLength());
+        Assert.Equal("U03", listMap[0].GetProperty("UserCode").GetString());
+        Assert.Equal("NT03", listMap[0].GetProperty("NotifyType").GetString());
+    }
+
+    [Fact]
+    public async Task DoSearch_FilterByEmail_ReturnsMatchingRecord()
+    {
+        var req = new Map_UserInNotifyType_DoSearchReq { Email = "tester" };
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal(1, data.GetProperty("ItemCount").GetInt32());
+        var listMap = data.GetProperty("Lst_Map_UserInNotifyType");
+        Assert.Equal(1, listMap.GetArrayLength());
+        Assert.Equal("U02", listMap[0].GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public async Task DoSearch_FilterByNonExistentMST_ReturnsEmpty()
+    {
+        var req = new Map_UserInNotifyType_DoSearchReq { MST = "9999999999" };
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal(0, data.GetProperty("ItemCount").GetInt32());
+        Assert.Equal(0, data.GetProperty("PageCount").GetInt32());
+        Assert.Equal(0, data.GetProperty("Lst_Map_UserInNotifyType").GetArrayLength());
+        Assert.Equal(0, data.GetProperty("Lst_Mst_NotifyType").GetArrayLength());
+        Assert.Equal(0, data.GetProperty("Lst_Mst_ManageNotify").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task DoSearch_Pagination_CorrectPageCountAndItems()
+    {
+        var req = new Map_UserInNotifyType_DoSearchReq { Page = 0, PageSize = 2 };
+        var result = await _controller.DoSearch(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal(4, data.GetProperty("ItemCount").GetInt32());
+        Assert.Equal(2, data.GetProperty("PageCount").GetInt32());
+        Assert.Equal(2, data.GetProperty("Lst_Map_UserInNotifyType").GetArrayLength());
+
+        // Trang thứ 2
+        var reqPage2 = new Map_UserInNotifyType_DoSearchReq { Page = 1, PageSize = 2 };
+        var result2 = await _controller.DoSearch(reqPage2);
+        var okResult2 = Assert.IsType<OkObjectResult>(result2);
+
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(okResult2.Value));
+        var data2 = doc2.RootElement.GetProperty("Data");
+        Assert.Equal(2, data2.GetProperty("Lst_Map_UserInNotifyType").GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port_MapUserInNotifyType()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_map_userinnotifytype_{Guid.NewGuid():N}.db");
@@ -279,6 +417,43 @@ public class Map_UserInNotifyTypeControllerPortTests : IDisposable
             var doc5 = JsonDocument.Parse(await res5.Content.ReadAsStringAsync());
             Assert.Equal(0, doc5.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
             Assert.Equal(0, doc5.RootElement.GetProperty("Data").GetProperty("PageCount").GetInt32());
+
+            // 6. Kiểm tra action DoSearch: POST /api/map_userinnotifytype/dosearch với body rỗng -> ItemCount=4
+            var reqDs1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDs1 = await http.PostAsync("/api/map_userinnotifytype/dosearch", reqDs1);
+            Assert.True(resDs1.IsSuccessStatusCode);
+            var docDs1 = JsonDocument.Parse(await resDs1.Content.ReadAsStringAsync());
+            Assert.True(docDs1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(4, docDs1.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 7. Kiểm tra action DoSearch: POST /api/map_userinnotifytype/dosearch với MST = 0100000001 -> ItemCount=3
+            var reqDs2 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000001" }), Encoding.UTF8, "application/json");
+            var resDs2 = await http.PostAsync("/api/map_userinnotifytype/dosearch", reqDs2);
+            Assert.True(resDs2.IsSuccessStatusCode);
+            var docDs2 = JsonDocument.Parse(await resDs2.Content.ReadAsStringAsync());
+            Assert.Equal(3, docDs2.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 8. Kiểm tra action DoSearch: POST /api/map_userinnotifytype/dosearch với MST = 0100000002 -> ItemCount=1
+            var reqDs3 = new StringContent(JsonSerializer.Serialize(new { MST = "0100000002" }), Encoding.UTF8, "application/json");
+            var resDs3 = await http.PostAsync("/api/map_userinnotifytype/dosearch", reqDs3);
+            Assert.True(resDs3.IsSuccessStatusCode);
+            var docDs3 = JsonDocument.Parse(await resDs3.Content.ReadAsStringAsync());
+            Assert.Equal(1, docDs3.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 9. Kiểm tra action DoSearch: POST /api/map_userinnotifytype/dosearch với Email = tester -> ItemCount=1
+            var reqDs4 = new StringContent(JsonSerializer.Serialize(new { Email = "tester" }), Encoding.UTF8, "application/json");
+            var resDs4 = await http.PostAsync("/api/map_userinnotifytype/dosearch", reqDs4);
+            Assert.True(resDs4.IsSuccessStatusCode);
+            var docDs4 = JsonDocument.Parse(await resDs4.Content.ReadAsStringAsync());
+            Assert.Equal(1, docDs4.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 10. Kiểm tra action DoSearch: POST /api/map_userinnotifytype/dosearch với MST = 9999999999 -> ItemCount=0, PageCount=0
+            var reqDs5 = new StringContent(JsonSerializer.Serialize(new { MST = "9999999999" }), Encoding.UTF8, "application/json");
+            var resDs5 = await http.PostAsync("/api/map_userinnotifytype/dosearch", reqDs5);
+            Assert.True(resDs5.IsSuccessStatusCode);
+            var docDs5 = JsonDocument.Parse(await resDs5.Content.ReadAsStringAsync());
+            Assert.Equal(0, docDs5.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            Assert.Equal(0, docDs5.RootElement.GetProperty("Data").GetProperty("PageCount").GetInt32());
         }
         finally
         {
