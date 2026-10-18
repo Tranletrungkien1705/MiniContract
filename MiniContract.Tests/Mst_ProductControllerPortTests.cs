@@ -2744,6 +2744,155 @@ public class Mst_ProductControllerPortTests : IDisposable
 
     #endregion
 
+    #region ActiveProducts Tests
+
+    [Fact]
+    public async Task ActiveProducts_WithNullReq_ReturnsSuccessTrue()
+    {
+        // Body rỗng hoàn toàn (null): trả về Success = true, Messages = ["Kinh doanh hàng hóa thành công!"] (Gate dòng 5677-5722)
+        var result = await _controller.ActiveProducts(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Kinh doanh hàng hóa thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Mst_Product/Index", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public async Task ActiveProducts_WithEmptyReq_ReturnsSuccessTrue()
+    {
+        var req = new Mst_Product_ActiveProductsReq();
+        var result = await _controller.ActiveProducts(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Kinh doanh hàng hóa thành công!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task ActiveProducts_WithEmptyList_ReturnsSuccessTrue()
+    {
+        var req = new Mst_Product_ActiveProductsReq { listproduct = "[]", OrgID = "1001" };
+        var result = await _controller.ActiveProducts(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Kinh doanh hàng hóa thành công!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task ActiveProducts_WithInvalidJson_ReturnsFailResult()
+    {
+        // Khi listproduct là JSON lỗi -> ném JsonException -> catch (gate dòng 5724-5727) -> PortResult.Fail
+        var req = new Mst_Product_ActiveProductsReq { listproduct = "{invalid_json_format" };
+        var result = await _controller.ActiveProducts(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_ActiveProducts", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task ActiveProducts_SingleProduct_UpdatesFlagActiveToOne()
+    {
+        // Đặt trước FlagActive = "0" cho sản phẩm PRD_BASE_01_1 qua StopProducts
+        await _controller.StopProducts(new Mst_Product_StopProductsReq
+        {
+            listproduct = "[{\"ProductCode\":\"PRD_BASE_01_1\"}]",
+            OrgID = "1001"
+        });
+
+        var before = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_BASE_01_1");
+        Assert.NotNull(before);
+        Assert.Equal("0", before.FlagActive);
+
+        // Gọi ActiveProducts cho PRD_BASE_01_1
+        var req = new Mst_Product_ActiveProductsReq
+        {
+            listproduct = "[{\"ProductCode\":\"PRD_BASE_01_1\"}]",
+            OrgID = "1001"
+        };
+        var result = await _controller.ActiveProducts(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Kinh doanh hàng hóa thành công!", doc.RootElement.GetProperty("Messages")[0].GetString());
+
+        // Kiểm tra sau khi cập nhật: FlagActive = "1"
+        var after = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_BASE_01_1");
+        Assert.NotNull(after);
+        Assert.Equal("1", after.FlagActive);
+    }
+
+    [Fact]
+    public async Task ActiveProducts_MultipleProducts_UpdatesAllFlagActiveToOne()
+    {
+        // Đặt trước FlagActive = "0" cho 2 sản phẩm
+        await _controller.StopProducts(new Mst_Product_StopProductsReq
+        {
+            listproduct = "[{\"ProductCode\":\"PRD_BASE_01_2\"},{\"ProductCode\":\"PRD_L2_01_1\"}]",
+            OrgID = "1001"
+        });
+
+        var b1 = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_BASE_01_2");
+        var b2 = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_L2_01_1");
+        Assert.NotNull(b1);
+        Assert.NotNull(b2);
+        Assert.Equal("0", b1.FlagActive);
+        Assert.Equal("0", b2.FlagActive);
+
+        // Kích hoạt kinh doanh lại cả 2 sản phẩm
+        var req = new Mst_Product_ActiveProductsReq
+        {
+            listproduct = "[{\"ProductCode\":\"PRD_BASE_01_2\"},{\"ProductCode\":\"PRD_L2_01_1\"}]",
+            OrgID = "1001"
+        };
+        var result = await _controller.ActiveProducts(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var p1 = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_BASE_01_2");
+        var p2 = await _db.Set<Mst_Product>().AsNoTracking().FirstOrDefaultAsync(x => x.ProductCode == "PRD_L2_01_1");
+        Assert.NotNull(p1);
+        Assert.NotNull(p2);
+        Assert.Equal("1", p1.FlagActive);
+        Assert.Equal("1", p2.FlagActive);
+    }
+
+    [Fact]
+    public async Task ActiveProducts_NonExistentProduct_ReturnsSuccessTrue()
+    {
+        // Khi mã hàng không tồn tại: gate vẫn trả về Success = true, 0 dòng bị cập nhật (dòng 5677-5722)
+        var req = new Mst_Product_ActiveProductsReq
+        {
+            listproduct = "[{\"ProductCode\":\"PRD_KHONG_TON_TAI_999\"}]",
+            OrgID = "1001"
+        };
+        var result = await _controller.ActiveProducts(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Kinh doanh hàng hóa thành công!", doc.RootElement.GetProperty("Messages")[0].GetString());
+    }
+
+    #endregion
+
     [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
@@ -3586,6 +3735,60 @@ public class Mst_ProductControllerPortTests : IDisposable
             Assert.Equal(System.Net.HttpStatusCode.OK, res78.StatusCode);
             var doc78 = JsonDocument.Parse(body78);
             Assert.True(doc78.RootElement.GetProperty("Success").GetBoolean());
+
+            // Ca 79: POST /api/mst_product/activeproducts với body rỗng -> 200 OK, Success = true, Messages[0] = "Kinh doanh hàng hóa thành công!"
+            var req79 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res79 = await http.PostAsync("/api/mst_product/activeproducts", req79);
+            var body79 = await res79.Content.ReadAsStringAsync();
+            Assert.True(res79.StatusCode == System.Net.HttpStatusCode.OK, $"Status {res79.StatusCode}, body: {body79}");
+            var doc79 = JsonDocument.Parse(body79);
+            Assert.True(doc79.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Kinh doanh hàng hóa thành công!", doc79.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Mst_Product/Index", doc79.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // Ca 80: POST /api/mst_product/activeproducts với JSON lỗi trong listproduct -> 400 Bad Request, Erridn.Skycic.QContract.Mst_Product_ActiveProducts
+            var req80 = new StringContent("{\"listproduct\":\"{bad_json\"}", Encoding.UTF8, "application/json");
+            var res80 = await http.PostAsync("/api/mst_product/activeproducts", req80);
+            var body80 = await res80.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res80.StatusCode);
+            var doc80 = JsonDocument.Parse(body80);
+            Assert.False(doc80.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Product_ActiveProducts", doc80.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 81: POST /api/mst_product/activeproducts kích hoạt kinh doanh lại PRD_STOP_LIVE_01 (sau Ca 76 có FlagActive = "0") -> 200 OK, Success = true
+            var activeReqJson = JsonSerializer.Serialize(new
+            {
+                listproduct = "[{\"ProductCode\":\"PRD_STOP_LIVE_01\"}]",
+                OrgID = "1001"
+            });
+            var res81 = await http.PostAsync("/api/mst_product/activeproducts", new StringContent(activeReqJson, Encoding.UTF8, "application/json"));
+            var body81 = await res81.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res81.StatusCode);
+            var doc81 = JsonDocument.Parse(body81);
+            Assert.True(doc81.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Kinh doanh hàng hóa thành công!", doc81.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 82: Round-trip kiểm tra qua search_product_auto sau khi active:
+            // - Với FlagActive = 1 (mặc định): tìm thấy đúng PRD_STOP_LIVE_01 (1 phần tử)
+            // - Với FlagActive = 0: không còn tìm thấy PRD_STOP_LIVE_01 (0 phần tử)
+            var checkAfterActive1 = await http.PostAsync("/api/mst_product/search_product_auto",
+                new StringContent("{\"productcodename\":\"PRD_STOP_LIVE_01\",\"OrgID\":\"1001\"}", Encoding.UTF8, "application/json"));
+            var docActive1 = JsonDocument.Parse(await checkAfterActive1.Content.ReadAsStringAsync());
+            Assert.Equal(1, docActive1.RootElement.GetProperty("ListProduct").GetArrayLength());
+            Assert.Equal("PRD_STOP_LIVE_01", docActive1.RootElement.GetProperty("ListProduct")[0].GetProperty("ProductCodeUser").GetString());
+
+            var checkAfterActive0 = await http.PostAsync("/api/mst_product/search_product_auto",
+                new StringContent("{\"productcodename\":\"PRD_STOP_LIVE_01\",\"OrgID\":\"1001\",\"FlagActive\":\"0\"}", Encoding.UTF8, "application/json"));
+            var docActive0 = JsonDocument.Parse(await checkAfterActive0.Content.ReadAsStringAsync());
+            Assert.Equal(0, docActive0.RootElement.GetProperty("ListProduct").GetArrayLength());
+
+            // Ca 83: POST /api/mst_product/active-products (kebab-case route alias) với body rỗng -> 200 OK, Success = true
+            var req83 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res83 = await http.PostAsync("/api/mst_product/active-products", req83);
+            var body83 = await res83.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res83.StatusCode);
+            var doc83 = JsonDocument.Parse(body83);
+            Assert.True(doc83.RootElement.GetProperty("Success").GetBoolean());
         }
         finally
         {
