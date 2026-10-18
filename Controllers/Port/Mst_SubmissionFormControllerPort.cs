@@ -8,9 +8,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_SubmissionFormController.cs — Mst_SubmissionForm
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 854-873 (strWhereClauseSearchBy)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstSubmissionFormController.cs:21-89 (WA_Mst_SubmissionForm_Get)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:13845-13958 (WAS_Mst_SubmissionForm_Get), 13983-14121 (Mst_SubmissionForm_Get), 14122-14341 (Mst_SubmissionForm_GetX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_SubmissionFormController.cs:23-140 (Index), 142-209 (Create), 854-873 (strWhereClauseSearchBy)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstSubmissionFormController.cs:21-89 (WA_Mst_SubmissionForm_Get), MstChannelTypeController.cs:91-140 (WA_Mst_Channel_Get), MstParamContractController.cs:19-75 (WA_Mst_ParamContractSubmissForm_Get)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\MasterData.cs:13845-14341 (Mst_SubmissionForm_GetX), 18384-18780 (Mst_Channel_GetX), 16417-16796 (Mst_ParamContractSubmissForm_GetX)
 [ApiController]
 [Route("api/mst_submissionform")]
 public class Mst_SubmissionFormControllerPort : ControllerBase
@@ -168,6 +168,156 @@ public class Mst_SubmissionFormControllerPort : ControllerBase
             return PortResult.Fail("Mst_SubmissionForm_Index", "Exception", ex.Message);
         }
     }
+
+    /// <summary>
+    /// Khởi tạo dữ liệu tạo mới mẫu nội dung gửi.
+    /// Gate: Mst_SubmissionFormController.cs:142-209 Create()
+    /// BIZ:
+    ///   - Mst_Channel_GetX (MasterData.cs:18384-18780): Đọc cấu hình kênh gửi Mst_Channel, Mst_ChannelEmail, Mst_ChannelSMS, Mst_ChannelZalo theo OrgID và FlagActive = '1'
+    ///   - Mst_ParamContractSubmissForm_GetX (MasterData.cs:16417-16796): Đọc danh sách tham số hợp đồng Mst_ParamContractSubmissForm với FlagActive = '1'
+    /// </summary>
+    [HttpPost("create")]
+    public async Task<IActionResult> Create([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_SubmissionForm_CreateReq? req)
+    {
+        try
+        {
+            // 1. Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_SubmissionFormController.cs:142)
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Mst_SubmissionForm_CreateReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                        req.FlagActive ??= modelObj.FlagActive;
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            // 2. Chuẩn hoá tham số đầu vào (Gate: Mst_SubmissionFormController.cs:150-171, 179-198)
+            var orgId = StdParam(req?.OrgID) ?? "7200000001";
+            var flagActive = !string.IsNullOrWhiteSpace(req?.FlagActive) ? req.FlagActive.Trim() : "1";
+
+            // 3. Lấy thông tin kênh gửi Mst_Channel theo OrgID và FlagActive = '1'
+            // Gate: Mst_SubmissionFormController.cs:165 Ft_WhereClause = "Mst_Channel.OrgID = " + UserState.Mst_NNT.OrgID + " and Mst_Channel.FlagActive = '1'"
+            // BIZ: MasterData.cs:18441-18506
+            var channelQuery = _db.Set<Mst_Channel>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == flagActive);
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                channelQuery = channelQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var lstChannel = await channelQuery.OrderBy(x => x.LogLUDTimeUTC).ToListAsync();
+
+            // 4. Lấy chi tiết cấu hình Email, SMS, Zalo theo OrgID
+            // Gate: Mst_SubmissionFormController.cs:167-170
+            // BIZ: MasterData.cs:18511-18570
+            var emailQuery = _db.Set<Mst_ChannelEmail>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == flagActive);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                emailQuery = emailQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            var lstEmail = await emailQuery.OrderBy(x => x.OrgID).ToListAsync();
+
+            var smsQuery = _db.Set<Mst_ChannelSMS>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == flagActive);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                smsQuery = smsQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            var lstSMS = await smsQuery.OrderBy(x => x.OrgID).ToListAsync();
+
+            var zaloQuery = _db.Set<Mst_ChannelZalo>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == flagActive);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                zaloQuery = zaloQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            var lstZalo = await zaloQuery.OrderBy(x => x.OrgID).ToListAsync();
+
+            // 5. Lấy danh sách tham số mẫu gửi Mst_ParamContractSubmissForm với FlagActive = '1'
+            // Gate: Mst_SubmissionFormController.cs:194 Ft_WhereClause = "Mst_ParamContractSubmissForm.FlagActive = '1'"
+            // BIZ: MasterData.cs:16486 order by mpc.LogLUDTimeUTC asc
+            var paramQuery = _db.Set<Mst_ParamContractSubmissForm>()
+                .AsNoTracking()
+                .Where(x => x.FlagActive == flagActive);
+
+            var lstParam = await paramQuery.OrderBy(x => x.LogLUDTimeUTC).ToListAsync();
+
+            // 6. Dựng đối tượng RT_Mst_Channel và kết quả trả về
+            // Gate: Mst_SubmissionFormController.cs:176 ViewBag.RT_Mst_Channel, :202 ViewBag.Lst_Mst_ParamContractSubmissForm, :208 return View(new RT_Mst_SubmissionForm())
+            var rtChannel = new RT_Mst_Channel
+            {
+                Lst_Mst_Channel = lstChannel,
+                Lst_Mst_ChannelEmail = lstEmail,
+                Lst_Mst_ChannelSMS = lstSMS,
+                Lst_Mst_ChannelZalo = lstZalo
+            };
+
+            var data = new Mst_SubmissionForm_CreateData
+            {
+                RT_Mst_Channel = rtChannel,
+                Lst_Mst_ParamContractSubmissForm = lstParam,
+                RT_Mst_ParamContractSubmissForm = new RT_Mst_ParamContractSubmissForm
+                {
+                    Lst_Mst_ParamContractSubmissForm = lstParam
+                },
+                ViewType = "create",
+                RT_Mst_SubmissionForm = new RT_Mst_SubmissionForm()
+            };
+
+            return Ok(new
+            {
+                Success = true,
+                Data = data
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_SubmissionForm_Create", "Exception", ex.Message);
+        }
+    }
+
+    private static string? StdParam(string? value)
+    {
+        var s = value?.Trim();
+        return string.IsNullOrEmpty(s) ? null : s.ToUpper();
+    }
+}
+
+public class Mst_SubmissionForm_CreateReq
+{
+    public string? Model { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
+}
+
+public class Mst_SubmissionForm_CreateData
+{
+    public RT_Mst_Channel? RT_Mst_Channel { get; set; }
+    public List<Mst_ParamContractSubmissForm> Lst_Mst_ParamContractSubmissForm { get; set; } = new();
+    public RT_Mst_ParamContractSubmissForm? RT_Mst_ParamContractSubmissForm { get; set; }
+    public string ViewType { get; set; } = "create";
+    public RT_Mst_SubmissionForm RT_Mst_SubmissionForm { get; set; } = new();
+}
+
+public class RT_Mst_ParamContractSubmissForm
+{
+    public List<Mst_ParamContractSubmissForm> Lst_Mst_ParamContractSubmissForm { get; set; } = new();
 }
 
 public class Mst_SubmissionForm_IndexReq

@@ -26,9 +26,14 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
         _db = new AppDbContext(opt, new TenantContext { OrgId = TenantContext.DefaultOrgId });
         _db.Database.EnsureCreated();
 
-        // Chạy seeder Mst_SubmissionForm
+        // Chạy seeder Mst_SubmissionForm và các bảng liên quan cho Create
         var seeder = new Mst_SubmissionFormSeeder();
         seeder.SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ChannelSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ChannelEmailSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ChannelSMSSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ChannelZaloSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_ParamContractSubmissFormSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
         _controller = new Mst_SubmissionFormControllerPort(_db);
     }
@@ -249,6 +254,125 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_WithEmptyOrNullBody_ReturnsExpectedChannelsAndParams()
+    {
+        // 1. null request
+        var res1 = await _controller.Create(null);
+        var ok1 = Assert.IsType<OkObjectResult>(res1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(ok1.Value));
+        var root1 = doc1.RootElement;
+
+        Assert.True(root1.GetProperty("Success").GetBoolean());
+        var data1 = root1.GetProperty("Data");
+        Assert.Equal("create", data1.GetProperty("ViewType").GetString());
+
+        var channel1 = data1.GetProperty("RT_Mst_Channel");
+        var lstChan1 = channel1.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(1, lstChan1.GetArrayLength());
+        Assert.Equal("7200000001", lstChan1[0].GetProperty("OrgID").GetString());
+
+        Assert.Equal(1, channel1.GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+        Assert.Equal(1, channel1.GetProperty("Lst_Mst_ChannelSMS").GetArrayLength());
+        Assert.Equal(1, channel1.GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
+
+        var lstParam1 = data1.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam1.GetArrayLength());
+        Assert.Equal("CONTRACTCODEOS", lstParam1[0].GetProperty("ParamContractCode").GetString());
+        Assert.Equal("VALPAYMENTED", lstParam1[1].GetProperty("ParamContractCode").GetString());
+        Assert.Equal("VALREMAIN", lstParam1[2].GetProperty("ParamContractCode").GetString());
+        Assert.Equal("UNITPRICE", lstParam1[3].GetProperty("ParamContractCode").GetString());
+
+        var subFormModel1 = data1.GetProperty("RT_Mst_SubmissionForm");
+        Assert.Equal(0, subFormModel1.GetProperty("Lst_Mst_SubmissionForm").GetArrayLength());
+
+        // 2. empty request {}
+        var res2 = await _controller.Create(new Mst_SubmissionForm_CreateReq());
+        var ok2 = Assert.IsType<OkObjectResult>(res2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(ok2.Value));
+        Assert.True(doc2.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(1, doc2.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+        Assert.Equal(4, doc2.RootElement.GetProperty("Data").GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Create_FilterByOrgId_7200000002_ReturnsMatchingChannel()
+    {
+        var req = new Mst_SubmissionForm_CreateReq { OrgID = "7200000002" };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        var lstChan = channel.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(1, lstChan.GetArrayLength());
+        Assert.Equal("7200000002", lstChan[0].GetProperty("OrgID").GetString());
+        Assert.Equal("SMS", lstChan[0].GetProperty("ChannelTypeContract").GetString());
+
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelSMS").GetArrayLength());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Create_FilterByNonExistentOrgId_ReturnsEmptyChannels()
+    {
+        var req = new Mst_SubmissionForm_CreateReq { OrgID = "9999999999" };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_Channel").GetArrayLength());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelSMS").GetArrayLength());
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_ChannelZalo").GetArrayLength());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Create_FilterByInactiveOrg_7200000003_ReturnsEmptyChannelDueToFlagActive()
+    {
+        // Org 7200000003 có FlagActive = "0", nên điều kiện FlagActive = "1" sẽ loại bỏ
+        var req = new Mst_SubmissionForm_CreateReq { OrgID = "7200000003" };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        Assert.Equal(0, channel.GetProperty("Lst_Mst_Channel").GetArrayLength());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(4, lstParam.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Create_FilterByFlagActive_0_ReturnsInactiveChannelAndParams()
+    {
+        var req = new Mst_SubmissionForm_CreateReq { FlagActive = "0", OrgID = "7200000003" };
+        var res = await _controller.Create(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        var channel = data.GetProperty("RT_Mst_Channel");
+        var lstChan = channel.GetProperty("Lst_Mst_Channel");
+        Assert.Equal(1, lstChan.GetArrayLength());
+        Assert.Equal("7200000003", lstChan[0].GetProperty("OrgID").GetString());
+
+        var lstParam = data.GetProperty("Lst_Mst_ParamContractSubmissForm");
+        Assert.Equal(1, lstParam.GetArrayLength());
+        Assert.Equal("INACTIVE_PARAM", lstParam[0].GetProperty("ParamContractCode").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_submissionform_{Guid.NewGuid():N}.db");
@@ -330,6 +454,51 @@ public class Mst_SubmissionFormControllerPortTests : IDisposable
             Assert.True(doc4.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(1, doc4.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
             Assert.Equal("SF_SMS_INACTIVE", doc4.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("SubFormCode").GetString());
+
+            // Ca 5 (Create): POST body rỗng -> khởi tạo thành công với 1 channel (7200000001) và 4 params
+            var reqCreate1 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resCreate1 = await http.PostAsync("/api/mst_submissionform/create", reqCreate1);
+            var bodyCreate1 = await resCreate1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreate1.StatusCode);
+            var docCreate1 = JsonDocument.Parse(bodyCreate1);
+            Assert.True(docCreate1.RootElement.GetProperty("Success").GetBoolean());
+            var dataCreate1 = docCreate1.RootElement.GetProperty("Data");
+            Assert.Equal("create", dataCreate1.GetProperty("ViewType").GetString());
+            Assert.Equal(1, dataCreate1.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal(4, dataCreate1.GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+            // Ca 6 (Create): POST lọc OrgID = "7200000002" -> 1 channel SMS, 0 email, 4 params
+            var reqCreate2 = new StringContent("{\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var resCreate2 = await http.PostAsync("/api/mst_submissionform/create", reqCreate2);
+            var bodyCreate2 = await resCreate2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreate2.StatusCode);
+            var docCreate2 = JsonDocument.Parse(bodyCreate2);
+            Assert.True(docCreate2.RootElement.GetProperty("Success").GetBoolean());
+            var dataCreate2 = docCreate2.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataCreate2.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal("SMS", dataCreate2.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel")[0].GetProperty("ChannelTypeContract").GetString());
+            Assert.Equal(0, dataCreate2.GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_ChannelEmail").GetArrayLength());
+            Assert.Equal(4, dataCreate2.GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+            // Ca 7 (Create): POST lọc OrgID không tồn tại "9999999999" -> 0 channel, 4 params
+            var reqCreate3 = new StringContent("{\"OrgID\":\"9999999999\"}", Encoding.UTF8, "application/json");
+            var resCreate3 = await http.PostAsync("/api/mst_submissionform/create", reqCreate3);
+            var bodyCreate3 = await resCreate3.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreate3.StatusCode);
+            var docCreate3 = JsonDocument.Parse(bodyCreate3);
+            Assert.True(docCreate3.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(0, docCreate3.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal(4, docCreate3.RootElement.GetProperty("Data").GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
+
+            // Ca 8 (Create): POST lọc FlagActive = "0", OrgID = "7200000003" -> 1 channel, 1 param
+            var reqCreate4 = new StringContent("{\"FlagActive\":\"0\",\"OrgID\":\"7200000003\"}", Encoding.UTF8, "application/json");
+            var resCreate4 = await http.PostAsync("/api/mst_submissionform/create", reqCreate4);
+            var bodyCreate4 = await resCreate4.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreate4.StatusCode);
+            var docCreate4 = JsonDocument.Parse(bodyCreate4);
+            Assert.True(docCreate4.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(1, docCreate4.RootElement.GetProperty("Data").GetProperty("RT_Mst_Channel").GetProperty("Lst_Mst_Channel").GetArrayLength());
+            Assert.Equal(1, docCreate4.RootElement.GetProperty("Data").GetProperty("Lst_Mst_ParamContractSubmissForm").GetArrayLength());
         }
         finally
         {
