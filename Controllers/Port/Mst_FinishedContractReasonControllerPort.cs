@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (Edit/Update)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX)
 [ApiController]
 [Route("api/mst_finishedcontractreason")]
 public class Mst_FinishedContractReasonControllerPort : ControllerBase
@@ -263,6 +263,145 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Cập nhật nguyên nhân chấm dứt hợp đồng.
+    /// Gate: Mst_FinishedContractReasonController.cs:197-249 Edit(string model)
+    /// API:  MstFinishedContractReasonController.cs:160-228 WA_Mst_FinishedContractReason_Update
+    /// BIZ:  Master.cs:45487-45558 (CheckDB), 46048-46134 (WAS), 46135-46303 (Update), 46782-46889 (UpdateX)
+    /// </summary>
+    [HttpPost("edit")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_FinishedContractReason_EditReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc null (lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Update", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_FinishedContractReasonController.cs:197, 209)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_FinishedContractReason_EditReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.ContractFinishReasonCode ??= modelObj.ContractFinishReasonCode ?? modelObj.ReasonCode;
+                    req.ContractFinishReasonName ??= modelObj.ContractFinishReasonName;
+                    req.FinishDescription ??= modelObj.FinishDescription;
+                    req.FinishType ??= modelObj.FinishType;
+                    req.FlagActive ??= modelObj.FlagActive;
+                    req.Ft_Cols_Upd ??= modelObj.Ft_Cols_Upd;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.ContractFinishReasonCode) &&
+            string.IsNullOrWhiteSpace(req.ReasonCode) &&
+            string.IsNullOrWhiteSpace(req.ContractFinishReasonName) &&
+            string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_Update", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào theo Master.cs:46822-46830
+        var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001");
+        networkId ??= "1001";
+        var reasonCode = StdParam(req.ContractFinishReasonCode ?? req.ReasonCode);
+        if (string.IsNullOrEmpty(reasonCode))
+        {
+            return PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganNotFound",
+                "Check.NetworkID", networkId,
+                "Check.ContractFinishReasonCode", req.ContractFinishReasonCode ?? req.ReasonCode);
+        }
+
+        // 3. Mở transaction và kiểm tra tồn tại bản ghi trong DB (Master.cs:46186, 46841-46848, 45516-45527)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Set<Mst_FinishedContractReason>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_FinishedContractReason_CheckDB_OrganNotFound",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractFinishReasonCode", reasonCode);
+            }
+
+            // 4. Kiểm tra hợp lệ FinishType: bắt buộc là FINISHED hoặc STOPPED (Master.cs:46850-46864)
+            var finishType = req.FinishType != null ? StdParam(req.FinishType) : existing.FinishType;
+            if (!string.Equals(finishType, "FINISHED", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(finishType, "STOPPED", StringComparison.OrdinalIgnoreCase))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_FinishedContractReason_Invalid_FinishType",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractFinishReasonCode", reasonCode);
+            }
+
+            // 5. Cập nhật các cột chỉ định theo Ft_Cols_Upd (Master.cs:46832-46835, 46874-46886)
+            var colsUpd = StdParam(req.Ft_Cols_Upd);
+            bool bUpdName = string.IsNullOrEmpty(colsUpd) || colsUpd.Contains("MST_FINISHEDCONTRACTREASON.CONTRACTFINISHREASONNAME");
+            bool bUpdType = string.IsNullOrEmpty(colsUpd) || colsUpd.Contains("MST_FINISHEDCONTRACTREASON.FINISHTYPE");
+            bool bUpdDesc = string.IsNullOrEmpty(colsUpd) || colsUpd.Contains("MST_FINISHEDCONTRACTREASON.FINISHDESCRIPTION");
+            bool bUpdFlag = string.IsNullOrEmpty(colsUpd) || colsUpd.Contains("MST_FINISHEDCONTRACTREASON.FLAGACTIVE");
+
+            if (bUpdName && req.ContractFinishReasonName != null)
+            {
+                existing.ContractFinishReasonName = req.ContractFinishReasonName.Trim();
+            }
+
+            if (bUpdType)
+            {
+                existing.FinishType = finishType;
+            }
+
+            if (bUpdDesc && req.FinishDescription != null)
+            {
+                existing.FinishDescription = req.FinishDescription.Trim();
+            }
+
+            if (bUpdFlag && req.FlagActive != null)
+            {
+                existing.FlagActive = req.FlagActive.Trim() == "1" ? "1" : "0";
+            }
+
+            var dtimeSys = DateTime.UtcNow;
+            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+            existing.LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            existing.LogLUBy = userCode;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // 6. Trả kết quả thành công khớp gate MVC (Mst_FinishedContractReasonController.cs:238-241)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Cập nhật nguyên nhân chấm dứt hợp đồng thành công!" },
+                Title = "Cập nhật nguyên nhân chấm dứt hợp đồng thành công!",
+                RedirectUrl = "/Mst_FinishedContractReason",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_FinishedContractReason_Update", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -330,4 +469,21 @@ public class Mst_FinishedContractReason_UpdateReq
     public string? ContractFinishReasonCode { get; set; }
     public string? NetworkID { get; set; }
     public string? OrgID { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Edit.
+/// Gate: Mst_FinishedContractReasonController.cs:197 Edit(string model)
+/// </summary>
+public class Mst_FinishedContractReason_EditReq
+{
+    public string? Model { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ContractFinishReasonCode { get; set; }
+    public string? ReasonCode { get; set; }
+    public string? ContractFinishReasonName { get; set; }
+    public string? FinishType { get; set; }
+    public string? FinishDescription { get; set; }
+    public string? FlagActive { get; set; }
+    public string? Ft_Cols_Upd { get; set; }
 }

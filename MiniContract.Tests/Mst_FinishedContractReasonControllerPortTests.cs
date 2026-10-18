@@ -410,6 +410,141 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_EmptyOrNullBody_ReturnsBadRequestWithStrJsonError()
+    {
+        var resultNull = await _controller.Edit(null);
+        var badNull = Assert.IsType<BadRequestObjectResult>(resultNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(badNull.Value));
+        Assert.False(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Update", docNull.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.True(docNull.RootElement.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+
+        var resultEmpty = await _controller.Edit(new Mst_FinishedContractReason_EditReq());
+        var badEmpty = Assert.IsType<BadRequestObjectResult>(resultEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(badEmpty.Value));
+        Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Update", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentReasonCode_ReturnsOrganNotFoundError()
+    {
+        var req = new Mst_FinishedContractReason_EditReq
+        {
+            ContractFinishReasonCode = "NON_EXISTENT",
+            ContractFinishReasonName = "Tên không tồn tại"
+        };
+        var result = await _controller.Edit(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+        var p = doc.RootElement.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("NON_EXISTENT", p.GetProperty("Check.ContractFinishReasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_InvalidFinishType_ReturnsInvalidFinishTypeError()
+    {
+        var req = new Mst_FinishedContractReason_EditReq
+        {
+            ContractFinishReasonCode = "REASON01",
+            ContractFinishReasonName = "Hết hạn",
+            FinishType = "INVALID_TYPE"
+        };
+        var result = await _controller.Edit(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Invalid_FinishType", doc.RootElement.GetProperty("ErrorCode").GetString());
+        var p = doc.RootElement.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("REASON01", p.GetProperty("Check.ContractFinishReasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_ValidItem_UpdatesAndReturnsSuccess()
+    {
+        var req = new Mst_FinishedContractReason_EditReq
+        {
+            ContractFinishReasonCode = "REASON01",
+            ContractFinishReasonName = "Hết hạn hợp đồng (Đã cập nhật)",
+            FinishType = "STOPPED",
+            FinishDescription = "Mô tả cập nhật mới",
+            FlagActive = "1"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("REASON01", data.GetProperty("ContractFinishReasonCode").GetString());
+        Assert.Equal("Hết hạn hợp đồng (Đã cập nhật)", data.GetProperty("ContractFinishReasonName").GetString());
+        Assert.Equal("STOPPED", data.GetProperty("FinishType").GetString());
+        Assert.Equal("Mô tả cập nhật mới", data.GetProperty("FinishDescription").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        // Kiểm tra round-trip đọc trực tiếp từ DB
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON01");
+        Assert.NotNull(saved);
+        Assert.Equal("Hết hạn hợp đồng (Đã cập nhật)", saved.ContractFinishReasonName);
+        Assert.Equal("STOPPED", saved.FinishType);
+        Assert.Equal("Mô tả cập nhật mới", saved.FinishDescription);
+        Assert.Equal("1", saved.FlagActive);
+    }
+
+    [Fact]
+    public async Task Edit_ViaModelProperty_UpdatesSuccessfully()
+    {
+        var req = new Mst_FinishedContractReason_EditReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_FinishedContractReason_EditReq
+            {
+                ContractFinishReasonCode = "REASON02",
+                ContractFinishReasonName = "Hai bên thỏa thuận (Cập nhật qua JSON Model)",
+                FinishType = "FINISHED",
+                FinishDescription = "Mô tả qua model",
+                FlagActive = "0"
+            })
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON02");
+        Assert.NotNull(saved);
+        Assert.Equal("Hai bên thỏa thuận (Cập nhật qua JSON Model)", saved.ContractFinishReasonName);
+        Assert.Equal("0", saved.FlagActive);
+    }
+
+    [Fact]
+    public async Task Edit_WithFtColsUpd_UpdatesOnlySpecifiedColumns()
+    {
+        var req = new Mst_FinishedContractReason_EditReq
+        {
+            ContractFinishReasonCode = "REASON03",
+            ContractFinishReasonName = "Tên mới chỉ định",
+            FinishDescription = "Mô tả không được cập nhật",
+            Ft_Cols_Upd = "Mst_FinishedContractReason.ContractFinishReasonName,"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON03");
+        Assert.NotNull(saved);
+        Assert.Equal("Tên mới chỉ định", saved.ContractFinishReasonName);
+        // FinishDescription giữ nguyên giá trị cũ từ Seeder
+        Assert.Equal("Đơn phương chấm dứt hợp đồng", saved.FinishDescription);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8584()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -630,6 +765,64 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             var doc16 = JsonDocument.Parse(body16);
             Assert.True(doc16.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(JsonValueKind.Null, doc16.RootElement.GetProperty("Data").ValueKind);
+
+            // ================== Kiểm thử endpoint Edit ==================
+            // Request 17: POST Edit empty body -> 400 Bad Request, Mst_FinishedContractReason_Update
+            var req17 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res17 = await http.PostAsync("/api/mst_finishedcontractreason/edit", req17);
+            var body17 = await res17.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ17: {body17}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res17.StatusCode);
+            var doc17 = JsonDocument.Parse(body17);
+            Assert.False(doc17.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Update", doc17.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 18: POST Edit non-existent code -> 400 Bad Request, Mst_FinishedContractReason_CheckDB_OrganNotFound
+            var req18 = new StringContent("{\"ContractFinishReasonCode\":\"NON_EXISTENT\",\"ContractFinishReasonName\":\"Tên không có\"}", Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/mst_finishedcontractreason/edit", req18);
+            var body18 = await res18.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ18: {body18}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res18.StatusCode);
+            var doc18 = JsonDocument.Parse(body18);
+            Assert.False(doc18.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_CheckDB_OrganNotFound", doc18.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 19: POST Edit invalid FinishType -> 400 Bad Request, Mst_FinishedContractReason_Invalid_FinishType
+            var req19 = new StringContent("{\"ContractFinishReasonCode\":\"REASON01\",\"ContractFinishReasonName\":\"Hết hạn\",\"FinishType\":\"INVALID_TYPE\"}", Encoding.UTF8, "application/json");
+            var res19 = await http.PostAsync("/api/mst_finishedcontractreason/edit", req19);
+            var body19 = await res19.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ19: {body19}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res19.StatusCode);
+            var doc19 = JsonDocument.Parse(body19);
+            Assert.False(doc19.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_Invalid_FinishType", doc19.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 20: POST Edit valid item -> 200 OK
+            var req20 = new StringContent("{\"ContractFinishReasonCode\":\"REASON01\",\"ContractFinishReasonName\":\"Hết hạn cập nhật live\",\"FinishType\":\"STOPPED\",\"FinishDescription\":\"Mô tả live\",\"FlagActive\":\"1\"}", Encoding.UTF8, "application/json");
+            var res20 = await http.PostAsync("/api/mst_finishedcontractreason/edit", req20);
+            var body20 = await res20.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ20: {body20}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res20.StatusCode);
+            var doc20 = JsonDocument.Parse(body20);
+            Assert.True(doc20.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("REASON01", doc20.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonCode").GetString());
+            Assert.Equal("Hết hạn cập nhật live", doc20.RootElement.GetProperty("Data").GetProperty("ContractFinishReasonName").GetString());
+            Assert.Equal("STOPPED", doc20.RootElement.GetProperty("Data").GetProperty("FinishType").GetString());
+
+            // Request 21: Query lại qua /api/mst_finishedcontractreason/update để kiểm tra round-trip dữ liệu đã lưu
+            var req21 = new StringContent("{\"ContractFinishReasonCode\":\"REASON01\"}", Encoding.UTF8, "application/json");
+            var res21 = await http.PostAsync("/api/mst_finishedcontractreason/update", req21);
+            var body21 = await res21.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ21: {body21}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res21.StatusCode);
+            var doc21 = JsonDocument.Parse(body21);
+            Assert.True(doc21.RootElement.GetProperty("Success").GetBoolean());
+            var data21 = doc21.RootElement.GetProperty("Data");
+            Assert.Equal("REASON01", data21.GetProperty("ContractFinishReasonCode").GetString());
+            Assert.Equal("Hết hạn cập nhật live", data21.GetProperty("ContractFinishReasonName").GetString());
+            Assert.Equal("STOPPED", data21.GetProperty("FinishType").GetString());
+            Assert.Equal("Mô tả live", data21.GetProperty("FinishDescription").GetString());
+            Assert.Equal("1", data21.GetProperty("FlagActive").GetString());
         }
         finally
         {
