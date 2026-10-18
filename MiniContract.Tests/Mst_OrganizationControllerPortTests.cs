@@ -705,7 +705,155 @@ public class Mst_OrganizationControllerPortTests : IDisposable
     }
 
     [Fact]
-    public async Task RealServer_Verification_Port8583()
+    public async Task Delete_NullBody_FailsWithCheckStrJson()
+    {
+        var result = await _controller.Delete(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Delete", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyBody_FailsWithCheckStrJson()
+    {
+        var req = new Mst_Organization_DeleteReq();
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Delete", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_MissingMST_ReturnsGateMessage()
+    {
+        var req = new Mst_Organization_DeleteReq
+        {
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Mã chi nhánh trống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_MissingOrgID_ReturnsGateMessage()
+    {
+        var req = new Mst_Organization_DeleteReq
+        {
+            MST = "0100000001"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Mã chi nhánh trống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentMST_ReturnsGateMessage()
+    {
+        var req = new Mst_Organization_DeleteReq
+        {
+            MST = "9999999999",
+            OrgID = "7299999999"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Mã chi nhánh '7299999999' không có trong hệ thống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJson_Success()
+    {
+        var newNnt = new Mst_NNT
+        {
+            MST = "0100000077",
+            OrgID = "7200000077",
+            NNTFullName = "Chi nhánh Test Model JSON",
+            NetworkID = "1001",
+            FlagActive = "1"
+        };
+        _db.Set<Mst_NNT>().Add(newNnt);
+        await _db.SaveChangesAsync();
+
+        var jsonModel = JsonSerializer.Serialize(new
+        {
+            MST = "0100000077",
+            OrgID = "7200000077"
+        });
+
+        var req = new Mst_Organization_DeleteReq
+        {
+            Model = jsonModel
+        };
+
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Xóa chi nhánh '7200000077' thành công!", msgs[0].GetString());
+
+        var inDb = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(x => x.MST == "0100000077");
+        Assert.Null(inDb);
+    }
+
+    [Fact]
+    public async Task Delete_Success_RoundTrip()
+    {
+        var existing = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(x => x.MST == "0100000003");
+        Assert.NotNull(existing);
+
+        var req = new Mst_Organization_DeleteReq
+        {
+            MST = "0100000003",
+            OrgID = "7200000002"
+        };
+
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Xóa chi nhánh '7200000002' thành công!", msgs[0].GetString());
+        Assert.Equal("/Mst_Organization", root.GetProperty("RedirectUrl").GetString());
+
+        var inDbAfter = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(x => x.MST == "0100000003");
+        Assert.Null(inDbAfter);
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Port8584()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
         var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
@@ -721,7 +869,7 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(dllPath),
         };
-        psi.Environment["PORT"] = "8583";
+        psi.Environment["PORT"] = "8584";
         psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -730,7 +878,7 @@ public class Mst_OrganizationControllerPortTests : IDisposable
 
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8583"), Timeout = TimeSpan.FromSeconds(3) };
+            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:8584"), Timeout = TimeSpan.FromSeconds(3) };
             bool started = false;
             for (int i = 0; i < 30; i++)
             {
@@ -992,6 +1140,66 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             Assert.Equal("0100000003", doc23.RootElement.GetProperty("Data").GetProperty("MST").GetString());
             Assert.Equal("7200000002", doc23.RootElement.GetProperty("Data").GetProperty("OrgID").GetString());
             Assert.Equal(0, doc23.RootElement.GetProperty("Data").GetProperty("Lst_Mst_OrgSignConfig").GetArrayLength());
+
+            // Request 24: POST /api/mst_organization/delete empty body -> 400 Bad Request
+            var req24 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res24 = await http.PostAsync("/api/mst_organization/delete", req24);
+            var body24 = await res24.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ24 (Delete Empty Body): {body24}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res24.StatusCode);
+            var doc24 = JsonDocument.Parse(body24);
+            Assert.False(doc24.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Delete", doc24.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 25: POST /api/mst_organization/delete missing MST -> 200 OK với Message "Mã chi nhánh trống!"
+            var req25 = new StringContent("{\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var res25 = await http.PostAsync("/api/mst_organization/delete", req25);
+            var body25 = await res25.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ25 (Delete Missing MST): {body25}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res25.StatusCode);
+            var doc25 = JsonDocument.Parse(body25);
+            Assert.False(doc25.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã chi nhánh trống!", doc25.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 26: POST /api/mst_organization/delete missing OrgID -> 200 OK với Message "Mã chi nhánh trống!"
+            var req26 = new StringContent("{\"MST\":\"0100000001\"}", Encoding.UTF8, "application/json");
+            var res26 = await http.PostAsync("/api/mst_organization/delete", req26);
+            var body26 = await res26.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ26 (Delete Missing OrgID): {body26}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res26.StatusCode);
+            var doc26 = JsonDocument.Parse(body26);
+            Assert.False(doc26.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã chi nhánh trống!", doc26.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 27: POST /api/mst_organization/delete non-existent MST -> 200 OK với Message "Mã chi nhánh '...' không có trong hệ thống!"
+            var req27 = new StringContent("{\"MST\":\"9999999999\",\"OrgID\":\"7299999999\"}", Encoding.UTF8, "application/json");
+            var res27 = await http.PostAsync("/api/mst_organization/delete", req27);
+            var body27 = await res27.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ27 (Delete Non-existent MST): {body27}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res27.StatusCode);
+            var doc27 = JsonDocument.Parse(body27);
+            Assert.False(doc27.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã chi nhánh '7299999999' không có trong hệ thống!", doc27.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 28: POST /api/mst_organization/delete round-trip xóa bản ghi 0100000099 vừa tạo ở Request 8 -> 200 OK
+            var req28 = new StringContent("{\"MST\":\"0100000099\",\"OrgID\":\"7200000099\"}", Encoding.UTF8, "application/json");
+            var res28 = await http.PostAsync("/api/mst_organization/delete", req28);
+            var body28 = await res28.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ28 (Delete Success Round-trip): {body28}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res28.StatusCode);
+            var doc28 = JsonDocument.Parse(body28);
+            Assert.True(doc28.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa chi nhánh '7200000099' thành công!", doc28.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 29: POST /api/mst_organization/index xác minh bản ghi 0100000099 đã bị xóa -> 200 OK
+            var req29 = new StringContent("{\"OrgID\":\"7200000099\"}", Encoding.UTF8, "application/json");
+            var res29 = await http.PostAsync("/api/mst_organization/index", req29);
+            var body29 = await res29.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ29 (Index Verify Deleted Org): {body29}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res29.StatusCode);
+            var doc29 = JsonDocument.Parse(body29);
+            Assert.Equal(0, doc29.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            Assert.Equal(0, doc29.RootElement.GetProperty("Data").GetProperty("DataList").GetArrayLength());
         }
         finally
         {

@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_OrganizationController.cs — Mst_NNT
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109, 363-431, 435-683
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89, 1109-1179
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12120, 12121-12218, 25188-25368, 32350-32449, 33301-33849, 34791-35208; MasterData.Org.cs:516-635
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109, 363-431, 435-683, 687-816, 821-1017, 1021-1092
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89, 604-673, 819-880, 1109-1179
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12120, 12121-12218, 24791-24865, 24869-24988, 25188-25368, 27313-27369, 29088-29179, 29783-30027, 30391-30764, 32350-32449, 33301-33849, 34791-35208; MasterData.Org.cs:516-635
 [ApiController]
 [Route("api/mst_organization")]
 public class Mst_OrganizationControllerPort : ControllerBase
@@ -775,6 +775,100 @@ public class Mst_OrganizationControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa chi nhánh / tổ chức (Mst_NNT).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:1021-1092 Delete(string mst = "", string orgid = "")
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:819-880 WA_Mst_NNT_Delete
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:24791-24865 WAS_Mst_NNT_Delete -> Mst_NNT_Delete (24869-24988) -> Mst_NNT_DeleteX (27313-27369)
+    ///       Master.cs:12001-12050 Mst_NNT_CheckDB
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Organization_DeleteReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoàn toàn (Lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_NNT_Delete", "Check.strJson", null);
+        }
+
+        // 2. Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_OrganizationController.cs:1021)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Organization_DeleteReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.MST ??= modelObj.MST;
+                    req.OrgID ??= modelObj.OrgID;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.MST) && string.IsNullOrWhiteSpace(req.OrgID) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_NNT_Delete", "Check.strJson", null);
+        }
+
+        // 3. Chuẩn hoá tham số đầu vào (Master.cs:27339: StdParam)
+        var strMST = StdParam(req.MST);
+        var strOrgID = StdParam(req.OrgID);
+
+        // 4. Gate guard: Kiểm tra MST hoặc OrgID rỗng (Gate: Mst_OrganizationController.cs:1032, 1079-1083)
+        if (string.IsNullOrEmpty(strMST) || string.IsNullOrEmpty(strOrgID))
+        {
+            return Ok(new
+            {
+                Success = false,
+                Messages = new[] { "Mã chi nhánh trống!" },
+                Title = "Mã chi nhánh trống!"
+            });
+        }
+
+        // 5. Tra cứu bản ghi hiện có theo MST (Gate: Mst_OrganizationController.cs:1059-1060; Master.cs:25244-25256; BIZ: Master.cs:12011-12022)
+        var existing = await _db.Set<Mst_NNT>()
+            .FirstOrDefaultAsync(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
+
+        if (existing == null)
+        {
+            // Gate: Mst_OrganizationController.cs:1074-1077
+            return Ok(new
+            {
+                Success = false,
+                Messages = new[] { $"Mã chi nhánh '{req.OrgID}' không có trong hệ thống!" },
+                Title = $"Mã chi nhánh '{req.OrgID}' không có trong hệ thống!"
+            });
+        }
+
+        // 6. Thực thi xóa bản ghi trong transaction (Master.cs:24902-24961, 27360-27366)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            _db.Set<Mst_NNT>().Remove(existing);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch (Exception)
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        // 7. Trả kết quả thành công khớp gate (Mst_OrganizationController.cs:1067-1071)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { $"Xóa chi nhánh '{req.OrgID}' thành công!" },
+            Title = $"Xóa chi nhánh '{req.OrgID}' thành công!",
+            RedirectUrl = "/Mst_Organization",
+            Data = existing
+        });
+    }
+
     private static string? StdParam(string? value)
     {
         var s = value?.Trim();
@@ -1144,5 +1238,12 @@ public class Mst_Organization_DetailData : Mst_NNT
 
         Mst_NNT = src;
     }
+}
+
+public class Mst_Organization_DeleteReq
+{
+    public string? Model { get; set; }
+    public string? MST { get; set; }
+    public string? OrgID { get; set; }
 }
 
