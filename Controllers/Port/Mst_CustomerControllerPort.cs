@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
@@ -1695,6 +1695,173 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lấy thông tin khách hàng phục vụ màn hình cập nhật (Update view).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:2170-2606 Update(string customercode, string customercodesys, string flagcustomerexsist)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 WA_Mst_Customer_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 WAS_Mst_Customer_Get -> 996-1462 Mst_Customer_Get
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_UpdateReq? req)
+    {
+        try
+        {
+            // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_CustomerController.cs:2170)
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Customer_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.CustomerCode ??= modelObj.CustomerCode;
+                        req.CustomerCodeSys ??= modelObj.CustomerCodeSys;
+                        req.FlagCustomerExsist ??= modelObj.FlagCustomerExsist;
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                    }
+                }
+                catch
+                {
+                    req.CustomerCode ??= req.Model;
+                }
+            }
+
+            // 1. Chuẩn hoá tham số đầu vào (Mst_CustomerController.cs:2170, 2182-2192)
+            var customerCode = StdParam(req?.CustomerCode);
+            var customerCodeSys = StdParam(req?.CustomerCodeSys);
+            var flagCustomerExsist = StdStr(req?.FlagCustomerExsist);
+            var orgId = StdParam(req?.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault()) ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault()) ?? _config?["Biz_NetworkID"] ?? "1001";
+
+            // 2. Nếu customerCode và customerCodeSys rỗng/null, gate trả về View(new Mst_Customer()) (Mst_CustomerController.cs:2182, 2605)
+            if (string.IsNullOrEmpty(customerCode) && string.IsNullOrEmpty(customerCodeSys))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Customer_UpdateData?)null
+                });
+            }
+
+            // 3. Dựng truy vấn tìm kiếm Mst_Customer (Gate: Mst_CustomerController.cs:2185-2221; BIZ: Customer.cs:1120-1137, 1344-1386)
+            var query = _db.Set<Mst_Customer>().AsNoTracking();
+            if (!string.IsNullOrEmpty(customerCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.CustomerCode ?? "").ToLower(), PortQuery.Equal(customerCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(customerCodeSys))
+            {
+                query = query.Where(x => EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(customerCodeSys), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var customer = await query.FirstOrDefaultAsync();
+            if (customer == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Customer_UpdateData?)null
+                });
+            }
+
+            // 4. Lấy danh mục tham chiếu phụ trợ phục vụ Update view (Mst_CustomerController.cs:2224-2429)
+            // Loại khách hàng (Mst_CustomerType: FlagActive = '1')
+            var typeQuery = _db.Set<Mst_CustomerType>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                typeQuery = typeQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listCustomerType = await typeQuery.ToListAsync();
+
+            // Nhóm khách hàng (Mst_CustomerGroup: FlagActive = '1', OrgID, NetworkID)
+            var groupQuery = _db.Set<Mst_CustomerGroup>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listCustomerGroup = await groupQuery.ToListAsync();
+
+            // Nguồn khách hàng (Mst_CustomerSource: FlagActive = '1', OrgID, NetworkID)
+            var sourceQuery = _db.Set<Mst_CustomerSource>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                sourceQuery = sourceQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                sourceQuery = sourceQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listCustomerSource = await sourceQuery.ToListAsync();
+
+            // Khu vực (Mst_Area: FlagActive = '1', OrgID, NetworkID)
+            var areaQuery = _db.Set<Mst_Area>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                areaQuery = areaQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                areaQuery = areaQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listArea = await areaQuery.ToListAsync();
+
+            // Loại giấy tờ (Mst_GovIDType: FlagActive = '1', NetworkID)
+            var govQuery = _db.Set<Mst_GovIDType>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                govQuery = govQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+            var listGovIDType = await govQuery.ToListAsync();
+
+            // 5. Nối thông tin liên kết (CustomerGrpCode từ Mst_CustomerInCustomerGroup, tên nhóm, tên loại, khu vực...)
+            await EnrichCustomersAsync(new List<Mst_Customer> { customer });
+
+            // Chuẩn hoá đường dẫn ảnh (Mst_CustomerController.cs:2504-2512)
+            if (!string.IsNullOrEmpty(customer.CustomerAvatarPath))
+            {
+                customer.CustomerAvatarPath = customer.CustomerAvatarPath.Replace("\\", "/");
+            }
+
+            // 6. Trả kết quả thành công với model khách hàng và các danh mục dropdown khớp gate MVC (Mst_CustomerController.cs:2475-2482, 2605)
+            var updateData = new Mst_Customer_UpdateData(
+                customer,
+                flagCustomerExsist,
+                listCustomerType,
+                listCustomerGroup,
+                listCustomerSource,
+                listArea,
+                listGovIDType);
+
+            return Ok(new
+            {
+                Success = true,
+                Data = updateData
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Get", "Exception", ex.Message);
+        }
+    }
+
     private class CustomerDynamicFieldParamType
     {
         public string Title { get; set; } = "";
@@ -1994,6 +2161,133 @@ public class Mst_Customer_Check
     public string? Messages { get; set; }
     public string Action { get; set; } = "0"; // 1: hiển thị cảnh báo; 0: gọi hàm lưu luôn
     public string? CustomerCode { get; set; }
+}
+
+public class Mst_Customer_UpdateReq
+{
+    // Tham số từ Gate MVC Mst_CustomerController.cs:2170 Update(string customercode, string customercodesys, string flagcustomerexsist)
+    public string? CustomerCode { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? FlagCustomerExsist { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? Model { get; set; }
+}
+
+public class Mst_Customer_UpdateData : Mst_Customer
+{
+    public Mst_Customer? Mst_Customer { get; set; }
+    public string? FlagCustomerExsist { get; set; }
+    public List<Mst_CustomerType>? List_Mst_CustomerType { get; set; }
+    public List<Mst_CustomerType>? ListMst_CustomerType { get; set; }
+    public List<Mst_CustomerGroup>? ListMst_CustomerGroupExt { get; set; }
+    public List<Mst_CustomerGroup>? List_Mst_CustomerGroup { get; set; }
+    public List<Mst_CustomerSource>? ListMst_CustomerSourceExt { get; set; }
+    public List<Mst_CustomerSource>? List_Mst_CustomerSource { get; set; }
+    public List<Mst_Area>? ListMst_AreaExt { get; set; }
+    public List<Mst_Area>? List_Mst_Area { get; set; }
+    public List<Mst_GovIDType>? ListMst_GovIDType { get; set; }
+    public List<Mst_GovIDType>? List_Mst_GovIDType { get; set; }
+
+    public Mst_Customer_UpdateData() { }
+
+    public Mst_Customer_UpdateData(
+        Mst_Customer src,
+        string? flagCustomerExsist = null,
+        List<Mst_CustomerType>? listCustomerType = null,
+        List<Mst_CustomerGroup>? listCustomerGroup = null,
+        List<Mst_CustomerSource>? listCustomerSource = null,
+        List<Mst_Area>? listArea = null,
+        List<Mst_GovIDType>? listGovIDType = null)
+    {
+        OrgID = src.OrgID;
+        CustomerCodeSys = src.CustomerCodeSys;
+        NetworkID = src.NetworkID;
+        CustomerCode = src.CustomerCode;
+        CustomerType = src.CustomerType;
+        CustomerGrpCode = src.CustomerGrpCode;
+        CustomerSourceCode = src.CustomerSourceCode;
+        CustomerSourceNameActual = src.CustomerSourceNameActual;
+        CustomerName = src.CustomerName;
+        CustomerNameEN = src.CustomerNameEN;
+        CustomerGender = src.CustomerGender;
+        CustomerPhoneNo = src.CustomerPhoneNo;
+        CustomerMobilePhone = src.CustomerMobilePhone;
+        ProvinceCode = src.ProvinceCode;
+        DistrictCode = src.DistrictCode;
+        WardCode = src.WardCode;
+        AreaCode = src.AreaCode;
+        CustomerAvatarName = src.CustomerAvatarName;
+        CustomerAvatarSpec = src.CustomerAvatarSpec;
+        FlagCustomerAvatarPath = src.FlagCustomerAvatarPath;
+        CustomerAvatarPath = src.CustomerAvatarPath;
+        CustomerAddress = src.CustomerAddress;
+        CustomerEmail = src.CustomerEmail;
+        CustomerDateOfBirth = src.CustomerDateOfBirth;
+        GovIDType = src.GovIDType;
+        GovIDCardNo = src.GovIDCardNo;
+        GovIDCardDate = src.GovIDCardDate;
+        GovIDCardPlace = src.GovIDCardPlace;
+        TaxCode = src.TaxCode;
+        BankCode = src.BankCode;
+        BankName = src.BankName;
+        BankAccountNo = src.BankAccountNo;
+        RepresentName = src.RepresentName;
+        RepresentPosition = src.RepresentPosition;
+        UserCodeOwner = src.UserCodeOwner;
+        ContactName = src.ContactName;
+        ContactPhone = src.ContactPhone;
+        ContactEmail = src.ContactEmail;
+        Fax = src.Fax;
+        Facebook = src.Facebook;
+        InvoiceCustomerName = src.InvoiceCustomerName;
+        InvoiceCustomerAddress = src.InvoiceCustomerAddress;
+        InvoiceOrgName = src.InvoiceOrgName;
+        InvoiceEmailSend = src.InvoiceEmailSend;
+        MST = src.MST;
+        ListOfCustDynamicFieldValue = src.ListOfCustDynamicFieldValue;
+        FlagDealer = src.FlagDealer;
+        FlagSupplier = src.FlagSupplier;
+        FlagEndUser = src.FlagEndUser;
+        FlagShipper = src.FlagShipper;
+        FlagBank = src.FlagBank;
+        FlagInsurrance = src.FlagInsurrance;
+        DTimeUsed = src.DTimeUsed;
+        CreateDTimeUTC = src.CreateDTimeUTC;
+        CreateBy = src.CreateBy;
+        LUDTimeUTC = src.LUDTimeUTC;
+        LUBy = src.LUBy;
+        FlagActive = src.FlagActive;
+        GLN = src.GLN;
+        Remark = src.Remark;
+        Coordinates = src.Coordinates;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+
+        Org_NNTFullName = src.Org_NNTFullName;
+        Network_NNTFullName = src.Network_NNTFullName;
+        mct_CustomerTypeName = src.mct_CustomerTypeName;
+        mcg_CustomerGrpName = src.mcg_CustomerGrpName;
+        mcs_CustomerSourceName = src.mcs_CustomerSourceName;
+        mp_ProvinceName = src.mp_ProvinceName;
+        md_DistrictName = src.md_DistrictName;
+        mw_WardName = src.mw_WardName;
+        ma_AreaName = src.ma_AreaName;
+        mg_GovIDTypeName = src.mg_GovIDTypeName;
+
+        Mst_Customer = src;
+        FlagCustomerExsist = flagCustomerExsist;
+        List_Mst_CustomerType = listCustomerType;
+        ListMst_CustomerType = listCustomerType;
+        ListMst_CustomerGroupExt = listCustomerGroup;
+        List_Mst_CustomerGroup = listCustomerGroup;
+        ListMst_CustomerSourceExt = listCustomerSource;
+        List_Mst_CustomerSource = listCustomerSource;
+        ListMst_AreaExt = listArea;
+        List_Mst_Area = listArea;
+        ListMst_GovIDType = listGovIDType;
+        List_Mst_GovIDType = listGovIDType;
+    }
 }
 
 

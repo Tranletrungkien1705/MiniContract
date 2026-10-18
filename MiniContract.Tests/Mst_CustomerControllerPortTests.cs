@@ -2524,6 +2524,273 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO UPDATE (Port #165)
+    // Gate: Mst_CustomerController.cs:2170-2606 Update(string customercode, string customercodesys, string flagcustomerexsist)
+    // API:  MstCustomerController.cs:92-162 WA_Mst_Customer_Get
+    // BIZ:  Customer.cs:1464-1612 WAS_Mst_Customer_Get, 996-1462 Mst_Customer_Get
+    // ==========================================
+
+    [Fact]
+    public async Task Update_NullReq_ReturnsSuccessTrueWithNullData()
+    {
+        var result = await _controller.Update(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_EmptyCustomerCode_ReturnsSuccessTrueWithNullData()
+    {
+        var req = new Mst_Customer_UpdateReq
+        {
+            CustomerCode = "",
+            CustomerCodeSys = ""
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_NotFoundCustomerCode_ReturnsSuccessTrueWithNullData()
+    {
+        var req = new Mst_Customer_UpdateReq
+        {
+            CustomerCode = "KH_NON_EXISTENT",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ValidCustomerCode_ReturnsCustomerWithDropdowns()
+    {
+        // KH001 đã có trong DB
+        var req = new Mst_Customer_UpdateReq
+        {
+            CustomerCode = "KH001",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.NotEqual(JsonValueKind.Null, data.ValueKind);
+
+        Assert.Equal("KH001", data.GetProperty("CustomerCode").GetString());
+        Assert.Equal("CUS001", data.GetProperty("CustomerCodeSys").GetString());
+        Assert.Equal("Công ty Cổ phần Alpha", data.GetProperty("CustomerName").GetString());
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+
+        // Kiểm tra ghép nhóm khách hàng Mst_CustomerInCustomerGroup + Mst_CustomerGroup (Mst_CustomerController.cs:2491-2501, 287-301)
+        Assert.Equal("GRP01,GRP02", data.GetProperty("CustomerGrpCode").GetString());
+        Assert.Equal("Nhóm Chiến Lược,Nhóm Tiềm Năng", data.GetProperty("mcg_CustomerGrpName").GetString());
+
+        // Kiểm tra các trường enriched: Mst_CustomerType, Mst_CustomerSource, Mst_Area, Mst_NNT
+        Assert.Equal("Doanh nghiệp", data.GetProperty("mct_CustomerTypeName").GetString());
+        Assert.Equal("Trực tiếp", data.GetProperty("mcs_CustomerSourceName").GetString());
+        Assert.Equal("Miền Bắc", data.GetProperty("ma_AreaName").GetString());
+        Assert.Equal("Công ty TNHH Giải Pháp Số Hà Nội", data.GetProperty("Org_NNTFullName").GetString());
+
+        // Kiểm tra danh mục dropdown đi kèm
+        var cusTypes = data.GetProperty("List_Mst_CustomerType");
+        Assert.True(cusTypes.GetArrayLength() > 0);
+
+        var cusGroups = data.GetProperty("ListMst_CustomerGroupExt");
+        Assert.True(cusGroups.GetArrayLength() > 0);
+
+        var cusSources = data.GetProperty("ListMst_CustomerSourceExt");
+        Assert.True(cusSources.GetArrayLength() > 0);
+
+        var areas = data.GetProperty("ListMst_AreaExt");
+        Assert.True(areas.GetArrayLength() > 0);
+
+        var govTypes = data.GetProperty("ListMst_GovIDType");
+        Assert.True(govTypes.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task Update_FilterByOrgID_DifferentFromCustomerOrg_ReturnsNullData()
+    {
+        // KH001 thuộc OrgID 7200000001, lọc theo OrgID 7200000002 -> không tìm thấy
+        var req = new Mst_Customer_UpdateReq
+        {
+            CustomerCode = "KH001",
+            OrgID = "7200000002"
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ViaModelJsonString_ReturnsCustomerWithDropdowns()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            CustomerCode = "KH002",
+            OrgID = "7200000001",
+            FlagCustomerExsist = "1"
+        });
+        var req = new Mst_Customer_UpdateReq
+        {
+            Model = modelJson
+        };
+        var result = await _controller.Update(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var data = doc.RootElement.GetProperty("Data");
+
+        Assert.Equal("KH002", data.GetProperty("CustomerCode").GetString());
+        Assert.Equal("CUS002", data.GetProperty("CustomerCodeSys").GetString());
+        Assert.Equal("Tập đoàn Beta", data.GetProperty("CustomerName").GetString());
+        Assert.Equal("1", data.GetProperty("FlagCustomerExsist").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Update()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_upd_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Ca body null / rỗng -> 200 OK, Data = null
+            var reqEmpty = new StringContent("", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/update", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Update Empty Body: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+
+            // 2. Ca CustomerCode không tồn tại -> 200 OK, Data = null
+            var nonExistPayload = JsonSerializer.Serialize(new { CustomerCode = "KH_KHONG_TON_TAI_99" });
+            var reqNonExist = new StringContent(nonExistPayload, Encoding.UTF8, "application/json");
+            var resNonExist = await http.PostAsync("/api/mst_customer/update", reqNonExist);
+            var bodyNonExist = await resNonExist.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Update Non-Existent: {bodyNonExist}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resNonExist.StatusCode);
+            var docNonExist = JsonDocument.Parse(bodyNonExist);
+            Assert.True(docNonExist.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docNonExist.RootElement.GetProperty("Data").ValueKind);
+
+            // 3. Ca hợp lệ: CustomerCode = "KH001" -> 200 OK, trả về thông tin khách hàng và dropdown
+            var validPayload = JsonSerializer.Serialize(new { CustomerCode = "KH001", OrgID = "7200000001", FlagCustomerExsist = "1" });
+            var reqValid = new StringContent(validPayload, Encoding.UTF8, "application/json");
+            var resValid = await http.PostAsync("/api/mst_customer/update", reqValid);
+            var bodyValid = await resValid.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Update Valid: {bodyValid}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValid.StatusCode);
+            var docValid = JsonDocument.Parse(bodyValid);
+            Assert.True(docValid.RootElement.GetProperty("Success").GetBoolean());
+            var dataValid = docValid.RootElement.GetProperty("Data");
+            Assert.Equal("KH001", dataValid.GetProperty("CustomerCode").GetString());
+            Assert.Equal("CUS001", dataValid.GetProperty("CustomerCodeSys").GetString());
+            Assert.Equal("Công ty Cổ phần Alpha", dataValid.GetProperty("CustomerName").GetString());
+            Assert.Equal("GRP01,GRP02", dataValid.GetProperty("CustomerGrpCode").GetString());
+            Assert.Equal("1", dataValid.GetProperty("FlagCustomerExsist").GetString());
+            Assert.True(dataValid.GetProperty("List_Mst_CustomerType").GetArrayLength() > 0);
+            Assert.True(dataValid.GetProperty("ListMst_CustomerGroupExt").GetArrayLength() > 0);
+
+            // 4. Ca hợp lệ thứ 2: CustomerCode = "KH002" -> trả về Beta với nhóm GRP02
+            var valid2Payload = JsonSerializer.Serialize(new { CustomerCode = "KH002", OrgID = "7200000001" });
+            var reqValid2 = new StringContent(valid2Payload, Encoding.UTF8, "application/json");
+            var resValid2 = await http.PostAsync("/api/mst_customer/update", reqValid2);
+            var bodyValid2 = await resValid2.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Update Valid KH002: {bodyValid2}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValid2.StatusCode);
+            var docValid2 = JsonDocument.Parse(bodyValid2);
+            var dataValid2 = docValid2.RootElement.GetProperty("Data");
+            Assert.Equal("KH002", dataValid2.GetProperty("CustomerCode").GetString());
+            Assert.Equal("CUS002", dataValid2.GetProperty("CustomerCodeSys").GetString());
+            Assert.Equal("Tập đoàn Beta", dataValid2.GetProperty("CustomerName").GetString());
+            Assert.Equal("GRP02", dataValid2.GetProperty("CustomerGrpCode").GetString());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
