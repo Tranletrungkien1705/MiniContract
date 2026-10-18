@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index), 89-140 (Create)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45814-46046 (WAS/Biz Create), 46529-46685 (Search/Index), 46686-46781 (CreateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update), 89-140 (Create)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update), 45656-45812 (Biz Get/Update), 45814-46046 (WAS/Biz Create), 46529-46685 (Search/Index/Update GetX), 46686-46781 (CreateX)
 [ApiController]
 [Route("api/mst_finishedcontractreason")]
 public class Mst_FinishedContractReasonControllerPort : ControllerBase
@@ -223,6 +223,46 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Lấy thông tin nguyên nhân chấm dứt hợp đồng để nạp vào form cập nhật (Update).
+    /// Gate: Mst_FinishedContractReasonController.cs:142-193 Update(string reasoncode)
+    /// API:  MstFinishedContractReasonController.cs:20-88 WA_Mst_FinishedContractReason_Get
+    /// BIZ:  Master.cs:45559-45655 WAS_Mst_FinishedContractReason_Get -> Mst_FinishedContractReason_Get:45656-45812 -> Mst_FinishedContractReason_GetX:46529-46685
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_FinishedContractReason_UpdateReq? req)
+    {
+        // 1. Dựng truy vấn cơ sở từ bảng Mst_FinishedContractReason (Master.cs:46581-46592, 46624-46633)
+        var query = _db.Set<Mst_FinishedContractReason>().AsNoTracking();
+
+        // 2. Bộ lọc điều kiện theo ContractFinishReasonCode (Gate: Mst_FinishedContractReasonController.cs:153-156)
+        var reasonCode = StdParam(req?.ReasonCode ?? req?.ContractFinishReasonCode);
+        if (!string.IsNullOrEmpty(reasonCode))
+        {
+            query = query.Where(x => EF.Functions.Like((x.ContractFinishReasonCode ?? "").ToLower(), PortQuery.Equal(reasonCode), PortQuery.Esc));
+        }
+
+        // Lọc theo NetworkID nếu có truyền (Gate: Mst_FinishedContractReasonController.cs:169 lấy từ UserState.Mst_NNT.NetworkID)
+        var networkId = req?.NetworkID != null ? StdParam(req.NetworkID) : null;
+        if (!string.IsNullOrEmpty(networkId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+        }
+
+        // 3. Sắp xếp: order by mo.NetworkID asc, then by ContractFinishReasonCode (Master.cs:46591, 46631)
+        var item = await query.OrderBy(x => x.NetworkID)
+                              .ThenBy(x => x.ContractFinishReasonCode)
+                              .FirstOrDefaultAsync();
+
+        // 4. Trả kết quả: Nếu tìm thấy thì trả về Data = item (Gate: dòng 181-184 JsonView("Update", Lst_Mst_FinishedContractReason[0])),
+        //    nếu không tìm thấy thì Data = null (Gate: dòng 192 JsonView("Update") với model = null).
+        return Ok(new
+        {
+            Success = true,
+            Data = item
+        });
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -278,4 +318,16 @@ public class Mst_FinishedContractReason_IndexReq
     public string? FinishType { get; set; }
     public string? FlagActive { get; set; }
     public string? Ft_WhereClause { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Update.
+/// Gate: Mst_FinishedContractReasonController.cs:142 Update(string reasoncode)
+/// </summary>
+public class Mst_FinishedContractReason_UpdateReq
+{
+    public string? ReasonCode { get; set; }
+    public string? ContractFinishReasonCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
 }
