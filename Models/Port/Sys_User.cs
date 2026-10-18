@@ -34,6 +34,7 @@ public class Sys_User
     public string? ACName { get; set; }
     public string? ACPhone { get; set; }
     public string? ACTimeZone { get; set; }
+    public string? DTimeUsed { get; set; }
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
 
@@ -74,6 +75,7 @@ public class Sys_UserConfiguration : IEntityTypeConfiguration<Sys_User>
         builder.Property(x => x.ACName).HasMaxLength(250);
         builder.Property(x => x.ACPhone).HasMaxLength(50);
         builder.Property(x => x.ACTimeZone).HasMaxLength(50);
+        builder.Property(x => x.DTimeUsed).HasMaxLength(50);
         builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
         builder.Property(x => x.LogLUBy).HasMaxLength(50);
 

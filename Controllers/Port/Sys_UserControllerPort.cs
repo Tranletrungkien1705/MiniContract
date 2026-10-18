@@ -17,6 +17,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:477-632 (Update GET View)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:636-725 (Edit POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:730-880 (Detail)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:884-946 (Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
@@ -26,6 +27,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:5497-5525 (List_Mst_Department_Task)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:5532-5565 (List_Mst_DepartmentExt_Async)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:199-270 (WA_Sys_User_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:643-714 (WA_Sys_User_Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:20-89 (WA_Mst_NNT_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
@@ -37,6 +39,10 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get) -> 996-1462 (Mst_Customer_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:9907-9950 (WAS_Sys_User_Create) -> 7863-8027 (Sys_User_Create_New20200110)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:11620-11715 (WAS_Sys_User_Update) -> 11201-11618 (Sys_User_Update_New20231115)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:12699-12778 (WAS_Sys_User_Delete) -> 12208-12698 (Sys_User_Delete_New20231115)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:13752-13767 (Sys_UserInGroup_Delete_ByUser)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12061 (Mst_NNT_CheckDB)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:56011-56070 (Mst_ManageNotify_DeleteX)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:30-79 (Sys_User_GetAbilityViewOfUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:1990-2067 (zzzzClauseSelect_Mst_NNT_ViewAbility_Get_20220823)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.Mix.cs:631-1114 (Sys_User_CheckAuthorize - iNOS account service ngoài -> GAP)
@@ -1349,6 +1355,203 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Delete từ gate Sys_UserController.cs:884-946.
+    /// Chuỗi gọi:
+    /// 1. Nhận usercode (gate dòng 884).
+    /// 2. Khởi tạo JsonResultEntry { Success = false } (gate dòng 886).
+    /// 3. Lấy UserState: AddressAPIs, waUserCode, waUserPassword (gate dòng 887-891).
+    /// 4. Kiểm tra usercode không được rỗng (gate dòng 892, 939):
+    ///    Nếu rỗng -> trả về Success = true, AddMessage("Mã người dùng trống!"), Title = "Mã người dùng trống!" (gate dòng 941-942).
+    /// 5. Tìm kiếm người dùng hiện tại trong hệ thống qua Sys_UserService.Instance.WA_Sys_User_Get (gate dòng 897-922)
+    ///    -> API WA_Sys_User_Get (SysUserController.cs:199-270)
+    ///    -> BIZ WAS_Sys_User_Get (System.cs:7011-7123)
+    ///    -> Sys_User_Get_New20191104 (System.cs:6635-7009).
+    /// 6. Kiểm tra người dùng có tồn tại trong hệ thống không (gate dòng 924, 933):
+    ///    Nếu không thấy -> trả về Success = true, AddMessage("Mã người dùng '" + usercode + "' không có trong hệ thống!") (gate dòng 935-936).
+    /// 7. Nếu tìm thấy (Lst_Sys_User != null && Lst_Sys_User.Count != 0) (gate dòng 924-931):
+    ///    - Gán objRQ_Sys_User.Sys_User = objRT_Sys_UserCur.Lst_Sys_User[0] (gate dòng 926).
+    ///    - Gọi Sys_UserService.Instance.WA_Sys_User_Delete(objRQ_Sys_User, addressAPIs) (gate dòng 927)
+    ///      -> API WA_Sys_User_Delete (SysUserController.cs:643-714)
+    ///      -> BIZ WAS_Sys_User_Delete (System.cs:12699-12778)
+    ///      -> BIZ Sys_User_Delete_New20231115 (System.cs:12208-12698).
+    /// 8. BIZ Sys_User_Delete_New20231115:
+    ///    - Mở transaction: _cf.db.BeginTransaction() (System.cs:12245).
+    ///    - Chuẩn hoá strUserCode = StdParam(objUserCode) (System.cs:12286).
+    ///    - Gọi Sys_User_CheckDB(..., strUserCode, FlagExistToCheck = "1", "", out dtDB_Sys_User) (System.cs:12292-12298).
+    ///      Nếu không tồn tại -> ném Sys_User_CheckDB_UserCodeNotFound (System.cs:3578).
+    ///    - Kiểm tra DTimeUsed (System.cs:12301-12314):
+    ///      string strDTimeUsed = StrValue(dtDB_Sys_User.Rows[0]["DTimeUsed"]);
+    ///      Nếu !string.IsNullOrEmpty(strDTimeUsed) -> ném Sys_User_Delete_DTimeUsedIsNotNull ("User đã tham gia nghiệp vụ", System.cs:12310).
+    ///    - Xoá người dùng trong nhóm: gọi Sys_UserInGroup_Delete_ByUser(strUserCode) (System.cs:12317, 13752-13767).
+    ///      SQL: delete from Sys_UserInGroup where UserCode = @strUserCode.
+    ///    - Kiểm tra Mst_NNT: gọi Mst_NNT_CheckDB(MST, FlagExistToCheck = "1", FlagActiveListToCheck = "1") (System.cs:12321-12328, Master.cs:12001-12061).
+    ///      Nếu không thấy MST -> ném Mst_NNT_CheckDB_NNTNotFound.
+    ///      Nếu FlagActive != "1" -> ném Mst_NNT_CheckDB_FlagActiveNotMatched.
+    ///    - Xoá trong quản lý thông báo Mst_ManageNotify_DeleteX(strUserCode) (System.cs:12335, Master.cs:56011-56070):
+    ///      Xoá Map_UserInNotifyType theo UserCode, xoá Mst_ManageNotify.
+    ///    - Xoá người dùng trong bảng Sys_User (System.cs:12347-12353).
+    ///    - Dịch vụ ngoài:
+    ///      Inos_AccountService_GetUserX (System.cs:12364-12380) -> GAP (dịch vụ ngoài iNOS).
+    ///      VelocaPortalServices.Instance.AccInosAccountDtlDelete (System.cs:12467-12487) -> GAP (dịch vụ ngoài VelocaPortal).
+    ///      Inos_AccountService_GetAccessTokenX, Inos_LicService_GetOrgLicenseX, Inos_LicService_GetAllPackagesX_New20191113, Inos_LicService_DeleteOrgSolutionUsersX (System.cs:12551-12653) -> GAP (dịch vụ ngoài iNOS Lic).
+    ///    - Commit transaction (System.cs:12660).
+    /// 9. Trả về kết quả thành công khớp gate MVC (Sys_UserController.cs:928-930):
+    ///    Success = true, Messages = ["Xóa người dùng thành công!"], Title = "Xóa người dùng thành công!", RedirectUrl = Url.Action("Index"), Data = existing.
+    /// 10. Bắt ngoại lệ catch (Exception ex) -> Rollback và trả về PortResult.Fail("Sys_User_Delete", "Exception", ex.Message) (System.cs:12228, 12674, LESSON A.2).
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_DeleteReq? req)
+    {
+        try
+        {
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_User_DeleteReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null && !string.IsNullOrWhiteSpace(modelObj.UserCode))
+                    {
+                        req.UserCode = modelObj.UserCode;
+                    }
+                }
+                catch
+                {
+                    req.UserCode ??= req.Model;
+                }
+            }
+
+            // 1. Chuẩn hoá tham số đầu vào usercode (Gate: Sys_UserController.cs:884, 892; BIZ: System.cs:12286)
+            var rawUserCode = req?.UserCode;
+            if (string.IsNullOrEmpty(rawUserCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+            {
+                rawUserCode = qUserCode.ToString();
+            }
+
+            // Gate guard 1: Kiểm tra UserCode không được rỗng (Sys_UserController.cs:892, 939-943)
+            if (string.IsNullOrWhiteSpace(rawUserCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã người dùng trống!" },
+                    Title = "Mã người dùng trống!"
+                });
+            }
+
+            var userCode = StdParam(rawUserCode);
+            if (string.IsNullOrEmpty(userCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã người dùng trống!" },
+                    Title = "Mã người dùng trống!"
+                });
+            }
+
+            // Gate guard 2: Tra cứu bản ghi người dùng hiện có trong DB qua WA_Sys_User_Get (Sys_UserController.cs:897-924, 933-937)
+            var existing = await _db.Set<Sys_User>()
+                .FirstOrDefaultAsync(u => EF.Functions.Like((u.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Mã người dùng '{rawUserCode}' không có trong hệ thống!" },
+                    Title = $"Mã người dùng '{rawUserCode}' không có trong hệ thống!"
+                });
+            }
+
+            // BIZ: Mở transaction xoá dữ liệu (System.cs:12245)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // BIZ Guard 1: Kiểm tra DTimeUsed (System.cs:12301-12314)
+                // "User đã tham gia nghiệp vụ" -> ném TError.ErridQContract.Sys_User_Delete_DTimeUsedIsNotNull
+                if (!string.IsNullOrEmpty(existing.DTimeUsed))
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Sys_User_Delete_DTimeUsedIsNotNull", "Check.UserCode", userCode, "Check.DTimeUsed", existing.DTimeUsed);
+                }
+
+                // BIZ Guard 2: Kiểm tra MST trong Mst_NNT (System.cs:12321-12328, Master.cs:12001-12061)
+                var userMST = StdParam(existing.MST);
+                if (string.IsNullOrEmpty(userMST))
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", existing.MST ?? "");
+                }
+
+                var nnt = await _db.Set<Mst_NNT>().AsNoTracking()
+                    .FirstOrDefaultAsync(n => EF.Functions.Like((n.MST ?? "").ToLower(), PortQuery.Equal(userMST), PortQuery.Esc));
+
+                if (nnt == null)
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", existing.MST ?? "");
+                }
+
+                if (nnt.FlagActive != "1")
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_NNT_CheckDB_FlagActiveNotMatched", "Check.MST", existing.MST ?? "", "Check.strFlagActiveListToCheck", "1", "DB.FlagActive", nnt.FlagActive ?? "");
+                }
+
+                // BIZ: Xoá người dùng trong Sys_UserInGroup (System.cs:12317, 13752-13767)
+                var userInGroups = await _db.Set<Sys_UserInGroup>()
+                    .Where(x => EF.Functions.Like((x.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc))
+                    .ToListAsync();
+                if (userInGroups.Count > 0)
+                {
+                    _db.Set<Sys_UserInGroup>().RemoveRange(userInGroups);
+                }
+
+                // BIZ: Xoá trong quản lý thông báo Mst_ManageNotify_DeleteX (System.cs:12335, Master.cs:56011-56070)
+                var manageNotify = await _db.Set<Mst_ManageNotify>()
+                    .FirstOrDefaultAsync(m => EF.Functions.Like((m.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc));
+                if (manageNotify != null)
+                {
+                    var mapNotifies = await _db.Set<Map_UserInNotifyType>()
+                        .Where(m => EF.Functions.Like((m.UserCode ?? "").ToLower(), PortQuery.Equal(userCode), PortQuery.Esc))
+                        .ToListAsync();
+                    if (mapNotifies.Count > 0)
+                    {
+                        _db.Set<Map_UserInNotifyType>().RemoveRange(mapNotifies);
+                    }
+                    _db.Set<Mst_ManageNotify>().Remove(manageNotify);
+                }
+
+                // BIZ: Xoá bản ghi Sys_User (System.cs:12347-12353)
+                _db.Set<Sys_User>().Remove(existing);
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // Trả về kết quả thành công khớp gate MVC (Sys_UserController.cs:928-930)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Xóa người dùng thành công!" },
+                    Title = "Xóa người dùng thành công!",
+                    RedirectUrl = "/Sys_User",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Sys_User_Delete", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1587,6 +1790,19 @@ public class Sys_User_DetailData : Sys_User_UpdateData
         : base(src, isParent, nnts, depts, custs, inosBaseUrl)
     {
     }
+}
+
+/// <summary>
+/// Model nhận tham số cho action Delete của Sys_UserController.
+/// Gate: Sys_UserController.cs:884 Delete(string usercode)
+/// </summary>
+public class Sys_User_DeleteReq
+{
+    public string? UserCode { get; set; }
+    public string? Model { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
 }
 
 

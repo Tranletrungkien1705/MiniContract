@@ -1070,6 +1070,240 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_NullReq_ReturnsSuccessTrueWithMessageEmptyUserCode()
+    {
+        // Khi req null (body rỗng): trả về Success = true, Messages = ["Mã người dùng trống!"] (gate: Sys_UserController.cs:892, 939-943)
+        var result = await _controller.Delete(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyUserCode_ReturnsSuccessTrueWithMessageEmptyUserCode()
+    {
+        // Khi UserCode rỗng: trả về Success = true, Messages = ["Mã người dùng trống!"] (gate: Sys_UserController.cs:892, 939-943)
+        var req = new Sys_User_DeleteReq { UserCode = "   " };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentUserCode_ReturnsSuccessTrueWithMessageNotFound()
+    {
+        // Khi UserCode không tồn tại trong hệ thống: trả về Success = true, Messages = ["Mã người dùng '<UserCode>' không có trong hệ thống!"] (gate: Sys_UserController.cs:924, 933-936)
+        var req = new Sys_User_DeleteReq { UserCode = "NON_EXISTENT" };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_BizGuard_DTimeUsedIsNotNull_ReturnsSys_User_Delete_DTimeUsedIsNotNull()
+    {
+        // Biz guard: Nếu người dùng có DTimeUsed != null ("User đã tham gia nghiệp vụ")
+        // ném TError.ErridQContract.Sys_User_Delete_DTimeUsedIsNotNull (System.cs:12301-12314)
+        var testUser = new Sys_User
+        {
+            UserCode = "U_GUARD_DTIME",
+            UserName = "User With DTimeUsed",
+            MST = "0100000001",
+            DTimeUsed = "2026-01-01 10:00:00",
+            FlagActive = "1"
+        };
+        _db.Set<Sys_User>().Add(testUser);
+        await _db.SaveChangesAsync();
+        _db.Entry(testUser).State = EntityState.Detached;
+
+        var req = new Sys_User_DeleteReq { UserCode = "u_guard_dtime" };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Sys_User_Delete_DTimeUsedIsNotNull", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_BizGuard_NNTNotFound_ReturnsMst_NNT_CheckDB_NNTNotFound()
+    {
+        // Biz guard: Nếu MST của người dùng không có trong Mst_NNT
+        // ném TError.ErridQContract.Mst_NNT_CheckDB_NNTNotFound (System.cs:12321-12328, Master.cs:12034)
+        var testUser = new Sys_User
+        {
+            UserCode = "U_GUARD_NNT_NOT_FOUND",
+            UserName = "User Invalid MST",
+            MST = "9999999999",
+            FlagActive = "1"
+        };
+        _db.Set<Sys_User>().Add(testUser);
+        await _db.SaveChangesAsync();
+        _db.Entry(testUser).State = EntityState.Detached;
+
+        var req = new Sys_User_DeleteReq { UserCode = "u_guard_nnt_not_found" };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_BizGuard_FlagActiveNotMatched_ReturnsMst_NNT_CheckDB_FlagActiveNotMatched()
+    {
+        // Biz guard: Nếu NNT có FlagActive != '1'
+        // ném TError.ErridQContract.Mst_NNT_CheckDB_FlagActiveNotMatched (Master.cs:12061)
+        var inactiveNNT = new Mst_NNT
+        {
+            MST = "0100000099",
+            NNTFullName = "Công ty Inactive",
+            FlagActive = "0"
+        };
+        _db.Set<Mst_NNT>().Add(inactiveNNT);
+
+        var testUser = new Sys_User
+        {
+            UserCode = "U_GUARD_NNT_INACTIVE",
+            UserName = "User Inactive NNT",
+            MST = "0100000099",
+            FlagActive = "1"
+        };
+        _db.Set<Sys_User>().Add(testUser);
+        await _db.SaveChangesAsync();
+        _db.Entry(inactiveNNT).State = EntityState.Detached;
+        _db.Entry(testUser).State = EntityState.Detached;
+
+        var req = new Sys_User_DeleteReq { UserCode = "u_guard_nnt_inactive" };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_ValidRoundTrip_DeletesUserAndCascadesSuccessfully()
+    {
+        // Chuẩn bị dữ liệu: người dùng trong Sys_User, nhóm trong Sys_UserInGroup, thông báo trong Mst_ManageNotify và Map_UserInNotifyType
+        var testUser = new Sys_User
+        {
+            UserCode = "U_DELETE_ROUNDTRIP",
+            UserName = "User To Be Deleted",
+            MST = "0100000001",
+            FlagActive = "1"
+        };
+        var userInGroup = new Sys_UserInGroup
+        {
+            UserCode = "U_DELETE_ROUNDTRIP",
+            GroupCode = "ADMIN_GROUP"
+        };
+        var notify = new Mst_ManageNotify
+        {
+            UserCode = "U_DELETE_ROUNDTRIP",
+            UserName = "User To Be Deleted"
+        };
+        var mapNotify = new Map_UserInNotifyType
+        {
+            UserCode = "U_DELETE_ROUNDTRIP",
+            NotifyType = "EMAIL",
+            FlagNotify = "1"
+        };
+
+        _db.Set<Sys_User>().Add(testUser);
+        _db.Set<Sys_UserInGroup>().Add(userInGroup);
+        _db.Set<Mst_ManageNotify>().Add(notify);
+        _db.Set<Map_UserInNotifyType>().Add(mapNotify);
+        await _db.SaveChangesAsync();
+        _db.Entry(testUser).State = EntityState.Detached;
+        _db.Entry(userInGroup).State = EntityState.Detached;
+        _db.Entry(notify).State = EntityState.Detached;
+        _db.Entry(mapNotify).State = EntityState.Detached;
+
+        // Thực hiện xoá qua action Delete
+        var req = new Sys_User_DeleteReq { UserCode = "u_delete_roundtrip" };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa người dùng thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("Xóa người dùng thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Sys_User", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra database: tất cả các bảng liên quan đã bị xoá
+        var checkUser = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U_DELETE_ROUNDTRIP");
+        Assert.Null(checkUser);
+
+        var checkGroup = await _db.Set<Sys_UserInGroup>().AsNoTracking().FirstOrDefaultAsync(g => g.UserCode == "U_DELETE_ROUNDTRIP");
+        Assert.Null(checkGroup);
+
+        var checkNotify = await _db.Set<Mst_ManageNotify>().AsNoTracking().FirstOrDefaultAsync(m => m.UserCode == "U_DELETE_ROUNDTRIP");
+        Assert.Null(checkNotify);
+
+        var checkMapNotify = await _db.Set<Map_UserInNotifyType>().AsNoTracking().FirstOrDefaultAsync(m => m.UserCode == "U_DELETE_ROUNDTRIP");
+        Assert.Null(checkMapNotify);
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJsonString_Success()
+    {
+        // Chuẩn bị dữ liệu
+        var testUser = new Sys_User
+        {
+            UserCode = "U_DELETE_JSON",
+            UserName = "User Delete Via Json",
+            MST = "0100000001",
+            FlagActive = "1"
+        };
+        _db.Set<Sys_User>().Add(testUser);
+        await _db.SaveChangesAsync();
+        _db.Entry(testUser).State = EntityState.Detached;
+
+        // Xoá qua chuỗi JSON Model
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            UserCode = "u_delete_json"
+        });
+
+        var req = new Sys_User_DeleteReq
+        {
+            Model = modelJson
+        };
+
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa người dùng thành công!", root.GetProperty("Messages")[0].GetString());
+
+        var checkUser = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U_DELETE_JSON");
+        Assert.Null(checkUser);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -1537,6 +1771,48 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc41 = JsonDocument.Parse(await res41.Content.ReadAsStringAsync());
             Assert.True(doc41.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("U02", doc41.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 42. Action Delete: POST /api/sys_user/delete với body rỗng -> 200 OK, Messages = ["Mã người dùng trống!"]
+            var req42 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res42 = await http.PostAsync("/api/sys_user/delete", req42);
+            Assert.True(res42.IsSuccessStatusCode);
+            var doc42 = JsonDocument.Parse(await res42.Content.ReadAsStringAsync());
+            Assert.True(doc42.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng trống!", doc42.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 43. Action Delete: POST /api/sys_user/delete với UserCode không tồn tại -> 200 OK, Messages = ["Mã người dùng 'NON_EXISTENT' không có trong hệ thống!"]
+            var req43 = new StringContent(JsonSerializer.Serialize(new { UserCode = "NON_EXISTENT" }), Encoding.UTF8, "application/json");
+            var res43 = await http.PostAsync("/api/sys_user/delete", req43);
+            Assert.True(res43.IsSuccessStatusCode);
+            var doc43 = JsonDocument.Parse(await res43.Content.ReadAsStringAsync());
+            Assert.True(doc43.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", doc43.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 44. Action Delete: POST /api/sys_user/delete xoá người dùng U_SERVER_CREATED vừa tạo ở bước 13 -> 200 OK, Messages = ["Xóa người dùng thành công!"]
+            var req44 = new StringContent(JsonSerializer.Serialize(new { UserCode = "u_server_created" }), Encoding.UTF8, "application/json");
+            var res44 = await http.PostAsync("/api/sys_user/delete", req44);
+            Assert.True(res44.IsSuccessStatusCode);
+            var doc44 = JsonDocument.Parse(await res44.Content.ReadAsStringAsync());
+            Assert.True(doc44.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa người dùng thành công!", doc44.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Sys_User", doc44.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 45. Kiểm tra người dùng U_SERVER_CREATED không còn tồn tại sau khi xoá
+            var req45 = new StringContent(JsonSerializer.Serialize(new { UserCode = "U_SERVER_CREATED" }), Encoding.UTF8, "application/json");
+            var res45 = await http.PostAsync("/api/sys_user/detail", req45);
+            Assert.True(res45.IsSuccessStatusCode);
+            var doc45 = JsonDocument.Parse(await res45.Content.ReadAsStringAsync());
+            Assert.True(doc45.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc45.RootElement.GetProperty("Data").ValueKind);
+
+            // 46. Action Delete: xoá qua chuỗi JSON Model
+            var modelJson46 = JsonSerializer.Serialize(new { UserCode = "NON_EXISTENT_JSON" });
+            var req46 = new StringContent(JsonSerializer.Serialize(new { Model = modelJson46 }), Encoding.UTF8, "application/json");
+            var res46 = await http.PostAsync("/api/sys_user/delete", req46);
+            Assert.True(res46.IsSuccessStatusCode);
+            var doc46 = JsonDocument.Parse(await res46.Content.ReadAsStringAsync());
+            Assert.True(doc46.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng 'NON_EXISTENT_JSON' không có trong hệ thống!", doc46.RootElement.GetProperty("Messages")[0].GetString());
         }
         finally
         {
