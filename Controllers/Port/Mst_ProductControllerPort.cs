@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5076-5187 (strWhereClause_Mst_Product_Search)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get)
 [ApiController]
@@ -443,6 +443,91 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lấy danh sách sản phẩm cơ sở và sản phẩm cấp 2 cho màn hình cập nhật sản phẩm.
+    /// Gate: Mst_ProductController.cs:395-440 LoadData(string prcode, string prbscode, string prlv, string prroot, string idx)
+    ///       Mst_ProductController.cs:5188-5205 strWhereClause_Mst_Product_Get_Base(...)
+    ///       Mst_ProductController.cs:5206-5223 strWhereClause_Mst_Product_Get_Level2(...)
+    ///       Mst_ProductController.cs:202-237 GetPrdBase(...)
+    /// API:  MstProductController.cs:19-87 WA_Mst_Product_Get
+    /// BIZ:  Product.cs:4230-4643 Mst_Product_Get, 4644-4802 WAS_Mst_Product_Get
+    /// </summary>
+    [HttpPost("loaddata")]
+    public async Task<IActionResult> LoadData([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_LoadDataReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào (Gate: Mst_ProductController.cs:395, 401)
+            var prcode = StdParam(req?.prcode ?? req?.ProductCode);
+            if (string.IsNullOrEmpty(prcode))
+            {
+                // Gate Mst_ProductController.cs:401: if (!CUtils.IsNullOrEmpty(prcode)) -> nếu rỗng thì resultEntry.Success = false
+                return PortResult.Fail("Mst_Product_Get", "Check.prcode", null);
+            }
+
+            var orgId = StdParam(req?.OrgID);
+            var networkId = StdParam(req?.NetworkID);
+
+            // 2. Lấy Base product (strWhereClause_Mst_Product_Get_Base: ProductCodeRoot = prcode and ProductLevelSys != "L2PRD")
+            // Gate Mst_ProductController.cs:409, 5188-5205; BIZ Product.cs:4352, 4420
+            var baseQuery = _db.Set<Mst_Product>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.ProductCodeRoot ?? "").ToLower(), PortQuery.Equal(prcode), PortQuery.Esc)
+                         && !EF.Functions.Like((x.ProductLevelSys ?? "").ToLower(), PortQuery.Equal("L2PRD"), PortQuery.Esc));
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                baseQuery = baseQuery.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                baseQuery = baseQuery.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var lstPrdBase = await baseQuery.OrderBy(x => x.OrgID).ThenBy(x => x.ProductCode).ToListAsync();
+
+            // 3. Lấy Level2 product (strWhereClause_Mst_Product_Get_Level2: ProductCodeRoot = prcode and ProductLevelSys = "L2PRD")
+            // Gate Mst_ProductController.cs:410, 5206-5223; BIZ Product.cs:4352, 4420
+            var level2Query = _db.Set<Mst_Product>().AsNoTracking()
+                .Where(x => EF.Functions.Like((x.ProductCodeRoot ?? "").ToLower(), PortQuery.Equal(prcode), PortQuery.Esc)
+                         && EF.Functions.Like((x.ProductLevelSys ?? "").ToLower(), PortQuery.Equal("L2PRD"), PortQuery.Esc));
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                level2Query = level2Query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(networkId))
+            {
+                level2Query = level2Query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
+            }
+
+            var lstPrdLevel2 = await level2Query.OrderBy(x => x.OrgID).ThenBy(x => x.ProductCode).ToListAsync();
+
+            // 4. Gán vào Mst_ProductUI theo gate Mst_ProductController.cs:413-424
+            var productbase = new Mst_ProductUI
+            {
+                LstPrdBase = lstPrdBase,
+                LstPrdLeve2 = lstPrdLevel2,
+                // GAP: Bảng Prd_Attribute chưa có entity trong repo đích (Rule A.18)
+                LstAttributeBase = null,
+                LstAttributeLevel2 = null
+            };
+
+            var listproductbase = new List<Mst_ProductUI> { productbase };
+
+            // 5. Trả về JsonView("LoadData", listproductbase) (Gate: Mst_ProductController.cs:424)
+            return Ok(new
+            {
+                Success = true,
+                Data = listproductbase
+            });
+        }
+        catch (Exception ex)
+        {
+            // BIZ Product.cs:4257, 4620: strErrorCodeDefault = TError.ErridQContract.Mst_Product_Get
+            return PortResult.Fail("Mst_Product_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -566,6 +651,49 @@ public class Mst_ProductUI
     public string? CreateBy { get; set; }
     public string? LUDTimeUTC { get; set; }
     public string? LUBy { get; set; }
+    public string? LogLUDTimeUTC { get; set; }
+    public string? LogLUBy { get; set; }
+
+    // Gate Mst_ProductController.cs:415-418 và ModelsUI/Mst_ProductUI.cs:37-41
+    public List<Mst_Product>? LstPrdBase { get; set; }
+    public List<Mst_Product>? LstPrdLeve2 { get; set; }
+    public List<Prd_Attribute>? LstAttributeBase { get; set; }
+    public List<Prd_Attribute>? LstAttributeLevel2 { get; set; }
+}
+
+/// <summary>
+/// Tham số đầu vào cho action LoadData của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:395 LoadData(string prcode, string prbscode, string prlv, string prroot, string idx)
+/// </summary>
+public class Mst_Product_LoadDataReq
+{
+    // Gate Mst_ProductController.cs:395
+    public string? prcode { get; set; }
+    public string? ProductCode { get; set; }
+    public string? prbscode { get; set; }
+    public string? ProductCodeBase { get; set; }
+    public string? prlv { get; set; }
+    public string? ProductLevelSys { get; set; }
+    public string? prroot { get; set; }
+    public string? ProductCodeRoot { get; set; }
+    public string? idx { get; set; }
+
+    // Các tham số lọc bổ sung (LESSON A.14)
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// DTO thuộc tính sản phẩm theo nguồn D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\ProductCentrer\Prd_Attribute.cs.
+/// </summary>
+public class Prd_Attribute
+{
+    public string? OrgID { get; set; }
+    public string? ProductCode { get; set; }
+    public string? AttributeCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? AttributeValue { get; set; }
+    public string? FlagActive { get; set; }
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
 }

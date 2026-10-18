@@ -286,6 +286,29 @@ public class Mst_ProductSeeder : IPortSeeder
                 LogLUBy = "port",
                 LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
             },
+            // Sản phẩm cấp 2 cho PRD_ROOT_01 (L2PRD)
+            new Mst_Product
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_L2_01_1",
+                NetworkID = "1001",
+                ProductLevelSys = "L2PRD",
+                ProductCodeUser = "SP001_L2",
+                ProductName = "Sản phẩm mẫu 01 - Cấp 2",
+                ProductCodeRoot = "PRD_ROOT_01",
+                ProductCodeBase = "PRD_ROOT_01",
+                ProductGrpCode = "GRP01",
+                BrandCode = "BRAND01",
+                ProductType = "PRODUCT",
+                UnitCode = "LOC",
+                FlagActive = "1",
+                FlagBuy = "1",
+                FlagSell = "1",
+                UPBuy = 50000.0,
+                UPSell = 70000.0,
+                LogLUBy = "port",
+                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            },
             // 2. Sản phẩm gốc 02: dịch vụ không có đơn vị quy đổi (CountPrdBase = 1)
             new Mst_Product
             {
