@@ -1606,6 +1606,192 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangePasswordCheckOld_NullReq_ReturnsUserCodeEmptyMessage()
+    {
+        var result = await _controller.ChangePasswordCheckOld(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_EmptyUserCode_ReturnsUserCodeEmptyMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq { UserCode = "   " };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng trống!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_EmptyPassOld_ReturnsPassOldEmptyMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq { UserCode = "U01", PassOld = "" };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mật khẩu cũ không đúng!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_WrongPassOld_ReturnsPassOldWrongMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "U01",
+            PassOld = "WrongOldPass",
+            WAUserPassword = "CorrectOldPass"
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mật khẩu cũ không đúng!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_EmptyPassNew_ReturnsPassNewEmptyMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "U01",
+            PassOld = "CorrectOld",
+            WAUserPassword = "CorrectOld",
+            PassNew = ""
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mật khẩu mới trống!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_EmptyConfPass_ReturnsConfPassEmptyMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "U01",
+            PassOld = "CorrectOld",
+            WAUserPassword = "CorrectOld",
+            PassNew = "123456",
+            ConfPass = "  "
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Nhập lại khẩu mới trống!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_MismatchPasswords_ReturnsMismatchMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "U01",
+            PassOld = "CorrectOld",
+            WAUserPassword = "CorrectOld",
+            PassNew = "Pass123",
+            ConfPass = "Pass456"
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Nhập lại mật khẩu mới không đúng, Vui lòng nhập lại!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_NonExistentUser_ReturnsNotFoundMessage()
+    {
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "NON_EXISTENT",
+            PassOld = "AnyOld",
+            WAUserPassword = "AnyOld",
+            PassNew = "Pass123",
+            ConfPass = "Pass123"
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã người dùng 'NON_EXISTENT' không có trong hệ thống!", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_ValidUser_RoundTripSuccess()
+    {
+        var u02 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U02");
+        u02.UserPassword = Sys_UserControllerPort.GetEncodedHash("OldPass@2026");
+        await _db.SaveChangesAsync();
+
+        var req = new Sys_User_ChangePasswordCheckOldReq
+        {
+            UserCode = "u02",
+            PassOld = "OldPass@2026",
+            PassNew = "UpdatedPass@2026",
+            ConfPass = "UpdatedPass@2026",
+            WAUserCode = "U02"
+        };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Thay đổi mật khẩu thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("/Account/LogOff", root.GetProperty("RedirectUrl").GetString());
+
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U02");
+        Assert.NotNull(userInDb);
+        Assert.Equal(Sys_UserControllerPort.GetEncodedHash("UpdatedPass@2026"), userInDb.UserPassword);
+        Assert.Equal("U02", userInDb.LogLUBy);
+    }
+
+    [Fact]
+    public async Task ChangePasswordCheckOld_ViaModelJson_Success()
+    {
+        var u03 = await _db.Set<Sys_User>().FirstAsync(u => u.UserCode == "U03");
+        u03.UserPassword = Sys_UserControllerPort.GetEncodedHash("OldPassU03");
+        await _db.SaveChangesAsync();
+
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            UserCode = "u03",
+            PassOld = "OldPassU03",
+            PassNew = "NewPassU03#2026",
+            ConfPass = "NewPassU03#2026",
+            WAUserCode = "U03"
+        });
+        var req = new Sys_User_ChangePasswordCheckOldReq { Model = modelJson };
+        var result = await _controller.ChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Thay đổi mật khẩu thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("/Account/LogOff", root.GetProperty("RedirectUrl").GetString());
+
+        var userInDb = await _db.Set<Sys_User>().AsNoTracking().FirstOrDefaultAsync(u => u.UserCode == "U03");
+        Assert.NotNull(userInDb);
+        Assert.Equal(Sys_UserControllerPort.GetEncodedHash("NewPassU03#2026"), userInDb.UserPassword);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -2291,6 +2477,131 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc65 = JsonDocument.Parse(await res65.Content.ReadAsStringAsync());
             Assert.True(doc65.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Thay đổi mật khẩu thành công!", doc65.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 66. Action ChangePasswordCheckOld: body rỗng -> 200 OK, Messages = ["Mã người dùng trống!"]
+            var req66 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res66 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req66);
+            Assert.True(res66.IsSuccessStatusCode);
+            var doc66 = JsonDocument.Parse(await res66.Content.ReadAsStringAsync());
+            Assert.True(doc66.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng trống!", doc66.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 67. Action ChangePasswordCheckOld: thiếu PassOld -> 200 OK, Messages = ["Mật khẩu cũ không đúng!"]
+            var req67 = new StringContent(JsonSerializer.Serialize(new { UserCode = "U01" }), Encoding.UTF8, "application/json");
+            var res67 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req67);
+            Assert.True(res67.IsSuccessStatusCode);
+            var doc67 = JsonDocument.Parse(await res67.Content.ReadAsStringAsync());
+            Assert.True(doc67.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mật khẩu cũ không đúng!", doc67.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 68. Action ChangePasswordCheckOld: PassOld sai -> 200 OK, Messages = ["Mật khẩu cũ không đúng!"]
+            var req68 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "U01",
+                PassOld = "WrongOldPass",
+                WAUserPassword = "CorrectOldPass"
+            }), Encoding.UTF8, "application/json");
+            var res68 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req68);
+            Assert.True(res68.IsSuccessStatusCode);
+            var doc68 = JsonDocument.Parse(await res68.Content.ReadAsStringAsync());
+            Assert.True(doc68.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mật khẩu cũ không đúng!", doc68.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 69. Action ChangePasswordCheckOld: thiếu PassNew -> 200 OK, Messages = ["Mật khẩu mới trống!"]
+            var req69 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "U01",
+                PassOld = "CorrectOld",
+                WAUserPassword = "CorrectOld"
+            }), Encoding.UTF8, "application/json");
+            var res69 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req69);
+            Assert.True(res69.IsSuccessStatusCode);
+            var doc69 = JsonDocument.Parse(await res69.Content.ReadAsStringAsync());
+            Assert.True(doc69.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mật khẩu mới trống!", doc69.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 70. Action ChangePasswordCheckOld: thiếu ConfPass -> 200 OK, Messages = ["Nhập lại khẩu mới trống!"]
+            var req70 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "U01",
+                PassOld = "CorrectOld",
+                WAUserPassword = "CorrectOld",
+                PassNew = "p1"
+            }), Encoding.UTF8, "application/json");
+            var res70 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req70);
+            Assert.True(res70.IsSuccessStatusCode);
+            var doc70 = JsonDocument.Parse(await res70.Content.ReadAsStringAsync());
+            Assert.True(doc70.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Nhập lại khẩu mới trống!", doc70.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 71. Action ChangePasswordCheckOld: PassNew và ConfPass không khớp -> 200 OK, Messages = ["Nhập lại mật khẩu mới không đúng, Vui lòng nhập lại!"]
+            var req71 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "U01",
+                PassOld = "CorrectOld",
+                WAUserPassword = "CorrectOld",
+                PassNew = "p1",
+                ConfPass = "p2"
+            }), Encoding.UTF8, "application/json");
+            var res71 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req71);
+            Assert.True(res71.IsSuccessStatusCode);
+            var doc71 = JsonDocument.Parse(await res71.Content.ReadAsStringAsync());
+            Assert.True(doc71.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Nhập lại mật khẩu mới không đúng, Vui lòng nhập lại!", doc71.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 72. Action ChangePasswordCheckOld: người dùng không tồn tại -> 200 OK, Messages = ["Mã người dùng 'NON_EXIST' không có trong hệ thống!"]
+            var req72 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "NON_EXIST",
+                PassOld = "p1",
+                WAUserPassword = "p1",
+                PassNew = "p1",
+                ConfPass = "p1"
+            }), Encoding.UTF8, "application/json");
+            var res72 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req72);
+            Assert.True(res72.IsSuccessStatusCode);
+            var doc72 = JsonDocument.Parse(await res72.Content.ReadAsStringAsync());
+            Assert.True(doc72.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã người dùng 'NON_EXIST' không có trong hệ thống!", doc72.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 73. Action ChangePasswordCheckOld: đổi mật khẩu thành công round-trip -> RedirectUrl = "/Account/LogOff"
+            var req73 = new StringContent(JsonSerializer.Serialize(new
+            {
+                UserCode = "u02",
+                PassOld = "GetPass123",
+                PassNew = "ServerNewPass@2026",
+                ConfPass = "ServerNewPass@2026",
+                WAUserCode = "U02"
+            }), Encoding.UTF8, "application/json");
+            var res73 = await http.PostAsync("/api/sys_user/changepasswordcheckold", req73);
+            Assert.True(res73.IsSuccessStatusCode);
+            var doc73 = JsonDocument.Parse(await res73.Content.ReadAsStringAsync());
+            Assert.True(doc73.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Thay đổi mật khẩu thành công!", doc73.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Account/LogOff", doc73.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 74. Action ChangePasswordCheckOld: gọi alias /api/sys_user/change_password_check_old qua chuỗi JSON Model
+            var modelJson74 = JsonSerializer.Serialize(new
+            {
+                UserCode = "u03",
+                PassOld = "DevSecretPass@2026",
+                PassNew = "DevSecretPass#2026",
+                ConfPass = "DevSecretPass#2026",
+                WAUserCode = "U03"
+            });
+            var req74 = new StringContent(JsonSerializer.Serialize(new { Model = modelJson74 }), Encoding.UTF8, "application/json");
+            var res74 = await http.PostAsync("/api/sys_user/change_password_check_old", req74);
+            Assert.True(res74.IsSuccessStatusCode);
+            var doc74 = JsonDocument.Parse(await res74.Content.ReadAsStringAsync());
+            Assert.True(doc74.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Thay đổi mật khẩu thành công!", doc74.RootElement.GetProperty("Messages")[0].GetString());
+
+            // 75. Action ChangePasswordCheckOld: gọi GET /api/sys_user/changepasswordcheckold
+            var res75 = await http.GetAsync("/api/sys_user/changepasswordcheckold?usercode=u03&passold=DevSecretPass%232026&passnew=DevGetPassCheckOld2026&confpass=DevGetPassCheckOld2026");
+            Assert.True(res75.IsSuccessStatusCode);
+            var doc75 = JsonDocument.Parse(await res75.Content.ReadAsStringAsync());
+            Assert.True(doc75.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Thay đổi mật khẩu thành công!", doc75.RootElement.GetProperty("Messages")[0].GetString());
         }
         finally
         {
