@@ -13,6 +13,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:114-196 (Create GET View)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:200-367 (Create POST)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:373-464 (LoadMstCustomer)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:468-473 (StopService)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:2060-2087 (strWhereClause_Mst_Customer)
@@ -614,6 +615,24 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action StopService từ gate Sys_UserController.cs:468-473.
+    /// Chuỗi gọi:
+    /// 1. Action HttpGet StopService trả về View() thông báo tạm dừng dịch vụ.
+    ///    Không gọi API/Biz nào, không truy vấn cơ sở dữ liệu, không có tham số đầu vào.
+    /// 2. Ở API Port: trả về Success = true, Data = null theo chuẩn PortJsonResultFilter.
+    /// </summary>
+    [HttpGet("stopservice")]
+    [HttpPost("stopservice")]
+    public IActionResult StopService([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_StopServiceReq? req = null)
+    {
+        return Ok(new
+        {
+            Success = true,
+            Data = (object?)null
+        });
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -720,3 +739,12 @@ public class Sys_User_LoadMstCustomerReq
     public string? FlagSysAdmin { get; set; }
     public string? WAUserCode { get; set; }
 }
+
+/// <summary>
+/// Model nhận tham số cho action StopService của Sys_UserController.
+/// Gate: Sys_UserController.cs:469 StopService() (không nhận tham số).
+/// </summary>
+public class Sys_User_StopServiceReq
+{
+}
+

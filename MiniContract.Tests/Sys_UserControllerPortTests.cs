@@ -574,6 +574,30 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void StopService_NullReq_ReturnsSuccessTrueAndNullData()
+    {
+        var result = _controller.StopService(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public void StopService_WithReq_ReturnsSuccessTrueAndNullData()
+    {
+        var result = _controller.StopService(new Sys_User_StopServiceReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -818,6 +842,21 @@ public class Sys_UserControllerPortTests : IDisposable
             Assert.True(res20.IsSuccessStatusCode);
             var doc20 = JsonDocument.Parse(await res20.Content.ReadAsStringAsync());
             Assert.Equal(1, doc20.RootElement.GetProperty("Data").GetArrayLength());
+
+            // 21. Action StopService: POST /api/sys_user/stopservice với body rỗng -> 200 OK, Success = true, Data = null
+            var req21 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res21 = await http.PostAsync("/api/sys_user/stopservice", req21);
+            Assert.True(res21.IsSuccessStatusCode);
+            var doc21 = JsonDocument.Parse(await res21.Content.ReadAsStringAsync());
+            Assert.True(doc21.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc21.RootElement.GetProperty("Data").ValueKind);
+
+            // 22. Action StopService: GET /api/sys_user/stopservice -> 200 OK, Success = true, Data = null (khớp [HttpGet] nguồn)
+            var res22 = await http.GetAsync("/api/sys_user/stopservice");
+            Assert.True(res22.IsSuccessStatusCode);
+            var doc22 = JsonDocument.Parse(await res22.Content.ReadAsStringAsync());
+            Assert.True(doc22.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc22.RootElement.GetProperty("Data").ValueKind);
         }
         finally
         {
