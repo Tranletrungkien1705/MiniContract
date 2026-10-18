@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_AreaController.cs — Mst_Area
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_AreaController.cs:131-197
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_AreaController.cs:22-125 (Index), 131-197 (Export)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAreaController.cs:19-89
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:101-474
 [ApiController]
@@ -36,6 +36,68 @@ public class Mst_AreaControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Danh sách / Tìm kiếm phân trang khu vực thị trường.
+    /// Gate: Mst_AreaController.cs:22-125 Index(string init = "init", int recordcount = 10, int page = 0)
+    /// API:  MstAreaController.cs:19-89 WA_Mst_Area_Get
+    /// BIZ:  Customer.cs:101-189 (WAS_Mst_Area_Get), 190-316 (Mst_Area_Get), 318-474 (Mst_Area_GetX)
+    /// </summary>
+    [HttpPost("index")]
+    public async Task<IActionResult> Index([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Area_IndexReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số phân trang theo gate Mst_AreaController.cs:22, 73-74:
+            // recordcount mặc định 10, page mặc định 0.
+            var pageSize = req?.RecordCount ?? req?.PageSize ?? (int?)(req?.Ft_RecordCount) ?? 10;
+            var pageIndex = req?.Page ?? req?.PageIndex ?? 0;
+
+            long recordStart;
+            long recordCount;
+            if (req?.Ft_RecordStart != null)
+            {
+                recordStart = req.Ft_RecordStart.Value;
+                recordCount = req.Ft_RecordCount ?? pageSize;
+            }
+            else
+            {
+                recordStart = (long)pageIndex * pageSize;
+                recordCount = req?.Ft_RecordCount ?? pageSize;
+            }
+
+            // 2. Dựng truy vấn cơ sở từ bảng Mst_Area (Customer.cs:377, 417)
+            var query = BuildQuery(req?.OrgID, req?.NetworkID, req?.FlagActive, req?.AreaCode);
+
+            // 3. Đếm tổng số bản ghi (Customer.cs:384: select Count(0) MyCount from ...)
+            var itemCount = await query.CountAsync();
+
+            // 4. Lấy dữ liệu trang (Customer.cs:393-394, LESSON A.7, A.12)
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Mst_Area>()
+                : await query.Skip((int)Math.Min(recordStart, int.MaxValue))
+                             .Take((int)Math.Min(recordCount, int.MaxValue))
+                             .ToListAsync();
+
+            // 5. Tính số trang (Gate: Mst_AreaController.cs:92: (itemCount % recordcount == 0) ? itemCount / recordcount : itemCount / recordcount + 1)
+            var pageCount = 0;
+            if (list.Count > 0 && pageSize > 0)
+            {
+                pageCount = (itemCount % pageSize == 0) ? (itemCount / pageSize) : (itemCount / pageSize + 1);
+            }
+
+            // 6. Trả về cấu trúc PageInfo bọc trong Success/Data (Data/PortQuery.cs:31, LESSON A.5, A.11)
+            return Ok(new
+            {
+                Success = true,
+                Data = new PageInfo<Mst_Area>(list, itemCount, pageCount, pageIndex, pageSize)
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Area_Get", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Xuất danh sách khu vực ra file Excel.
     /// Gate: Mst_AreaController.cs:131-197 Export()
     /// </summary>
@@ -43,36 +105,9 @@ public class Mst_AreaControllerPort : ControllerBase
     public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Area_ExportReq? req)
     {
         // 1. Dựng truy vấn theo strWhereClause_Mst_Area (Mst_AreaController.cs:666-689) và Customer.cs:370-424
-        var query = _db.Set<Mst_Area>().AsNoTracking();
+        var query = BuildQuery(req?.OrgID, req?.NetworkID, req?.FlagActive, req?.AreaCode);
 
-        var orgId = req?.OrgID?.Trim();
-        if (!string.IsNullOrEmpty(orgId))
-        {
-            query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
-        }
-
-        var networkId = req?.NetworkID?.Trim();
-        if (!string.IsNullOrEmpty(networkId))
-        {
-            query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc));
-        }
-
-        var flagActive = req?.FlagActive?.Trim();
-        if (!string.IsNullOrEmpty(flagActive))
-        {
-            query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
-        }
-
-        var areaCode = req?.AreaCode?.Trim();
-        if (!string.IsNullOrEmpty(areaCode))
-        {
-            query = query.Where(x => EF.Functions.Like((x.AreaCode ?? "").ToLower(), PortQuery.Equal(areaCode), PortQuery.Esc));
-        }
-
-        // 2. Sắp xếp: order by mo.OrgID asc, t.MyIdxSeq asc (Customer.cs:380, 420)
-        query = query.OrderBy(x => x.OrgID).ThenBy(x => x.AreaCode);
-
-        // 3. Phân trang: Ft_RecordStart / Ft_RecordCount (Customer.cs:351-352, 393-394, LESSON A.12)
+        // 2. Phân trang: Ft_RecordStart / Ft_RecordCount (Customer.cs:351-352, 393-394, LESSON A.12)
         var recordStart = req?.Ft_RecordStart ?? 0;
         var recordCount = req?.Ft_RecordCount ?? int.MaxValue;
         var list = (recordCount <= 0 || recordStart < 0)
@@ -81,7 +116,7 @@ public class Mst_AreaControllerPort : ControllerBase
                          .Take((int)Math.Min(recordCount, int.MaxValue))
                          .ToListAsync();
 
-        // 4. Kiểm tra danh sách rỗng (Mst_AreaController.cs:184-187)
+        // 3. Kiểm tra danh sách rỗng (Mst_AreaController.cs:184-187)
         if (list.Count == 0)
         {
             return Ok(new
@@ -92,7 +127,7 @@ public class Mst_AreaControllerPort : ControllerBase
             });
         }
 
-        // 5. Xuất Excel và trả URL (Mst_AreaController.cs:175-183)
+        // 4. Xuất Excel và trả URL (Mst_AreaController.cs:175-183)
         try
         {
             var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
@@ -112,6 +147,55 @@ public class Mst_AreaControllerPort : ControllerBase
             return PortResult.Fail("Mst_Area_Export", "Exception", ex.Message);
         }
     }
+
+    private IQueryable<Mst_Area> BuildQuery(string? orgId, string? networkId, string? flagActive, string? areaCode)
+    {
+        var query = _db.Set<Mst_Area>().AsNoTracking();
+
+        var oId = orgId?.Trim();
+        if (!string.IsNullOrEmpty(oId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(oId), PortQuery.Esc));
+        }
+
+        var nId = networkId?.Trim();
+        if (!string.IsNullOrEmpty(nId))
+        {
+            query = query.Where(x => EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(nId), PortQuery.Esc));
+        }
+
+        var fActive = flagActive?.Trim();
+        if (!string.IsNullOrEmpty(fActive))
+        {
+            query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(fActive), PortQuery.Esc));
+        }
+
+        var aCode = areaCode?.Trim();
+        if (!string.IsNullOrEmpty(aCode))
+        {
+            query = query.Where(x => EF.Functions.Like((x.AreaCode ?? "").ToLower(), PortQuery.Equal(aCode), PortQuery.Esc));
+        }
+
+        // Sắp xếp: order by mo.OrgID asc, t.MyIdxSeq asc (Customer.cs:380, 420)
+        return query.OrderBy(x => x.OrgID).ThenBy(x => x.AreaCode);
+    }
+}
+
+public class Mst_Area_IndexReq
+{
+    public string? Init { get; set; }
+    public int? RecordCount { get; set; }
+    public int? PageSize { get; set; }
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? FlagActive { get; set; }
+    public string? AreaCode { get; set; }
+    public string? AreaName { get; set; }
+    public string? KeyWord { get; set; }
 }
 
 public class Mst_Area_ExportReq
