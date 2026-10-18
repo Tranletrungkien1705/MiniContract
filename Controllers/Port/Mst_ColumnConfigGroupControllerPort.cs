@@ -8,7 +8,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ColumnConfigGroupController.cs — Mst_ColumnConfigGroup
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ColumnConfigGroupController.cs:19-96 (Index), 97-178 (DoSearch)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web.DEV\Controllers\MstColumnConfigGroupController.cs:19-75
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:52079-52275, 52908-53064
 [ApiController]
@@ -41,6 +41,47 @@ public class Mst_ColumnConfigGroupControllerPort : ControllerBase
         var (itemCount, dataList) = await GetXAsync(req, recordStart, recordCount);
 
         // 3. Tính PageCount theo logic tầng gate Mst_ColumnConfigGroupController.cs:80-92:
+        // if (objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup != null && objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup.Count > 0)
+        // {
+        //     pageInfo.DataList = objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup;
+        //     itemCount = objRT_Mst_ColumnConfigGroupCur.MySummaryTable == null ? 0 : Convert.ToInt32(objRT_Mst_ColumnConfigGroupCur.MySummaryTable.MyCount);
+        // }
+        // pageCount = (itemCount % recordcount == 0) ? itemCount / recordcount : itemCount / recordcount + 1;
+        // Khi dataList rỗng (hoặc pageSize <= 0) thì pageCount = 0 (bài học LESSON A.7, A.12).
+        var pageCount = 0;
+        if (dataList.Count > 0 && pageSize > 0)
+        {
+            pageCount = (itemCount % pageSize == 0) ? (itemCount / pageSize) : (itemCount / pageSize + 1);
+        }
+
+        var pageInfo = new PageInfo<Mst_ColumnConfigGroup>(dataList, itemCount, pageCount, pageIndex, pageSize);
+
+        return Ok(new
+        {
+            Success = true,
+            Data = pageInfo
+        });
+    }
+
+    /// <summary>
+    /// Port 1:1 action DoSearch từ gate Mst_ColumnConfigGroupController.cs:97-178.
+    /// Chuỗi gọi: gate :97-178 -> WA_Mst_ColumnConfigGroup_Get (:154) -> WAS_Mst_ColumnConfigGroup_Get -> Mst_ColumnConfigGroup_Get -> Mst_ColumnConfigGroup_GetX (Master.cs:52908-53064).
+    /// </summary>
+    [HttpPost("dosearch")]
+    public async Task<IActionResult> DoSearch([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ColumnConfigGroup_DoSearchReq? req)
+    {
+        // 1. Phân trang: Gate dòng 98-100, 147-148:
+        // page mặc định 0, recordcount mặc định 10.
+        // Ft_RecordStart = (Convert.ToInt32(page) * recordcount).ToString(), Ft_RecordCount = recordcount.ToString()
+        int pageIndex = req?.Page ?? req?.PageIndex ?? 0;
+        int pageSize = req?.Recordcount ?? req?.PageSize ?? 10;
+        long recordStart = (long)pageIndex * pageSize;
+        long recordCount = pageSize;
+
+        // 2. Gọi GetXAsync tương ứng Mst_ColumnConfigGroup_GetX (Master.cs:52908-53064)
+        var (itemCount, dataList) = await GetXAsync(req, recordStart, recordCount);
+
+        // 3. Tính PageCount theo logic tầng gate Mst_ColumnConfigGroupController.cs:155-167:
         // if (objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup != null && objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup.Count > 0)
         // {
         //     pageInfo.DataList = objRT_Mst_ColumnConfigGroupCur.Lst_Mst_ColumnConfigGroup;
@@ -133,4 +174,8 @@ public class Mst_ColumnConfigGroup_IndexReq
     public string? FlagActive { get; set; }
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }
+}
+
+public class Mst_ColumnConfigGroup_DoSearchReq : Mst_ColumnConfigGroup_IndexReq
+{
 }
