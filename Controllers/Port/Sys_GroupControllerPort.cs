@@ -19,21 +19,28 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:398-470 (Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:477-567 (GetSysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:571-621 (SaveUserInGroup)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:626-727 (GetSysObject)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1119-1138 (strWhereClause_SysUser)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1140-1155 (strWhereClause_SysObject)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1157-1172 (strWhereClause_SysAccess)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:93-147 (WA_Sys_Group_Create)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:168-239 (WA_Sys_Group_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:242-313 (WA_Sys_Group_Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserController.cs:199-270 (WA_Sys_User_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysUserInGroupController.cs:20-91 (WA_Sys_UserInGroup_Save)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysObjectController.cs:20-91 (WA_Sys_Object_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysAccessController.cs:20-91 (WA_Sys_Access_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:7011-7123 (WAS_Sys_User_Get) -> 6635-7009 (Sys_User_Get_New20191104)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2710-2790 (WAS_Sys_Group_Create) -> zTemp.cs:1040-1235 (Sys_Group_Create_New20191102)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3118-3201 (WAS_Sys_Group_Update) -> 2937-3116 / 2791-2935 (Sys_Group_Update)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3469-3548 (WAS_Sys_Group_Delete) -> 3318-3467 (Sys_Group_Delete), 13768-13783 (Sys_UserInGroup_Delete_ByGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:14407-14493 (WAS_Sys_UserInGroup_Save) -> zTemp.cs:1239-1476 (Sys_UserInGroup_Save_New20191102)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:14990-15089 (WAS_Sys_Object_Get) -> 14765-14900 (Sys_Object_Get)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:704-801 (WAS_Sys_Access_Get) -> 445-560 / 221-443 (Sys_Access_Get)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:1341-1400 (Sys_Group_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:3552-3611 (Sys_User_CheckDB)
 [ApiController]
@@ -1188,6 +1195,147 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action GetSysObject từ gate Sys_GroupController.cs:626-727.
+    /// Chuỗi gọi:
+    /// 1. Nhận groupcode (gate dòng 626).
+    /// 2. Danh sách Menu - Button (Sys_Object) (gate dòng 639-674):
+    ///    - sysObject = new Sys_Object { ObjectType = "FUNC", FlagActive = Client_Flag.Active ("1") } (gate dòng 640-644).
+    ///    - Dựng strWhereClause_SysObject (gate dòng 645, 1140-1155):
+    ///      Sys_Object.ObjectType != 'FUNC' và Sys_Object.FlagActive = '1'.
+    ///    - Đóng gói RQ_Sys_Object với Rt_Cols_Sys_Object = "*" (gate dòng 646-665).
+    ///    - Gọi Sys_ObjectService.Instance.WA_Sys_Object_Get (gate dòng 668)
+    ///      -> API WA_Sys_Object_Get (SysObjectController.cs:20-91)
+    ///      -> BIZ WAS_Sys_Object_Get (System.cs:14990-15089)
+    ///      -> Sys_Object_Get (System.cs:15032 / 14765-14900).
+    ///      SQL: select distinct so.ObjectCode into #tbl_Sys_Object_Filter_Draft from Sys_Object so where (1=1) and ... order by so.ObjectCode asc.
+    ///    - Nếu có kết quả thì listSysObject.AddRange(objRT_Sys_Object.Lst_Sys_Object) (gate dòng 670-673).
+    /// 3. Danh sách Menu - Button gán vào nhóm (Sys_Access) (gate dòng 676-712):
+    ///    - sysAccess = new Sys_Access { GroupCode = groupcode, ObjectCode = "" } (gate dòng 677-681).
+    ///    - Dựng strWhereClause_SysAccess (gate dòng 682, 1157-1172):
+    ///      Nếu groupcode không rỗng: Sys_Access.GroupCode = groupcode.
+    ///    - Đóng gói RQ_Sys_Access với Rt_Cols_Sys_Access = "*" (gate dòng 683-704).
+    ///    - Gọi Sys_AccessService.Instance.WA_Sys_Access_Get (gate dòng 706)
+    ///      -> API WA_Sys_Access_Get (SysAccessController.cs:20-91)
+    ///      -> BIZ WAS_Sys_Access_Get (System.cs:704-801)
+    ///      -> Sys_Access_Get (System.cs:740 / 445-560 / 221-443).
+    ///      SQL: inner join Sys_Access sa on ... left join Sys_Object so on sa.ObjectCode = so.ObjectCode.
+    ///    - Nếu có kết quả thì listSysAccess.AddRange(objRT_Sys_Access.Lst_Sys_Access) (gate dòng 708-711).
+    /// 4. Gán ViewBag.GroupCode = groupcode, ViewBag.ListSysObject = listSysObject, ViewBag.ListSysAccess = listSysAccess (gate dòng 714-716).
+    /// 5. Trả về JsonView("GetSysObject", listSysObject) (gate dòng 719).
+    /// 6. Bắt ngoại lệ catch (Exception ex) -> PortResult.Fail("WAS_Sys_Object_Get", "Exception", ex.Message) (gate dòng 721-726, System.cs:15007 / 721).
+    /// </summary>
+    [HttpPost("getsysobject")]
+    public async Task<IActionResult> GetSysObject([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_GetSysObjectReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào groupcode (Gate: Sys_GroupController.cs:626)
+            var groupCode = StdParam(req?.GroupCode);
+            if (string.IsNullOrEmpty(groupCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupcode", out var qGroupCode))
+            {
+                groupCode = StdParam(qGroupCode.ToString());
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(groupCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_GetSysObjectReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    groupCode = StdParam(modelObj?.GroupCode);
+                }
+                catch
+                {
+                    groupCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Danh sách Menu - Button (Sys_Object) (Gate: Sys_GroupController.cs:639-674)
+            // sysObject = new Sys_Object { ObjectType = "FUNC", FlagActive = Client_Flag.Active ("1") }
+            // strWhereClause_SysObject: ObjectType != 'FUNC' và FlagActive = '1' (Sys_GroupController.cs:1140-1155)
+            var flagActive = req?.FlagActive != null ? StdFlag(req.FlagActive) : "1";
+            var queryObj = _db.Set<Sys_Object>().AsNoTracking();
+
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                queryObj = queryObj.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            var objectType = StdParam(req?.ObjectType);
+            if (!string.IsNullOrEmpty(objectType) && objectType != "FUNC")
+            {
+                queryObj = queryObj.Where(x => EF.Functions.Like((x.ObjectType ?? "").ToLower(), PortQuery.Equal(objectType), PortQuery.Esc));
+            }
+            else
+            {
+                queryObj = queryObj.Where(x => !EF.Functions.Like((x.ObjectType ?? "").ToLower(), PortQuery.Equal("FUNC"), PortQuery.Esc));
+            }
+
+            var listSysObject = await queryObj
+                .OrderBy(x => x.ObjectCode)
+                .ToListAsync();
+
+            // 3. Danh sách Menu - Button gán vào nhóm (Sys_Access) (Gate: Sys_GroupController.cs:676-712)
+            // sysAccess = new Sys_Access { GroupCode = groupcode, ObjectCode = "" }
+            // strWhereClause_SysAccess: nếu groupcode != "" thì Sys_Access.GroupCode = groupcode (Sys_GroupController.cs:1157-1172)
+            // BIZ Sys_Access_Get (System.cs:740, 221-443): inner join Sys_Access left join Sys_Object on sa.ObjectCode = so.ObjectCode
+            var queryAccess = from sa in _db.Set<Sys_Access>().AsNoTracking()
+                              join so in _db.Set<Sys_Object>().AsNoTracking()
+                                  on sa.ObjectCode equals so.ObjectCode into g
+                              from so in g.DefaultIfEmpty()
+                              select new { sa, so };
+
+            if (!string.IsNullOrEmpty(groupCode))
+            {
+                queryAccess = queryAccess.Where(x => EF.Functions.Like((x.sa.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            }
+
+            var accessRows = await queryAccess
+                .OrderBy(x => x.sa.GroupCode)
+                .ThenBy(x => x.sa.ObjectCode)
+                .ToListAsync();
+
+            var listSysAccess = accessRows.Select(x => new Sys_Access
+            {
+                GroupCode = x.sa.GroupCode,
+                ObjectCode = x.sa.ObjectCode,
+                LogLUDTimeUTC = x.sa.LogLUDTimeUTC,
+                LogLUBy = x.sa.LogLUBy,
+                so_ObjectCode = x.so != null ? x.so.ObjectCode : null,
+                so_ObjectName = x.so != null ? x.so.ObjectName : null,
+                so_ServiceCode = x.so != null ? x.so.ServiceCode : null,
+                so_ObjectType = x.so != null ? x.so.ObjectType : null,
+                so_FlagExecModal = x.so != null ? x.so.FlagExecModal : null,
+                so_FlagActive = x.so != null ? x.so.FlagActive : null,
+            }).ToList();
+
+            // 4. Trả về kết quả khớp Model và ViewBag của gate MVC (Sys_GroupController.cs:714-719)
+            // Model: listSysObject; ViewBag: GroupCode, ListSysObject, ListSysAccess
+            var data = new Sys_Group_GetSysObjectData
+            {
+                GroupCode = groupCode,
+                ListSysObject = listSysObject,
+                Lst_Sys_Object = listSysObject,
+                ListSysAccess = listSysAccess,
+                Lst_Sys_Access = listSysAccess
+            };
+
+            return Ok(new
+            {
+                Success = true,
+                Data = data,
+                ListSysObject = listSysObject,
+                ListSysAccess = listSysAccess,
+                GroupCode = groupCode
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("WAS_Sys_Object_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -1336,4 +1484,29 @@ public class Sys_Group_SaveUserInGroupReq
     public string? UserCode { get; set; }
     public string? MST { get; set; }
     public string? NetworkID { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action GetSysObject của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:626 GetSysObject(string groupcode = "")
+/// </summary>
+public class Sys_Group_GetSysObjectReq
+{
+    public string? GroupCode { get; set; }
+    public string? ObjectType { get; set; }
+    public string? FlagActive { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO cấu trúc dữ liệu trả về cho action GetSysObject của Sys_GroupController.
+/// Khớp với Model Sys_Object (danh sách Menu - Button) và ViewBag (GroupCode, ListSysAccess).
+/// </summary>
+public class Sys_Group_GetSysObjectData
+{
+    public string? GroupCode { get; set; }
+    public List<Sys_Object> ListSysObject { get; set; } = new();
+    public List<Sys_Object> Lst_Sys_Object { get; set; } = new();
+    public List<Sys_Access> ListSysAccess { get; set; } = new();
+    public List<Sys_Access> Lst_Sys_Access { get; set; } = new();
 }

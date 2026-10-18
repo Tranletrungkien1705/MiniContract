@@ -40,6 +40,14 @@ public class Sys_GroupControllerPortTests : IDisposable
         var userInGroupSeeder = new Sys_UserInGroupSeeder();
         userInGroupSeeder.SeedAsync(_db).GetAwaiter().GetResult();
 
+        // Chạy seeder Sys_Object
+        var objectSeeder = new Sys_ObjectSeeder();
+        objectSeeder.SeedAsync(_db).GetAwaiter().GetResult();
+
+        // Chạy seeder Sys_Access
+        var accessSeeder = new Sys_AccessSeeder();
+        accessSeeder.SeedAsync(_db).GetAwaiter().GetResult();
+
         _controller = new Sys_GroupControllerPort(_db);
     }
 
@@ -1194,6 +1202,174 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSysObject_NullReq_ReturnsAllActiveObjectsAndAllAccesses()
+    {
+        var result = await _controller.GetSysObject(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        var listSysObject = data.GetProperty("ListSysObject");
+        // 4 đối tượng hoạt động có ObjectType != "FUNC" (BTN_SAVE, MNU_CONTRACT, MNU_CUSTOMER, MNU_SYSTEM)
+        Assert.Equal(4, listSysObject.GetArrayLength());
+        Assert.Equal("BTN_SAVE", listSysObject[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("MNU_CONTRACT", listSysObject[1].GetProperty("ObjectCode").GetString());
+        Assert.Equal("MNU_CUSTOMER", listSysObject[2].GetProperty("ObjectCode").GetString());
+        Assert.Equal("MNU_SYSTEM", listSysObject[3].GetProperty("ObjectCode").GetString());
+
+        var listSysAccess = data.GetProperty("ListSysAccess");
+        // 4 bản ghi phân quyền (3 của ADMIN, 1 của SALE_MGR)
+        Assert.Equal(4, listSysAccess.GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, data.GetProperty("GroupCode").ValueKind);
+    }
+
+    [Fact]
+    public async Task GetSysObject_EmptyReq_ReturnsAllActiveObjectsAndAllAccesses()
+    {
+        var req = new Sys_Group_GetSysObjectReq();
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        var listSysObject = data.GetProperty("ListSysObject");
+        Assert.Equal(4, listSysObject.GetArrayLength());
+
+        var listSysAccess = data.GetProperty("ListSysAccess");
+        Assert.Equal(4, listSysAccess.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysObject_FilterByGroupCode_Admin_Returns3Accesses()
+    {
+        var req = new Sys_Group_GetSysObjectReq { GroupCode = "admin" };
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("ADMIN", data.GetProperty("GroupCode").GetString());
+
+        var listSysObject = data.GetProperty("ListSysObject");
+        Assert.Equal(4, listSysObject.GetArrayLength());
+
+        var listSysAccess = data.GetProperty("ListSysAccess");
+        Assert.Equal(3, listSysAccess.GetArrayLength());
+        Assert.Equal("ADMIN", listSysAccess[0].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CONTRACT", listSysAccess[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản lý hợp đồng", listSysAccess[0].GetProperty("so_ObjectName").GetString());
+
+        Assert.Equal("ADMIN", listSysAccess[1].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CUSTOMER", listSysAccess[1].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản lý khách hàng", listSysAccess[1].GetProperty("so_ObjectName").GetString());
+
+        Assert.Equal("ADMIN", listSysAccess[2].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_SYSTEM", listSysAccess[2].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản trị hệ thống", listSysAccess[2].GetProperty("so_ObjectName").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysObject_FilterByGroupCode_SaleMgr_Returns1Access()
+    {
+        var req = new Sys_Group_GetSysObjectReq { GroupCode = "sale_mgr" };
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("SALE_MGR", data.GetProperty("GroupCode").GetString());
+
+        var listSysObject = data.GetProperty("ListSysObject");
+        Assert.Equal(4, listSysObject.GetArrayLength());
+
+        var listSysAccess = data.GetProperty("ListSysAccess");
+        Assert.Equal(1, listSysAccess.GetArrayLength());
+        Assert.Equal("SALE_MGR", listSysAccess[0].GetProperty("GroupCode").GetString());
+        Assert.Equal("MNU_CONTRACT", listSysAccess[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("Quản lý hợp đồng", listSysAccess[0].GetProperty("so_ObjectName").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysObject_FilterByGroupCode_NonExistent_Returns0Access()
+    {
+        var req = new Sys_Group_GetSysObjectReq { GroupCode = "GRP_NONEXISTENT" };
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("GRP_NONEXISTENT", data.GetProperty("GroupCode").GetString());
+
+        var listSysObject = data.GetProperty("ListSysObject");
+        Assert.Equal(4, listSysObject.GetArrayLength());
+
+        var listSysAccess = data.GetProperty("ListSysAccess");
+        Assert.Equal(0, listSysAccess.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetSysObject_ExcludesFuncObjectType()
+    {
+        // Thêm một đối tượng có ObjectType = "FUNC" vào DB
+        _db.Set<Sys_Object>().Add(new Sys_Object
+        {
+            ObjectCode = "FNC_UNIT_TEST",
+            ObjectName = "Hàm kiểm thử",
+            ObjectType = "FUNC",
+            FlagActive = "1"
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _controller.GetSysObject(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var listSysObject = doc.RootElement.GetProperty("Data").GetProperty("ListSysObject");
+        // Vẫn chỉ có 4 đối tượng, FNC_UNIT_TEST bị loại bỏ do ObjectType != "FUNC"
+        Assert.Equal(4, listSysObject.GetArrayLength());
+        for (int i = 0; i < listSysObject.GetArrayLength(); i++)
+        {
+            Assert.NotEqual("FNC_UNIT_TEST", listSysObject[i].GetProperty("ObjectCode").GetString());
+            Assert.NotEqual("FUNC", listSysObject[i].GetProperty("ObjectType").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task GetSysObject_FilterByFlagActiveZero_ReturnsSingleArchivedObject()
+    {
+        var req = new Sys_Group_GetSysObjectReq { FlagActive = "0" };
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var listSysObject = doc.RootElement.GetProperty("Data").GetProperty("ListSysObject");
+        Assert.Equal(1, listSysObject.GetArrayLength());
+        Assert.Equal("MNU_ARCHIVED", listSysObject[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("0", listSysObject[0].GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task GetSysObject_ViaModelJson_Success()
+    {
+        var req = new Sys_Group_GetSysObjectReq { Model = "{\"GroupCode\":\"ADMIN\"}" };
+        var result = await _controller.GetSysObject(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("ADMIN", data.GetProperty("GroupCode").GetString());
+        Assert.Equal(3, data.GetProperty("ListSysAccess").GetArrayLength());
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -1901,6 +2077,102 @@ public class Sys_GroupControllerPortTests : IDisposable
             var listUser50 = doc50Read.RootElement.GetProperty("Data").GetProperty("ListUserInGroup");
             Assert.Equal(1, listUser50.GetArrayLength());
             Assert.Equal("U02", listUser50[0].GetProperty("UserCode").GetString());
+
+            // 51. Ca GetSysObject body rỗng: POST /api/sys_group/getsysobject {} -> 200 OK, ListSysObject=4, ListSysAccess=4
+            var req51 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res51 = await http.PostAsync("/api/sys_group/getsysobject", req51);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res51.StatusCode);
+            var body51 = await res51.Content.ReadAsStringAsync();
+            var doc51 = JsonDocument.Parse(body51);
+            Assert.True(doc51.RootElement.GetProperty("Success").GetBoolean());
+            var data51 = doc51.RootElement.GetProperty("Data");
+            Assert.Equal(4, data51.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal(4, data51.GetProperty("ListSysAccess").GetArrayLength());
+
+            // 52. Ca GetSysObject lọc GroupCode="ADMIN" (Bộ lọc A) -> 200 OK, ListSysObject=4, ListSysAccess=3
+            var req52 = new StringContent("{\"GroupCode\":\"ADMIN\"}", Encoding.UTF8, "application/json");
+            var res52 = await http.PostAsync("/api/sys_group/getsysobject", req52);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res52.StatusCode);
+            var body52 = await res52.Content.ReadAsStringAsync();
+            var doc52 = JsonDocument.Parse(body52);
+            Assert.True(doc52.RootElement.GetProperty("Success").GetBoolean());
+            var data52 = doc52.RootElement.GetProperty("Data");
+            Assert.Equal("ADMIN", data52.GetProperty("GroupCode").GetString());
+            Assert.Equal(4, data52.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal(3, data52.GetProperty("ListSysAccess").GetArrayLength());
+            Assert.Equal("ADMIN", data52.GetProperty("ListSysAccess")[0].GetProperty("GroupCode").GetString());
+            Assert.Equal("Quản lý hợp đồng", data52.GetProperty("ListSysAccess")[0].GetProperty("so_ObjectName").GetString());
+
+            // 53. Ca GetSysObject lọc GroupCode="SALE_MGR" (Bộ lọc B, ra kết quả khác ca 52) -> 200 OK, ListSysObject=4, ListSysAccess=1
+            var req53 = new StringContent("{\"GroupCode\":\"SALE_MGR\"}", Encoding.UTF8, "application/json");
+            var res53 = await http.PostAsync("/api/sys_group/getsysobject", req53);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res53.StatusCode);
+            var body53 = await res53.Content.ReadAsStringAsync();
+            var doc53 = JsonDocument.Parse(body53);
+            Assert.True(doc53.RootElement.GetProperty("Success").GetBoolean());
+            var data53 = doc53.RootElement.GetProperty("Data");
+            Assert.Equal("SALE_MGR", data53.GetProperty("GroupCode").GetString());
+            Assert.Equal(4, data53.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal(1, data53.GetProperty("ListSysAccess").GetArrayLength());
+            Assert.Equal("SALE_MGR", data53.GetProperty("ListSysAccess")[0].GetProperty("GroupCode").GetString());
+            Assert.Equal("MNU_CONTRACT", data53.GetProperty("ListSysAccess")[0].GetProperty("ObjectCode").GetString());
+
+            // 54. Ca GetSysObject lọc nhóm chưa được gán quyền: GroupCode="GRP_STAFF" -> 200 OK, ListSysObject=4, ListSysAccess=0
+            var req54 = new StringContent("{\"GroupCode\":\"GRP_STAFF\"}", Encoding.UTF8, "application/json");
+            var res54 = await http.PostAsync("/api/sys_group/getsysobject", req54);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res54.StatusCode);
+            var body54 = await res54.Content.ReadAsStringAsync();
+            var doc54 = JsonDocument.Parse(body54);
+            Assert.True(doc54.RootElement.GetProperty("Success").GetBoolean());
+            var data54 = doc54.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_STAFF", data54.GetProperty("GroupCode").GetString());
+            Assert.Equal(4, data54.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal(0, data54.GetProperty("ListSysAccess").GetArrayLength());
+
+            // 55. Ca GetSysObject lọc nhóm không tồn tại: GroupCode="GRP_NONEXISTENT" -> 200 OK, ListSysObject=4, ListSysAccess=0
+            var req55 = new StringContent("{\"GroupCode\":\"GRP_NONEXISTENT\"}", Encoding.UTF8, "application/json");
+            var res55 = await http.PostAsync("/api/sys_group/getsysobject", req55);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res55.StatusCode);
+            var body55 = await res55.Content.ReadAsStringAsync();
+            var doc55 = JsonDocument.Parse(body55);
+            Assert.True(doc55.RootElement.GetProperty("Success").GetBoolean());
+            var data55 = doc55.RootElement.GetProperty("Data");
+            Assert.Equal("GRP_NONEXISTENT", data55.GetProperty("GroupCode").GetString());
+            Assert.Equal(4, data55.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal(0, data55.GetProperty("ListSysAccess").GetArrayLength());
+
+            // 56. Ca GetSysObject qua Model JSON string -> 200 OK, ListSysAccess=3
+            var req56 = new StringContent("{\"Model\":\"{\\\"GroupCode\\\":\\\"ADMIN\\\"}\"}", Encoding.UTF8, "application/json");
+            var res56 = await http.PostAsync("/api/sys_group/getsysobject", req56);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res56.StatusCode);
+            var body56 = await res56.Content.ReadAsStringAsync();
+            var doc56 = JsonDocument.Parse(body56);
+            Assert.True(doc56.RootElement.GetProperty("Success").GetBoolean());
+            var data56 = doc56.RootElement.GetProperty("Data");
+            Assert.Equal("ADMIN", data56.GetProperty("GroupCode").GetString());
+            Assert.Equal(3, data56.GetProperty("ListSysAccess").GetArrayLength());
+
+            // 57. Ca GetSysObject qua query string ?groupcode=SALE_MGR -> 200 OK, ListSysAccess=1
+            var req57 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res57 = await http.PostAsync("/api/sys_group/getsysobject?groupcode=SALE_MGR", req57);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res57.StatusCode);
+            var body57 = await res57.Content.ReadAsStringAsync();
+            var doc57 = JsonDocument.Parse(body57);
+            Assert.True(doc57.RootElement.GetProperty("Success").GetBoolean());
+            var data57 = doc57.RootElement.GetProperty("Data");
+            Assert.Equal("SALE_MGR", data57.GetProperty("GroupCode").GetString());
+            Assert.Equal(1, data57.GetProperty("ListSysAccess").GetArrayLength());
+
+            // 58. Ca GetSysObject lọc FlagActive="0" -> 200 OK, ListSysObject=1 (MNU_ARCHIVED), ListSysAccess=0
+            var req58 = new StringContent("{\"FlagActive\":\"0\"}", Encoding.UTF8, "application/json");
+            var res58 = await http.PostAsync("/api/sys_group/getsysobject", req58);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res58.StatusCode);
+            var body58 = await res58.Content.ReadAsStringAsync();
+            var doc58 = JsonDocument.Parse(body58);
+            Assert.True(doc58.RootElement.GetProperty("Success").GetBoolean());
+            var data58 = doc58.RootElement.GetProperty("Data");
+            Assert.Equal(1, data58.GetProperty("ListSysObject").GetArrayLength());
+            Assert.Equal("MNU_ARCHIVED", data58.GetProperty("ListSysObject")[0].GetProperty("ObjectCode").GetString());
         }
         finally
         {
