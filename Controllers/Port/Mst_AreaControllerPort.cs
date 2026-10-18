@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_AreaController.cs — Mst_Area
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_AreaController.cs:22-125 (Index), 131-197 (Export), 348-445 (Detail)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_AreaController.cs:22-125 (Index), 131-197 (Export), 348-445 (Detail), 451-548 (Update)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstAreaController.cs:19-89
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:101-474
 [ApiController]
@@ -226,6 +226,83 @@ public class Mst_AreaControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lấy thông tin vùng thị trường phục vụ màn hình cập nhật (Update view).
+    /// Gate: Mst_AreaController.cs:451-548 Update(string areaCode)
+    /// API:  MstAreaController.cs:19-89 WA_Mst_Area_Get
+    /// BIZ:  Customer.cs:101-189 (WAS_Mst_Area_Get), 190-316 (Mst_Area_Get), 318-474 (Mst_Area_GetX)
+    /// </summary>
+    [HttpPost("update")]
+    public async Task<IActionResult> Update([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Area_UpdateReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào areaCode (Gate: Mst_AreaController.cs:451, 507, 513)
+            var areaCode = StdParam(req?.AreaCode);
+            var orgId = StdParam(req?.OrgID) ?? StdParam(Request?.Headers["OrgID"].FirstOrDefault());
+            var networkId = StdParam(req?.NetworkID) ?? StdParam(Request?.Headers["NetworkID"].FirstOrDefault());
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+            if (string.IsNullOrEmpty(areaCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Area_UpdateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    areaCode = StdParam(modelObj?.AreaCode);
+                    orgId ??= StdParam(modelObj?.OrgID);
+                    networkId ??= StdParam(modelObj?.NetworkID);
+                }
+                catch
+                {
+                    areaCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu areaCode rỗng, gate trả về View(new Mst_Area()) (Gate: Mst_AreaController.cs:507, 547)
+            if (string.IsNullOrEmpty(areaCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Area_UpdateData?)null
+                });
+            }
+
+            // 3. Dựng truy vấn tìm bản ghi Mst_Area theo AreaCode (Gate: Mst_AreaController.cs:509-544; Customer.cs:377, 417)
+            var query = BuildQuery(orgId, networkId, null, areaCode);
+            var item = await query.FirstOrDefaultAsync();
+
+            if (item == null)
+            {
+                // Gate: dòng 541-547 -> nếu không tìm thấy trả về View(new Mst_Area())
+                return Ok(new
+                {
+                    Success = true,
+                    Data = (Mst_Area_UpdateData?)null
+                });
+            }
+
+            // 4. Lấy danh sách vùng thị trường cha để phục vụ dropdown (Gate: Mst_AreaController.cs:465-505: ListMst_AreaExt)
+            var parentQuery = BuildQuery(item.OrgID, item.NetworkID, null, null);
+            var listExt = await parentQuery.ToListAsync();
+
+            var updateData = new Mst_Area_UpdateData(item)
+            {
+                ListMst_AreaExt = listExt
+            };
+
+            return Ok(new
+            {
+                Success = true,
+                Data = updateData
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Area_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? value)
     {
         var s = value?.Trim();
@@ -318,6 +395,37 @@ public class Mst_Area_DetailData : Mst_Area
     public Mst_Area_DetailData() { }
 
     public Mst_Area_DetailData(Mst_Area src)
+    {
+        OrgID = src.OrgID;
+        AreaCode = src.AreaCode;
+        NetworkID = src.NetworkID;
+        AreaCodeParent = src.AreaCodeParent;
+        AreaBUCode = src.AreaBUCode;
+        AreaBUPattern = src.AreaBUPattern;
+        AreaLevel = src.AreaLevel;
+        AreaName = src.AreaName;
+        AreaDesc = src.AreaDesc;
+        FlagActive = src.FlagActive;
+        LogLUDTimeUTC = src.LogLUDTimeUTC;
+        LogLUBy = src.LogLUBy;
+    }
+}
+
+public class Mst_Area_UpdateReq
+{
+    public string? AreaCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? Model { get; set; }
+}
+
+public class Mst_Area_UpdateData : Mst_Area
+{
+    public List<Mst_Area>? ListMst_AreaExt { get; set; }
+
+    public Mst_Area_UpdateData() { }
+
+    public Mst_Area_UpdateData(Mst_Area src)
     {
         OrgID = src.OrgID;
         AreaCode = src.AreaCode;

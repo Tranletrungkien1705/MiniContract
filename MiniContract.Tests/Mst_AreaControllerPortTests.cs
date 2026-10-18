@@ -461,6 +461,135 @@ public class Mst_AreaControllerPortTests : IDisposable
         Assert.Equal("Miền Nam", data.GetProperty("AreaName").GetString());
     }
 
+    // =========================================================================================
+    // Endpoint Update (Gate: Mst_AreaController.cs:451-548 Update(string areaCode))
+    // =========================================================================================
+
+    [Fact]
+    public async Task Update_EmptyBodyOrNull_ReturnsNullData()
+    {
+        var resNull = await _controller.Update(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docNull.RootElement.GetProperty("Data").ValueKind);
+
+        var resEmpty = await _controller.Update(new Mst_Area_UpdateReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docEmpty.RootElement.GetProperty("Data").ValueKind);
+
+        var resBlank = await _controller.Update(new Mst_Area_UpdateReq { AreaCode = "   " });
+        var okBlank = Assert.IsType<OkObjectResult>(resBlank);
+        var docBlank = JsonDocument.Parse(JsonSerializer.Serialize(okBlank.Value));
+        Assert.True(docBlank.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, docBlank.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_ValidAreaCode_Org1_ReturnsItemAndParentList()
+    {
+        var req = new Mst_Area_UpdateReq { AreaCode = "MB", OrgID = "7200000001" };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("Miền Bắc", data.GetProperty("AreaName").GetString());
+        Assert.Equal("Khu vực Miền Bắc", data.GetProperty("AreaDesc").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("1", data.GetProperty("AreaLevel").GetString());
+
+        // Danh sách vùng cha ListMst_AreaExt gồm 3 vùng của Org 7200000001
+        var extList = data.GetProperty("ListMst_AreaExt").EnumerateArray().ToList();
+        Assert.Equal(3, extList.Count);
+    }
+
+    [Fact]
+    public async Task Update_ValidAreaCode_Org2_ReturnsItemAndParentList()
+    {
+        // 2 bộ lọc ra kết quả khác nhau: MB thuộc Org 7200000002
+        var req = new Mst_Area_UpdateReq { AreaCode = "MB", OrgID = "7200000002" };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000002", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MB", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("1002", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("Miền Bắc Org2", data.GetProperty("AreaName").GetString());
+        Assert.Equal("Khu vực Miền Bắc Org2", data.GetProperty("AreaDesc").GetString());
+        Assert.Equal("1", data.GetProperty("FlagActive").GetString());
+
+        var extList = data.GetProperty("ListMst_AreaExt").EnumerateArray().ToList();
+        Assert.Single(extList);
+        Assert.Equal("7200000002", extList[0].GetProperty("OrgID").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ValidAreaCode_MT_ReturnsInactiveItem()
+    {
+        var req = new Mst_Area_UpdateReq { AreaCode = "MT", OrgID = "7200000001" };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("7200000001", data.GetProperty("OrgID").GetString());
+        Assert.Equal("MT", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Trung", data.GetProperty("AreaName").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+    }
+
+    [Fact]
+    public async Task Update_NonExistentAreaCode_ReturnsNullData()
+    {
+        var req = new Mst_Area_UpdateReq { AreaCode = "NON_EXISTENT", OrgID = "7200000001" };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_NetworkIDMismatch_ReturnsNullData()
+    {
+        var req = new Mst_Area_UpdateReq { AreaCode = "MB", OrgID = "7200000001", NetworkID = "9999" };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Data").ValueKind);
+    }
+
+    [Fact]
+    public async Task Update_WithModelString_ReturnsItem()
+    {
+        var req = new Mst_Area_UpdateReq
+        {
+            Model = JsonSerializer.Serialize(new Mst_Area_UpdateReq { AreaCode = "MN", OrgID = "7200000001" })
+        };
+        var res = await _controller.Update(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var data = doc.RootElement.GetProperty("Data");
+        Assert.Equal("MN", data.GetProperty("AreaCode").GetString());
+        Assert.Equal("Miền Nam", data.GetProperty("AreaName").GetString());
+    }
+
     [Fact]
     public async Task RealServer_Verification_Port()
     {
@@ -650,6 +779,70 @@ public class Mst_AreaControllerPortTests : IDisposable
             var dataDet12 = docDet12.RootElement.GetProperty("Data");
             Assert.Equal("MN", dataDet12.GetProperty("AreaCode").GetString());
             Assert.Equal("Miền Nam", dataDet12.GetProperty("AreaName").GetString());
+
+            // ================== Kiểm thử endpoint Update qua server thật ==================
+
+            // Request 13: Update với body rỗng -> 200 OK, Data = null (gate trả View(new Mst_Area()))
+            var reqUpd13 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resUpd13 = await http.PostAsync("/api/mst_area/update", reqUpd13);
+            var bodyUpd13 = await resUpd13.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ13 Update (Empty body): {bodyUpd13}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpd13.StatusCode);
+            var docUpd13 = JsonDocument.Parse(bodyUpd13);
+            Assert.True(docUpd13.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docUpd13.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 14: Update AreaCode = MB, OrgID = 7200000001 -> 200 OK, trả về MB Org 1 kèm ListMst_AreaExt 3 bản ghi
+            var reqUpd14 = new StringContent("{\"AreaCode\":\"MB\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var resUpd14 = await http.PostAsync("/api/mst_area/update", reqUpd14);
+            var bodyUpd14 = await resUpd14.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ14 Update (MB Org1): {bodyUpd14}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpd14.StatusCode);
+            var docUpd14 = JsonDocument.Parse(bodyUpd14);
+            Assert.True(docUpd14.RootElement.GetProperty("Success").GetBoolean());
+            var dataUpd14 = docUpd14.RootElement.GetProperty("Data");
+            Assert.Equal("MB", dataUpd14.GetProperty("AreaCode").GetString());
+            Assert.Equal("7200000001", dataUpd14.GetProperty("OrgID").GetString());
+            Assert.Equal("1001", dataUpd14.GetProperty("NetworkID").GetString());
+            Assert.Equal("Miền Bắc", dataUpd14.GetProperty("AreaName").GetString());
+            Assert.Equal(3, dataUpd14.GetProperty("ListMst_AreaExt").GetArrayLength());
+
+            // Request 15: Update AreaCode = MB, OrgID = 7200000002 -> 200 OK, trả về MB Org 2 kèm ListMst_AreaExt 1 bản ghi
+            var reqUpd15 = new StringContent("{\"AreaCode\":\"MB\",\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json");
+            var resUpd15 = await http.PostAsync("/api/mst_area/update", reqUpd15);
+            var bodyUpd15 = await resUpd15.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ15 Update (MB Org2): {bodyUpd15}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpd15.StatusCode);
+            var docUpd15 = JsonDocument.Parse(bodyUpd15);
+            Assert.True(docUpd15.RootElement.GetProperty("Success").GetBoolean());
+            var dataUpd15 = docUpd15.RootElement.GetProperty("Data");
+            Assert.Equal("MB", dataUpd15.GetProperty("AreaCode").GetString());
+            Assert.Equal("7200000002", dataUpd15.GetProperty("OrgID").GetString());
+            Assert.Equal("1002", dataUpd15.GetProperty("NetworkID").GetString());
+            Assert.Equal("Miền Bắc Org2", dataUpd15.GetProperty("AreaName").GetString());
+            Assert.Equal(1, dataUpd15.GetProperty("ListMst_AreaExt").GetArrayLength());
+
+            // Request 16: Update AreaCode = NON_EXISTENT -> 200 OK, Data = null
+            var reqUpd16 = new StringContent("{\"AreaCode\":\"NON_EXISTENT\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
+            var resUpd16 = await http.PostAsync("/api/mst_area/update", reqUpd16);
+            var bodyUpd16 = await resUpd16.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ16 Update (Non-existent): {bodyUpd16}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpd16.StatusCode);
+            var docUpd16 = JsonDocument.Parse(bodyUpd16);
+            Assert.True(docUpd16.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docUpd16.RootElement.GetProperty("Data").ValueKind);
+
+            // Request 17: Update với chuỗi Model serialize JSON
+            var reqUpd17 = new StringContent("{\"Model\":\"{\\\"AreaCode\\\":\\\"MN\\\",\\\"OrgID\\\":\\\"7200000001\\\"}\"}", Encoding.UTF8, "application/json");
+            var resUpd17 = await http.PostAsync("/api/mst_area/update", reqUpd17);
+            var bodyUpd17 = await resUpd17.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ17 Update (Model string): {bodyUpd17}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resUpd17.StatusCode);
+            var docUpd17 = JsonDocument.Parse(bodyUpd17);
+            Assert.True(docUpd17.RootElement.GetProperty("Success").GetBoolean());
+            var dataUpd17 = docUpd17.RootElement.GetProperty("Data");
+            Assert.Equal("MN", dataUpd17.GetProperty("AreaCode").GetString());
+            Assert.Equal("Miền Nam", dataUpd17.GetProperty("AreaName").GetString());
         }
         finally
         {
