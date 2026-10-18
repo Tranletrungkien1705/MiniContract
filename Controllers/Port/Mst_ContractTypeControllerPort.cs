@@ -9,7 +9,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete), 594-742 (Import), 748-807 (Export)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete), 594-742 (Import), 748-807 (Export), 811-833 (ExportTemplate)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update, Get, Export), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update/Export), 44142-44297 (Biz Get/Update/Export), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 44799-44877 (WAS Delete), 44878-45023 (Biz Delete), 45024-45180 (Search/Index/Update/Export GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX), 45373-45483 (DeleteX)
 [ApiController]
@@ -26,6 +26,13 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         { "ContractTypeName", "Tên loại hợp đồng(*)" },
         { "Description", "Mô tả" },
         { "FlagActive", "Trạng thái" }
+    };
+
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { "ContractType", "Mã loại hợp đồng(*)" },
+        { "ContractTypeName", "Tên loại hợp đồng(*)" },
+        { "Description", "Mô tả" }
     };
 
     public Mst_ContractTypeControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
@@ -888,6 +895,44 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         catch (Exception ex)
         {
             return PortResult.Fail("Mst_ContractType_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Xuất tệp mẫu Excel để nhập loại hợp đồng.
+    /// Gate: Mst_ContractTypeController.cs:811-833 ExportTemplate()
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] object? req = null)
+    {
+        try
+        {
+            // 1. Tạo danh sách rỗng (Gate line 816: var listInv = new List<Mst_ContractType>())
+            var listInv = new List<Mst_ContractType>();
+
+            // 2. Lấy từ điển cột từ GetImportDicColums() gồm 3 cột (Gate lines 817, 837-845)
+            var dicColNames = ExportTemplateDicColumns;
+
+            // 3. Sinh đường dẫn file vật lý và URL ảo (Gate lines 820-821: GenExcelExportFilePath)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_ContractType));
+
+            // 4. Xuất danh sách rỗng ra file Excel chứa dòng tiêu đề (Gate line 822: ExcelExport.ExportToExcelFromList)
+            PortExcel.ExportToExcelFromList(listInv, dicColNames, filePath, nameof(Mst_ContractType));
+
+            // 5. Trả kết quả thành công khớp gate MVC (Gate line 824: Nonsense.MESS_EXPORT_EXCEL_SUCCESS)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            // Gate lines 827-832: resultEntry.SetFailed().AddException(ex)
+            return PortResult.Fail("Mst_ContractType_ExportTemplate", "Exception", ex.Message);
         }
     }
 
