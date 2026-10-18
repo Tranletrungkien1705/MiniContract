@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -9,9 +10,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
 [Route("api/mst_customer")]
 public class Mst_CustomerControllerPort : ControllerBase
@@ -1067,6 +1068,218 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa khách hàng.
+    /// Gate: Mst_CustomerController.cs:1372-1461 Delete(string listCustomers)
+    /// API:  MstCustomerController.cs:19-89 WA_Mst_Customer_Save
+    /// BIZ:  Customer.cs:2968-3070 WAS_Mst_Customer_Save -> 1619-1732 Mst_Customer_Save -> 2359-2966 Mst_Customer_SaveX_New20231205
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_DeleteReq? req)
+    {
+        try
+        {
+            var customerList = new List<Mst_Customer_DeleteItem>();
+
+            if (req != null)
+            {
+                if (req.Lst_Mst_Customer != null && req.Lst_Mst_Customer.Count > 0)
+                {
+                    customerList.AddRange(req.Lst_Mst_Customer);
+                }
+
+                if (req.ListCustomers != null)
+                {
+                    if (req.ListCustomers is JsonElement elem)
+                    {
+                        if (elem.ValueKind == JsonValueKind.String)
+                        {
+                            var str = elem.GetString();
+                            if (!string.IsNullOrWhiteSpace(str))
+                            {
+                                try
+                                {
+                                    var parsed = JsonSerializer.Deserialize<List<Mst_Customer_DeleteItem>>(str, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                    if (parsed != null && parsed.Count > 0)
+                                    {
+                                        customerList.AddRange(parsed);
+                                    }
+                                }
+                                catch
+                                {
+                                    try
+                                    {
+                                        var single = JsonSerializer.Deserialize<Mst_Customer_DeleteItem>(str, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        if (single != null && (!string.IsNullOrEmpty(single.CustomerCodeSys) || !string.IsNullOrEmpty(single.CustomerCode)))
+                                        {
+                                            customerList.Add(single);
+                                        }
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                        else if (elem.ValueKind == JsonValueKind.Array)
+                        {
+                            try
+                            {
+                                var parsed = JsonSerializer.Deserialize<List<Mst_Customer_DeleteItem>>(elem.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (parsed != null && parsed.Count > 0)
+                                {
+                                    customerList.AddRange(parsed);
+                                }
+                            }
+                            catch { }
+                        }
+                        else if (elem.ValueKind == JsonValueKind.Object)
+                        {
+                            try
+                            {
+                                var single = JsonSerializer.Deserialize<Mst_Customer_DeleteItem>(elem.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (single != null && (!string.IsNullOrEmpty(single.CustomerCodeSys) || !string.IsNullOrEmpty(single.CustomerCode)))
+                                {
+                                    customerList.Add(single);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    else if (req.ListCustomers is string str && !string.IsNullOrWhiteSpace(str))
+                    {
+                        try
+                        {
+                            var parsed = JsonSerializer.Deserialize<List<Mst_Customer_DeleteItem>>(str, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (parsed != null && parsed.Count > 0)
+                            {
+                                customerList.AddRange(parsed);
+                            }
+                        }
+                        catch
+                        {
+                            try
+                            {
+                                var single = JsonSerializer.Deserialize<Mst_Customer_DeleteItem>(str, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (single != null && (!string.IsNullOrEmpty(single.CustomerCodeSys) || !string.IsNullOrEmpty(single.CustomerCode)))
+                                {
+                                    customerList.Add(single);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(req.CustomerCodeSys) || !string.IsNullOrEmpty(req.CustomerCode))
+                {
+                    customerList.Add(new Mst_Customer_DeleteItem
+                    {
+                        CustomerCodeSys = req.CustomerCodeSys,
+                        CustomerCode = req.CustomerCode,
+                        OrgID = req.OrgID,
+                        NetworkID = req.NetworkID
+                    });
+                }
+            }
+
+            // 1. Kiểm tra danh sách khách hàng đầu vào (Customer.cs:2415-2425: Mst_Customer_Save_Input_Mst_CustomerTblNotFound)
+            if (customerList.Count == 0)
+            {
+                return PortResult.Fail("Mst_Customer_Save_Input_Mst_CustomerTblNotFound", "Check.TableName", "Mst_Customer");
+            }
+
+            var defaultOrgId = Request?.Headers["OrgID"].FirstOrDefault() ?? _config?["Biz_OrgID"] ?? "7200000001";
+            var defaultNetworkId = Request?.Headers["NetworkID"].FirstOrDefault() ?? _config?["Biz_NetworkID"] ?? "1001";
+
+            // 2. Tra cứu và chuẩn bị danh sách bản ghi cần xóa từ Mst_Customer và Mst_CustomerInCustomerGroup
+            var allMatchingCustomers = new List<Mst_Customer>();
+            var allMatchingGroups = new List<Mst_CustomerInCustomerGroup>();
+
+            foreach (var item in customerList)
+            {
+                var cusCodeSys = StdParam(item.CustomerCodeSys);
+                var cusCode = StdParam(item.CustomerCode);
+                var orgId = StdParam(item.OrgID) ?? defaultOrgId;
+
+                if (string.IsNullOrEmpty(cusCodeSys) && !string.IsNullOrEmpty(cusCode))
+                {
+                    var found = await _db.Set<Mst_Customer>()
+                        .FirstOrDefaultAsync(x => EF.Functions.Like((x.CustomerCode ?? "").ToLower(), PortQuery.Equal(cusCode), PortQuery.Esc)
+                                               && EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+                    if (found != null)
+                    {
+                        cusCodeSys = found.CustomerCodeSys;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(cusCodeSys))
+                {
+                    var matchingCus = await _db.Set<Mst_Customer>()
+                        .Where(x => EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(cusCodeSys), PortQuery.Esc)
+                                 && EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc))
+                        .ToListAsync();
+
+                    foreach (var c in matchingCus)
+                    {
+                        if (!allMatchingCustomers.Any(x => x.OrgID == c.OrgID && x.CustomerCodeSys == c.CustomerCodeSys))
+                        {
+                            allMatchingCustomers.Add(c);
+                        }
+                    }
+
+                    var matchingGrp = await _db.Set<Mst_CustomerInCustomerGroup>()
+                        .Where(x => EF.Functions.Like((x.CustomerCodeSys ?? "").ToLower(), PortQuery.Equal(cusCodeSys), PortQuery.Esc)
+                                 && EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc))
+                        .ToListAsync();
+
+                    foreach (var g in matchingGrp)
+                    {
+                        if (!allMatchingGroups.Any(x => x.OrgID == g.OrgID && x.CustomerGrpCode == g.CustomerGrpCode && x.CustomerCodeSys == g.CustomerCodeSys))
+                        {
+                            allMatchingGroups.Add(g);
+                        }
+                    }
+                }
+            }
+
+            // 3. Mở Transaction và thực hiện xóa bản ghi (Customer.cs:1650, 2653-2690)
+            //    (UserOwner_Customer và Mst_CustomerInArea chưa có entity trong MiniContract -> ghi GAP)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                if (allMatchingGroups.Count > 0)
+                {
+                    _db.Set<Mst_CustomerInCustomerGroup>().RemoveRange(allMatchingGroups);
+                }
+
+                if (allMatchingCustomers.Count > 0)
+                {
+                    _db.Set<Mst_Customer>().RemoveRange(allMatchingCustomers);
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // 4. Trả kết quả thành công khớp gate MVC (Mst_CustomerController.cs:1451-1453)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Xóa khách hàng thành công!" },
+                    Title = "Xóa khách hàng thành công!",
+                    RedirectUrl = "/Mst_Customer/Index"
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Customer_Save", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Save", "Exception", ex.Message);
+        }
+    }
+
     private class CustomerDynamicFieldParamType
     {
         public string Title { get; set; } = "";
@@ -1260,6 +1473,25 @@ public class Mst_Customer_ExportReq
 
 public class Mst_Customer_ExportTemplateReq
 {
+}
+
+public class Mst_Customer_DeleteReq
+{
+    // Tham số từ Gate MVC Mst_CustomerController.cs:1372 Delete(string listCustomers)
+    public object? ListCustomers { get; set; }
+    public List<Mst_Customer_DeleteItem>? Lst_Mst_Customer { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+}
+
+public class Mst_Customer_DeleteItem
+{
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerCode { get; set; }
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
 }
 
 

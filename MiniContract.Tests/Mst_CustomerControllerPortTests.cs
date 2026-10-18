@@ -1692,6 +1692,253 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO DELETE (Port #162)
+    // Gate: Mst_CustomerController.cs:1372-1461
+    // API:  MstCustomerController.cs:19-89 WA_Mst_Customer_Save
+    // BIZ:  Customer.cs:2968-3070 WAS_Mst_Customer_Save, 1619-1732 Mst_Customer_Save, 2359-2966 Mst_Customer_SaveX_New20231205
+    // ==========================================
+
+    [Fact]
+    public async Task Delete_EmptyBody_ReturnsMst_Customer_Save_Input_Mst_CustomerTblNotFound()
+    {
+        var result = await _controller.Delete(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Save_Input_Mst_CustomerTblNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mst_Customer", root.GetProperty("Params").GetProperty("Check.TableName").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyListCustomersString_ReturnsMst_Customer_Save_Input_Mst_CustomerTblNotFound()
+    {
+        var req = new Mst_Customer_DeleteReq
+        {
+            ListCustomers = ""
+        };
+        var result = await _controller.Delete(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Save_Input_Mst_CustomerTblNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mst_Customer", root.GetProperty("Params").GetProperty("Check.TableName").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyListCustomersArray_ReturnsMst_Customer_Save_Input_Mst_CustomerTblNotFound()
+    {
+        var req = new Mst_Customer_DeleteReq
+        {
+            ListCustomers = "[]"
+        };
+        var result = await _controller.Delete(req);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Save_Input_Mst_CustomerTblNotFound", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("Mst_Customer", root.GetProperty("Params").GetProperty("Check.TableName").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_SingleCustomer_SuccessfullyDeletesFromCustomerAndCustomerGroup()
+    {
+        // Ban đầu CUS001 tồn tại trong Mst_Customer và có 2 nhóm trong Mst_CustomerInCustomerGroup
+        var cusBefore = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCodeSys == "CUS001");
+        Assert.NotNull(cusBefore);
+        var groupsBefore = await _db.Set<Mst_CustomerInCustomerGroup>().Where(x => x.CustomerCodeSys == "CUS001").ToListAsync();
+        Assert.Equal(2, groupsBefore.Count);
+
+        var req = new Mst_Customer_DeleteReq
+        {
+            ListCustomers = "[{\"CustomerCodeSys\":\"CUS001\",\"OrgID\":\"7200000001\"}]"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa khách hàng thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("/Mst_Customer/Index", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra đã xóa khỏi Mst_Customer
+        var cusAfter = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCodeSys == "CUS001");
+        Assert.Null(cusAfter);
+
+        // Kiểm tra đã xóa khỏi Mst_CustomerInCustomerGroup
+        var groupsAfter = await _db.Set<Mst_CustomerInCustomerGroup>().Where(x => x.CustomerCodeSys == "CUS001").ToListAsync();
+        Assert.Empty(groupsAfter);
+
+        // Khách hàng CUS002 không bị ảnh hưởng
+        var cus002 = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCodeSys == "CUS002");
+        Assert.NotNull(cus002);
+    }
+
+    [Fact]
+    public async Task Delete_MultipleCustomers_SuccessfullyDeletesAll()
+    {
+        var req = new Mst_Customer_DeleteReq
+        {
+            ListCustomers = "[{\"CustomerCodeSys\":\"CUS002\",\"OrgID\":\"7200000001\"},{\"CustomerCodeSys\":\"CUS003\",\"OrgID\":\"7200000001\"}]"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var cus002 = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCodeSys == "CUS002");
+        Assert.Null(cus002);
+        var cus003 = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCodeSys == "CUS003");
+        Assert.Null(cus003);
+    }
+
+    [Fact]
+    public async Task Delete_ByCustomerCode_SuccessfullyResolvesAndDeletes()
+    {
+        var cusBefore = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH004");
+        Assert.NotNull(cusBefore);
+
+        var req = new Mst_Customer_DeleteReq
+        {
+            CustomerCode = "KH004",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var cusAfter = await _db.Set<Mst_Customer>().FirstOrDefaultAsync(x => x.CustomerCode == "KH004");
+        Assert.Null(cusAfter);
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentCustomer_ReturnsSuccessWithoutError()
+    {
+        var req = new Mst_Customer_DeleteReq
+        {
+            CustomerCodeSys = "NON_EXISTENT_CUS"
+        };
+        var result = await _controller.Delete(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa khách hàng thành công!", doc.RootElement.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Delete()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_del_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Guard check: Body rỗng
+            var reqEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/delete", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Delete Empty: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Save_Input_Mst_CustomerTblNotFound", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("Mst_Customer", docEmpty.RootElement.GetProperty("Params").GetProperty("Check.TableName").GetString());
+
+            // 2. Kiểm tra trước khi xóa: CUS002 tồn tại
+            var checkReq = new StringContent("{\"CustomerName\":\"Beta\"}", Encoding.UTF8, "application/json");
+            var resCheck1 = await http.PostAsync("/api/mst_customer/dosearch", checkReq);
+            var bodyCheck1 = await resCheck1.Content.ReadAsStringAsync();
+            var docCheck1 = JsonDocument.Parse(bodyCheck1);
+            Assert.Equal(1, docCheck1.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+
+            // 3. Round-trip delete: Xóa CUS002
+            var delReq = new StringContent("{\"listCustomers\":\"[{\\\"CustomerCodeSys\\\":\\\"CUS002\\\",\\\"OrgID\\\":\\\"7200000001\\\"}]\"}", Encoding.UTF8, "application/json");
+            var resDel = await http.PostAsync("/api/mst_customer/delete", delReq);
+            var bodyDel = await resDel.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Delete CUS002: {bodyDel}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDel.StatusCode);
+            var docDel = JsonDocument.Parse(bodyDel);
+            Assert.True(docDel.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa khách hàng thành công!", docDel.RootElement.GetProperty("Title").GetString());
+
+            // 4. Kiểm tra sau khi xóa: CUS002 không còn trong hệ thống
+            var resCheck2 = await http.PostAsync("/api/mst_customer/dosearch", checkReq);
+            var bodyCheck2 = await resCheck2.Content.ReadAsStringAsync();
+            var docCheck2 = JsonDocument.Parse(bodyCheck2);
+            Assert.Equal(0, docCheck2.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
