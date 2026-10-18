@@ -511,10 +511,192 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_NullBody_ReturnsCheckStrJson()
+    {
+        var result = await _controller.Edit(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Update", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Edit_EmptyBody_ReturnsCheckStrJson()
+    {
+        var result = await _controller.Edit(new Mst_ContractType_EditReq());
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Update", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_InvalidNetworkID_ReturnsCheckStrNetworkID()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            NetworkID = "",
+            ContractType = "HD_KT",
+            ContractTypeName = "Hợp đồng kinh tế sửa"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Update", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strNetworkID", out _));
+    }
+
+    [Fact]
+    public async Task Edit_EmptyContractType_ReturnsCheckContractType()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            NetworkID = "1001",
+            ContractType = "",
+            ContractTypeName = "Hợp đồng kinh tế sửa"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Update", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.ContractType", out _));
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentContractType_ReturnsOrganNotFound()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            NetworkID = "1001",
+            ContractType = "NOT_EXIST",
+            ContractTypeName = "Không tồn tại"
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("NOT_EXIST", p.GetProperty("Check.ContractType").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_Success_RoundTrip()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_KT",
+            ContractTypeName = "Hợp đồng kinh tế - Cập nhật mới",
+            Description = "Mô tả mới đã cập nhật",
+            FlagActive = "0"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_ContractType", root.GetProperty("RedirectUrl").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("1001", data.GetProperty("NetworkID").GetString());
+        Assert.Equal("HD_KT", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng kinh tế - Cập nhật mới", data.GetProperty("ContractTypeName").GetString());
+        Assert.Equal("Mô tả mới đã cập nhật", data.GetProperty("Description").GetString());
+        Assert.Equal("0", data.GetProperty("FlagActive").GetString());
+        Assert.Equal("port", data.GetProperty("LogLUBy").GetString());
+
+        // Kiểm tra đọc lại trực tiếp từ DB
+        var updated = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_KT");
+        Assert.NotNull(updated);
+        Assert.Equal("Hợp đồng kinh tế - Cập nhật mới", updated.ContractTypeName);
+        Assert.Equal("Mô tả mới đã cập nhật", updated.Description);
+        Assert.Equal("0", updated.FlagActive);
+
+        // Kiểm tra đọc lại qua Update
+        var updRes = await _controller.Update(new Mst_ContractType_UpdateReq { ContractType = "HD_KT" });
+        var okUpd = Assert.IsType<OkObjectResult>(updRes);
+        var docUpd = JsonDocument.Parse(JsonSerializer.Serialize(okUpd.Value));
+        Assert.Equal("Hợp đồng kinh tế - Cập nhật mới", docUpd.RootElement.GetProperty("Data").GetProperty("ContractTypeName").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_WithModelString_Success()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            Model = "{\"NetworkID\":\"1001\",\"ContractType\":\"HD_LD\",\"ContractTypeName\":\"Hợp đồng lao động - Qua Model JSON\",\"Description\":\"Cập nhật qua chuỗi Model\"}"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("HD_LD", data.GetProperty("ContractType").GetString());
+        Assert.Equal("Hợp đồng lao động - Qua Model JSON", data.GetProperty("ContractTypeName").GetString());
+
+        var updated = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_LD");
+        Assert.NotNull(updated);
+        Assert.Equal("Hợp đồng lao động - Qua Model JSON", updated.ContractTypeName);
+    }
+
+    [Fact]
+    public async Task Edit_PartialUpdate_WithFtColsUpd()
+    {
+        var req = new Mst_ContractType_EditReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_DV",
+            ContractTypeName = "Hợp đồng dịch vụ - Chỉ sửa tên",
+            Description = "Mô tả này không được lưu",
+            Ft_Cols_Upd = "Mst_ContractType.ContractTypeName"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var updated = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_DV");
+        Assert.NotNull(updated);
+        Assert.Equal("Hợp đồng dịch vụ - Chỉ sửa tên", updated.ContractTypeName);
+        // Mô tả vẫn giữ nguyên từ seed
+        Assert.Equal("Hợp đồng cung cấp dịch vụ", updated.Description);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8589()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_ct_{Guid.NewGuid():N}.db");
-        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        }
         if (!File.Exists(dllPath))
         {
             dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
@@ -562,6 +744,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             var docIdx1 = JsonDocument.Parse(bodyIdx1);
             Assert.Equal(System.Net.HttpStatusCode.OK, resIdx1.StatusCode);
             Assert.Equal(4, docIdx1.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            _output?.WriteLine($"[Index Filter1 NetworkID=1001] StatusCode={(int)resIdx1.StatusCode} Body={bodyIdx1}");
 
             // Bộ lọc 2: NetworkID = "1002" -> 1 bản ghi
             var reqIdx2 = new StringContent("{\"NetworkID\":\"1002\"}", Encoding.UTF8, "application/json");
@@ -570,6 +753,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             var docIdx2 = JsonDocument.Parse(bodyIdx2);
             Assert.Equal(System.Net.HttpStatusCode.OK, resIdx2.StatusCode);
             Assert.Equal(1, docIdx2.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            _output?.WriteLine($"[Index Filter2 NetworkID=1002] StatusCode={(int)resIdx2.StatusCode} Body={bodyIdx2}");
 
             // 2. Create: 1 ca guard trả lỗi và 1 ca round-trip ghi
             // Guard: body rỗng -> 400 Bad Request
@@ -579,6 +763,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             var docCrErr = JsonDocument.Parse(bodyCrErr);
             Assert.Equal(System.Net.HttpStatusCode.BadRequest, resCrErr.StatusCode);
             Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Create", docCrErr.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[Create Guard EmptyBody] StatusCode={(int)resCrErr.StatusCode} Body={bodyCrErr}");
 
             // Ghi: tạo mới thành công
             var reqCrOk = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"HD_LIVE_TEST\",\"ContractTypeName\":\"Hợp đồng kiểm thử live\",\"OrgID\":\"7200000001\"}", Encoding.UTF8, "application/json");
@@ -588,6 +773,7 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             Assert.Equal(System.Net.HttpStatusCode.OK, resCrOk.StatusCode);
             Assert.True(docCrOk.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("HD_LIVE_TEST", docCrOk.RootElement.GetProperty("Data").GetProperty("ContractType").GetString());
+            _output?.WriteLine($"[Create Success] StatusCode={(int)resCrOk.StatusCode} Body={bodyCrOk}");
 
             // 3. Update: kiểm tra các ca đọc dữ liệu
             // Ca 3.1: Body rỗng -> trả về bản ghi đầu tiên ("HD_DV")
@@ -646,6 +832,45 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             Assert.Equal(System.Net.HttpStatusCode.OK, resUpdNetFail.StatusCode);
             Assert.True(docUpdNetFail.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(JsonValueKind.Null, docUpdNetFail.RootElement.GetProperty("Data").ValueKind);
+
+            // 4. Edit: 1 ca guard trả lỗi và 1 ca round-trip ghi thành công
+            // Ca 4.1: Guard body rỗng -> 400 Bad Request
+            var reqEditEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEditEmpty = await http.PostAsync("/api/mst_contracttype/edit", reqEditEmpty);
+            var bodyEditEmpty = await resEditEmpty.Content.ReadAsStringAsync();
+            var docEditEmpty = JsonDocument.Parse(bodyEditEmpty);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEditEmpty.StatusCode);
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Update", docEditEmpty.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[Edit Guard EmptyBody] StatusCode={(int)resEditEmpty.StatusCode} Body={bodyEditEmpty}");
+
+            // Ca 4.2: Guard không tồn tại -> 400 Bad Request (Mst_ContractType_CheckDB_OrganNotFound)
+            var reqEditNone = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"NOT_EXIST\",\"ContractTypeName\":\"Không tồn tại\"}", Encoding.UTF8, "application/json");
+            var resEditNone = await http.PostAsync("/api/mst_contracttype/edit", reqEditNone);
+            var bodyEditNone = await resEditNone.Content.ReadAsStringAsync();
+            var docEditNone = JsonDocument.Parse(bodyEditNone);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEditNone.StatusCode);
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_CheckDB_OrganNotFound", docEditNone.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[Edit Guard NonExistent] StatusCode={(int)resEditNone.StatusCode} Body={bodyEditNone}");
+
+            // Ca 4.3: Round-trip cập nhật thành công và đọc lại
+            var reqEditOk = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"HD_LIVE_TEST\",\"ContractTypeName\":\"Hợp đồng kiểm thử live - Đã sửa\",\"Description\":\"Mô tả đã sửa live\",\"FlagActive\":\"1\"}", Encoding.UTF8, "application/json");
+            var resEditOk = await http.PostAsync("/api/mst_contracttype/edit", reqEditOk);
+            var bodyEditOk = await resEditOk.Content.ReadAsStringAsync();
+            var docEditOk = JsonDocument.Parse(bodyEditOk);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resEditOk.StatusCode);
+            Assert.True(docEditOk.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Hợp đồng kiểm thử live - Đã sửa", docEditOk.RootElement.GetProperty("Data").GetProperty("ContractTypeName").GetString());
+            _output?.WriteLine($"[Edit Success RoundTrip] StatusCode={(int)resEditOk.StatusCode} Body={bodyEditOk}");
+
+            // Đọc lại qua Update để xác minh dữ liệu đã được cập nhật thật
+            var reqVerify = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"HD_LIVE_TEST\"}", Encoding.UTF8, "application/json");
+            var resVerify = await http.PostAsync("/api/mst_contracttype/update", reqVerify);
+            var bodyVerify = await resVerify.Content.ReadAsStringAsync();
+            var docVerify = JsonDocument.Parse(bodyVerify);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resVerify.StatusCode);
+            Assert.Equal("Hợp đồng kiểm thử live - Đã sửa", docVerify.RootElement.GetProperty("Data").GetProperty("ContractTypeName").GetString());
+            Assert.Equal("Mô tả đã sửa live", docVerify.RootElement.GetProperty("Data").GetProperty("Description").GetString());
+            _output?.WriteLine($"[Verify ReadBack Update] StatusCode={(int)resVerify.StatusCode} Body={bodyVerify}");
         }
         finally
         {
