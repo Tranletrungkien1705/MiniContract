@@ -8,6 +8,7 @@ using MiniContract.Controllers.Port;
 using MiniContract.Data;
 using MiniContract.Models.Port;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MiniContract.Tests;
 
@@ -16,9 +17,11 @@ public class Mst_DepartmentControllerPortTests : IDisposable
     private readonly SqliteConnection _conn;
     private readonly AppDbContext _db;
     private readonly Mst_DepartmentControllerPort _controller;
+    private readonly ITestOutputHelper? _output;
 
-    public Mst_DepartmentControllerPortTests()
+    public Mst_DepartmentControllerPortTests(ITestOutputHelper? output = null)
     {
+        _output = output;
         _conn = new SqliteConnection("DataSource=:memory:");
         _conn.Open();
 
@@ -842,6 +845,138 @@ public class Mst_DepartmentControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_WithNullOrEmptyBody_ReturnsOk_DepartmentEmptyMessage()
+    {
+        // 1. Body null (Gate: Mst_DepartmentController.cs:430, 480-482)
+        var resNull = await _controller.Delete(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        Assert.True(docNull.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Bộ phận phòng ban trống!", docNull.RootElement.GetProperty("Messages")[0].GetString());
+
+        // 2. Body rỗng
+        var resEmpty = await _controller.Delete(new Mst_Department_DeleteReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(okEmpty.Value));
+        Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Bộ phận phòng ban trống!", docEmpty.RootElement.GetProperty("Messages")[0].GetString());
+
+        // 3. DepartmentCode chuỗi trắng
+        var resWhite = await _controller.Delete(new Mst_Department_DeleteReq { DepartmentCode = "   " });
+        var okWhite = Assert.IsType<OkObjectResult>(resWhite);
+        var docWhite = JsonDocument.Parse(JsonSerializer.Serialize(okWhite.Value));
+        Assert.True(docWhite.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Bộ phận phòng ban trống!", docWhite.RootElement.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_WithNonExistentDepartmentCode_ReturnsOk_DepartmentNotFoundMessage()
+    {
+        // Mã không tồn tại (Gate: Mst_DepartmentController.cs:474-476)
+        var req = new Mst_Department_DeleteReq { DepartmentCode = "DEPT_NONEXIST" };
+        var res = await _controller.Delete(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã bộ phận phong ban'DEPT_NONEXIST' không có trong hệ thống!", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_Success_RoundTrip()
+    {
+        // Tạo trước phòng ban để xóa
+        _db.Set<Mst_Department>().Add(new Mst_Department
+        {
+            DepartmentCode = "DEPT_DEL_TEST",
+            DepartmentName = "Phòng Chuẩn Bị Xóa",
+            MST = "0101234567",
+            FlagActive = "1"
+        });
+        await _db.SaveChangesAsync();
+
+        // Kiểm tra tồn tại trước khi xóa
+        var beforeDel = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_DEL_TEST");
+        Assert.NotNull(beforeDel);
+
+        // Gọi action Delete (Gate: Mst_DepartmentController.cs:466-471)
+        var req = new Mst_Department_DeleteReq { DepartmentCode = "DEPT_DEL_TEST" };
+        var res = await _controller.Delete(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa bộ phận phòng ban thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Mst_Department", root.GetProperty("RedirectUrl").GetString());
+
+        // Đọc lại từ DB để xác minh round-trip xóa thật
+        var afterDel = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_DEL_TEST");
+        Assert.Null(afterDel);
+    }
+
+    [Fact]
+    public async Task Delete_WithModelJson_Success_RoundTrip()
+    {
+        // Tạo trước phòng ban
+        _db.Set<Mst_Department>().Add(new Mst_Department
+        {
+            DepartmentCode = "DEPT_DEL_JSON",
+            DepartmentName = "Phòng Xóa Bằng Model JSON",
+            MST = "0101234567",
+            FlagActive = "1"
+        });
+        await _db.SaveChangesAsync();
+
+        var modelJson = JsonSerializer.Serialize(new { DepartmentCode = "DEPT_DEL_JSON" });
+        var req = new Mst_Department_DeleteReq { Model = modelJson };
+        var res = await _controller.Delete(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa bộ phận phòng ban thành công!", root.GetProperty("Messages")[0].GetString());
+
+        // Xác minh không còn trong DB
+        var afterDel = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_DEL_JSON");
+        Assert.Null(afterDel);
+    }
+
+    [Fact]
+    public async Task Delete_CaseInsensitiveDepartmentCode_Success_RoundTrip()
+    {
+        // Tạo phòng ban với mã hoa
+        _db.Set<Mst_Department>().Add(new Mst_Department
+        {
+            DepartmentCode = "DEPT_DEL_CASE",
+            DepartmentName = "Phòng Xóa Phân Biệt Hoa Thường",
+            MST = "0101234567",
+            FlagActive = "1"
+        });
+        await _db.SaveChangesAsync();
+
+        // Gửi mã viết thường
+        var req = new Mst_Department_DeleteReq { DepartmentCode = "dept_del_case" };
+        var res = await _controller.Delete(req);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa bộ phận phòng ban thành công!", root.GetProperty("Messages")[0].GetString());
+
+        // Xác minh đã bị xóa
+        var afterDel = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_DEL_CASE");
+        Assert.Null(afterDel);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_department_{Guid.NewGuid():N}.db");
@@ -927,6 +1062,60 @@ public class Mst_DepartmentControllerPortTests : IDisposable
             var data4 = doc4.RootElement.GetProperty("Data");
             Assert.Equal("DEPT_KT", data4.GetProperty("DepartmentCode").GetString());
             Assert.Equal("Phòng Kế Toán", data4.GetProperty("DepartmentName").GetString());
+
+            // Ca 5: POST /api/mst_department/delete với body rỗng -> 200 OK, Success = true, Bộ phận phòng ban trống!
+            var req5 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res5 = await http.PostAsync("/api/mst_department/delete", req5);
+            var body5 = await res5.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 5 POST /api/mst_department/delete (empty body)] Status: {(int)res5.StatusCode} Response: {body5}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res5.StatusCode);
+            var doc5 = JsonDocument.Parse(body5);
+            Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Bộ phận phòng ban trống!", doc5.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 6: POST /api/mst_department/delete với mã không tồn tại -> 200 OK, Success = true, thông báo không có trong hệ thống
+            var req6 = new StringContent("{\"DepartmentCode\":\"DEPT_SRV_NONEXIST\"}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_department/delete", req6);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 6 POST /api/mst_department/delete (non-existent code)] Status: {(int)res6.StatusCode} Response: {body6}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res6.StatusCode);
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.True(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã bộ phận phong ban'DEPT_SRV_NONEXIST' không có trong hệ thống!", doc6.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 7: POST /api/mst_department/create tạo mới DEPT_SRV_DEL, sau đó xóa và xác minh round-trip
+            var createJson = JsonSerializer.Serialize(new
+            {
+                DepartmentCode = "DEPT_SRV_DEL",
+                DepartmentName = "Phòng Xóa Server Thật",
+                MST = "0100000001",
+                DepartmentCodeParent = "DEPT_BGD"
+            });
+            var reqCreate = new StringContent(createJson, Encoding.UTF8, "application/json");
+            var resCreate = await http.PostAsync("/api/mst_department/create", reqCreate);
+            var bodyCreate = await resCreate.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 7a POST /api/mst_department/create] Status: {(int)resCreate.StatusCode} Response: {bodyCreate}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resCreate.StatusCode);
+
+            // Xóa DEPT_SRV_DEL qua endpoint delete
+            var reqDel = new StringContent("{\"DepartmentCode\":\"DEPT_SRV_DEL\"}", Encoding.UTF8, "application/json");
+            var resDel = await http.PostAsync("/api/mst_department/delete", reqDel);
+            var bodyDel = await resDel.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 7b POST /api/mst_department/delete] Status: {(int)resDel.StatusCode} Response: {bodyDel}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDel.StatusCode);
+            var docDel = JsonDocument.Parse(bodyDel);
+            Assert.True(docDel.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa bộ phận phòng ban thành công!", docDel.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Đọc lại qua detail -> Data = null (round-trip đã xóa thành công trên server thật)
+            var reqVerify = new StringContent("{\"DepartmentCode\":\"DEPT_SRV_DEL\"}", Encoding.UTF8, "application/json");
+            var resVerify = await http.PostAsync("/api/mst_department/detail", reqVerify);
+            var bodyVerify = await resVerify.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 7c POST /api/mst_department/detail (after delete)] Status: {(int)resVerify.StatusCode} Response: {bodyVerify}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resVerify.StatusCode);
+            var docVerify = JsonDocument.Parse(bodyVerify);
+            Assert.True(docVerify.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, docVerify.RootElement.GetProperty("Data").ValueKind);
         }
         finally
         {

@@ -10,9 +10,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_DepartmentController.cs — Mst_Department
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create), 162-231 (WA_Mst_Department_Update)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail), 422-485 (Delete)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create), 162-231 (WA_Mst_Department_Update), 233-302 (WA_Mst_Department_Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36433-36510 (WAS_Mst_Department_Delete), 36511-36640 (Mst_Department_Delete), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 37042-37097 (Mst_Department_DeleteX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
 [ApiController]
 [Route("api/mst_department")]
 public class Mst_DepartmentControllerPort : ControllerBase
@@ -647,6 +647,88 @@ public class Mst_DepartmentControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xóa bộ phận phòng ban.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:422-485 Delete(string departmentcode)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:233-302 WA_Mst_Department_Delete
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:36433-36510 (WAS_Mst_Department_Delete) -> 36511-36640 (Mst_Department_Delete) -> 37042-37097 (Mst_Department_DeleteX), 35634-35698 (Mst_Department_CheckDB)
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Department_DeleteReq? req)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào DepartmentCode (Gate: Mst_DepartmentController.cs:422, 430)
+            var deptCode = StdParam(req?.DepartmentCode);
+            if (string.IsNullOrEmpty(deptCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Department_DeleteReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    deptCode = StdParam(modelObj?.DepartmentCode);
+                }
+                catch
+                {
+                    deptCode = StdParam(req.Model);
+                }
+            }
+
+            // 2. Nếu DepartmentCode rỗng/null, gate trả về JsonResultEntry: Bộ phận phòng ban trống! (Mst_DepartmentController.cs:430, 480-482)
+            if (string.IsNullOrEmpty(deptCode))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Bộ phận phòng ban trống!" },
+                    Title = "Bộ phận phòng ban trống!"
+                });
+            }
+
+            // 3. Tra cứu bản ghi phòng ban hiện có trong DB (Gate: Mst_DepartmentController.cs:461-462; Master.cs:36701, 36740, 35648)
+            var existing = await _db.Set<Mst_Department>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.DepartmentCode ?? "").ToLower(), PortQuery.Equal(deptCode), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                var rawCode = req?.DepartmentCode ?? deptCode;
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { $"Mã bộ phận phong ban'{rawCode}' không có trong hệ thống!" },
+                    Title = $"Mã bộ phận phong ban'{rawCode}' không có trong hệ thống!"
+                });
+            }
+
+            // 4. Mở transaction và xóa dữ liệu (Master.cs:36544, 36603, 37088-37094)
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.Set<Mst_Department>().Remove(existing);
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // 5. Trả kết quả thành công khớp gate MVC (Mst_DepartmentController.cs:468-470)
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Xóa bộ phận phòng ban thành công!" },
+                    Title = "Xóa bộ phận phòng ban thành công!",
+                    RedirectUrl = "/Mst_Department",
+                    Data = existing
+                });
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Department_Delete", "Exception", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Department_Delete", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU (Master.cs:35700-35736).
     /// </summary>
     private async Task UpdBUAsync()
@@ -875,4 +957,16 @@ public class Mst_Department_DetailData : Mst_Department
         ListMst_NNT = listNNT;
         List_Mst_NNT = listNNT;
     }
+}
+
+/// <summary>
+/// DTO tham số cho action Delete của Mst_DepartmentController.
+/// </summary>
+public class Mst_Department_DeleteReq
+{
+    // Tham số DepartmentCode từ gate Mst_DepartmentController.cs:422 Delete(string departmentcode)
+    public string? DepartmentCode { get; set; }
+
+    // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc mã thô trong Model
+    public string? Model { get; set; }
 }
