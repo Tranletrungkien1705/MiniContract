@@ -1402,6 +1402,220 @@ public class Mst_ProductControllerPortTests : IDisposable
         Assert.NotEqual(count1, count2);
     }
 
+    // =========================================================================
+    // Các ca kiểm thử cho action Edit (/api/mst_product/edit)
+    // =========================================================================
+
+    [Fact]
+    public async Task Edit_WithNullReq_ReturnsFailMstProductSave()
+    {
+        // Guard: Body null hoàn toàn -> báo lỗi Mst_Product_Save
+        var res = await _controller.Edit(null);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Contains("Mst_Product_Save", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_WithMissingProductLevelSys_ReturnsFailMstProductSave()
+    {
+        // Guard: Body thiếu ProductLevelSys -> báo lỗi Mst_Product_Save
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                ProductCode = "PRD_ROOT_01",
+                ProductLevelSys = null
+            }
+        };
+        var res = await _controller.Edit(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Contains("Mst_Product_Save", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentProduct_ReturnsFailMstProductSave()
+    {
+        // Guard: Không tìm thấy sản phẩm cần sửa -> báo lỗi Mst_Product_Save
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_KHONG_TON_TAI_XYZ",
+                ProductCodeRoot = "PRD_KHONG_TON_TAI_XYZ",
+                ProductLevelSys = "ROOTPRD"
+            }
+        };
+        var res = await _controller.Edit(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(bad.Value));
+        Assert.False(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Contains("Mst_Product_Save", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_DuplicateUnitCode_ReturnsSuccessTrueWithDuplicateWarning()
+    {
+        // Nghiệp vụ bẫy nguồn (Gate Mst_ProductController.cs:2398-2400):
+        // Khi thêm đơn vị mới bị trùng mã đơn vị đã tồn tại (CAI), gate trả về Success = true kèm thông báo cảnh báo
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_ROOT_01",
+                ProductCodeRoot = "PRD_ROOT_01",
+                ProductLevelSys = "ROOTPRD"
+            },
+            Lst_Unit = new List<Mst_Unit_EditItem>
+            {
+                new() { UnitCode = "CAI", ProductCode = "PRD_ROOT_01" }
+            },
+            Lst_Mst_ProductUI_Create = new List<Mst_Product_EditItem>
+            {
+                new() { UnitCode = "CAI", ProductName = "Sản phẩm trùng đơn vị" }
+            }
+        };
+        var res = await _controller.Edit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        var msg = doc.RootElement.GetProperty("Messages")[0].GetString();
+        Assert.Contains("Mã đơn vị 'CAI' không được trùng!", msg);
+    }
+
+    [Fact]
+    public async Task Edit_RootProduct_SuccessRoundTrip()
+    {
+        // Sửa sản phẩm gốc PRD_ROOT_01 và thêm thuộc tính mới nối vào tên
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_ROOT_01",
+                ProductCodeRoot = "PRD_ROOT_01",
+                ProductLevelSys = "ROOTPRD",
+                ProductCodeUser = "SP001_UPD",
+                ProductName = "Sản phẩm mẫu 01 - Đã sửa",
+                ProductNameEN = "Sample Product 01 - Updated",
+                UPBuy = 12000.0,
+                UPSell = 18000.0,
+                Remark = "Ghi chú đã cập nhật",
+                FlagActive = "1"
+            },
+            Lst_Prd_Attribute_New = new List<Prd_Attribute>
+            {
+                new() { AttributeCode = "COLOR", AttributeValue = "DO" }
+            },
+            FlagRedirect = "1"
+        };
+
+        var res = await _controller.Edit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("/api/mst_product/create", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        // Round-trip: Đọc lại từ database kiểm tra giá trị đã lưu
+        var updated = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == "PRD_ROOT_01");
+        Assert.NotNull(updated);
+        Assert.Equal("SP001_UPD", updated.ProductCodeUser);
+        Assert.Equal("Sản phẩm mẫu 01 - Đã sửa-DO", updated.ProductName);
+        Assert.Equal(12000.0, updated.UPBuy);
+        Assert.Equal(18000.0, updated.UPSell);
+        Assert.Equal("Ghi chú đã cập nhật", updated.Remark);
+    }
+
+    [Fact]
+    public async Task Edit_Level2Product_SuccessRoundTrip()
+    {
+        // Sửa sản phẩm cấp 2 PRD_L2_01_1 (L2PRD)
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_L2_01_1",
+                ProductLevelSys = "L2PRD",
+                ProductCodeUser = "SP001_L2_UPD",
+                ProductName = "Sản phẩm cấp 2 - Đã sửa",
+                ProductBarCode = "BARCODE_L2_999",
+                UPSell = 75000.0,
+                Remark = "Ghi chú cấp 2"
+            },
+            FlagRedirect = "0"
+        };
+
+        var res = await _controller.Edit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("/api/mst_product/index", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        // Round-trip: Đọc lại từ database kiểm tra giá trị đã lưu
+        var updated = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == "PRD_L2_01_1");
+        Assert.NotNull(updated);
+        Assert.Equal("SP001_L2_UPD", updated.ProductCodeUser);
+        Assert.Equal("Sản phẩm cấp 2 - Đã sửa", updated.ProductName);
+        Assert.Equal("BARCODE_L2_999", updated.ProductBarCode);
+        Assert.Equal(75000.0, updated.UPSell);
+    }
+
+    [Fact]
+    public async Task Edit_RootProduct_AddNewUnitProduct_SuccessRoundTrip()
+    {
+        // Thêm sản phẩm đơn vị mới qua Lst_Mst_ProductUI_Create
+        var newUnitPrdCode = "PRD_BASE_01_NEW_UNIT";
+        var req = new Mst_Product_EditReq
+        {
+            Mst_Product = new Mst_Product_EditItem
+            {
+                OrgID = "1001",
+                ProductCode = "PRD_ROOT_01",
+                ProductCodeRoot = "PRD_ROOT_01",
+                ProductLevelSys = "ROOTPRD"
+            },
+            Lst_Unit = new List<Mst_Unit_EditItem>
+            {
+                new() { UnitCode = "GOI", ProductCode = newUnitPrdCode }
+            },
+            Lst_Mst_ProductUI_Create = new List<Mst_Product_EditItem>
+            {
+                new()
+                {
+                    OrgID = "1001",
+                    ProductCode = newUnitPrdCode,
+                    ProductLevelSys = "BASEPRD",
+                    ProductCodeUser = "SP001_GOI",
+                    ProductName = "Sản phẩm mẫu 01 - Gói",
+                    UnitCode = "GOI",
+                    ValConvert = 5.0,
+                    UPBuy = 45000.0,
+                    UPSell = 65000.0
+                }
+            }
+        };
+
+        var res = await _controller.Edit(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        // Round-trip: Kiểm tra sản phẩm mới đã được lưu vào database
+        var created = await _db.Set<Mst_Product>().FirstOrDefaultAsync(x => x.OrgID == "1001" && x.ProductCode == newUnitPrdCode);
+        Assert.NotNull(created);
+        Assert.Equal("GOI", created.UnitCode);
+        Assert.Equal(5.0, created.ValConvert);
+        Assert.Equal(45000.0, created.UPBuy);
+        Assert.Equal(65000.0, created.UPSell);
+        Assert.Equal("PRD_ROOT_01", created.ProductCodeRoot);
+    }
+
     [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
@@ -1859,6 +2073,56 @@ public class Mst_ProductControllerPortTests : IDisposable
             var count42 = doc42.RootElement.GetProperty("Data").GetProperty("ListUnitCode").GetArrayLength();
             Assert.Equal(0, count42);
             Assert.NotEqual(data40.GetProperty("ListUnitCode").GetArrayLength(), count42);
+
+            // Ca 43: POST /api/mst_product/edit với body rỗng -> Fail Mst_Product_Save
+            var req43 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res43 = await http.PostAsync("/api/mst_product/edit", req43);
+            var body43 = await res43.Content.ReadAsStringAsync();
+            var doc43 = JsonDocument.Parse(body43);
+            Assert.False(doc43.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Contains("Mst_Product_Save", doc43.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Ca 44: POST /api/mst_product/edit với đơn vị trùng (CAI) -> 200 OK, Success = true, cảnh báo trùng
+            var req44Json = "{\"Mst_Product\":{\"OrgID\":\"1001\",\"ProductCode\":\"PRD_ROOT_01\",\"ProductCodeRoot\":\"PRD_ROOT_01\",\"ProductLevelSys\":\"ROOTPRD\"},\"Lst_Unit\":[{\"UnitCode\":\"CAI\",\"ProductCode\":\"PRD_ROOT_01\"}],\"Lst_Mst_ProductUI_Create\":[{\"UnitCode\":\"CAI\",\"ProductName\":\"Trùng\"}]}";
+            var req44 = new StringContent(req44Json, Encoding.UTF8, "application/json");
+            var res44 = await http.PostAsync("/api/mst_product/edit", req44);
+            var body44 = await res44.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res44.StatusCode);
+            var doc44 = JsonDocument.Parse(body44);
+            Assert.True(doc44.RootElement.GetProperty("Success").GetBoolean());
+            var msg44 = doc44.RootElement.GetProperty("Messages")[0].GetString();
+            Assert.Contains("Mã đơn vị 'CAI' không được trùng!", msg44);
+
+            // Ca 45: POST /api/mst_product/edit cho ROOTPRD (PRD_ROOT_01) -> 200 OK, Success = true, sửa thành công
+            var req45Json = "{\"Mst_Product\":{\"OrgID\":\"1001\",\"ProductCode\":\"PRD_ROOT_01\",\"ProductCodeRoot\":\"PRD_ROOT_01\",\"ProductLevelSys\":\"ROOTPRD\",\"ProductCodeUser\":\"SP001_LIVE_UPD\",\"ProductName\":\"Sản phẩm Live đã sửa\",\"UPSell\":25000.0},\"FlagRedirect\":\"1\"}";
+            var req45 = new StringContent(req45Json, Encoding.UTF8, "application/json");
+            var res45 = await http.PostAsync("/api/mst_product/edit", req45);
+            var body45 = await res45.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res45.StatusCode);
+            var doc45 = JsonDocument.Parse(body45);
+            Assert.True(doc45.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/api/mst_product/create", doc45.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // Ca 46: Round-trip đọc lại qua /api/mst_product/getsearch thấy PRD_ROOT_01 đã đổi tên thành "Sản phẩm Live đã sửa"
+            var req46 = new StringContent("{\"OrgID\":\"1001\",\"ProductCodeUserName\":\"SP001_LIVE_UPD\"}", Encoding.UTF8, "application/json");
+            var res46 = await http.PostAsync("/api/mst_product/getsearch", req46);
+            var body46 = await res46.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res46.StatusCode);
+            var doc46 = JsonDocument.Parse(body46);
+            Assert.True(doc46.RootElement.GetProperty("Success").GetBoolean());
+            var list46 = doc46.RootElement.GetProperty("Data").GetProperty("Lst_Mst_Product");
+            Assert.True(list46.GetArrayLength() >= 1);
+            Assert.Equal("Sản phẩm Live đã sửa", list46[0].GetProperty("ProductName").GetString());
+
+            // Ca 47: POST /api/mst_product/edit cho L2PRD (PRD_L2_01_1) -> 200 OK, Success = true
+            var req47Json = "{\"Mst_Product\":{\"OrgID\":\"1001\",\"ProductCode\":\"PRD_L2_01_1\",\"ProductLevelSys\":\"L2PRD\",\"ProductName\":\"Sản phẩm Cấp 2 Live đã sửa\",\"ProductBarCode\":\"BARCODE_LIVE_L2\"},\"FlagRedirect\":\"0\"}";
+            var req47 = new StringContent(req47Json, Encoding.UTF8, "application/json");
+            var res47 = await http.PostAsync("/api/mst_product/edit", req47);
+            var body47 = await res47.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res47.StatusCode);
+            var doc47 = JsonDocument.Parse(body47);
+            Assert.True(doc47.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/api/mst_product/index", doc47.RootElement.GetProperty("RedirectUrl").GetString());
         }
         finally
         {

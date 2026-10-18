@@ -1537,6 +1537,414 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Cập nhật thông tin hàng hoá/dịch vụ (sản phẩm cấp 2 L2PRD hoặc sản phẩm Root/Base).
+    /// Gate: Mst_ProductController.cs:1906-2721 Edit(string model)
+    ///       Mst_ProductController.cs:2723-2764 MapProduct
+    ///       Mst_ProductController.cs:5224-5249 strWhereClause_Mst_Product_Update
+    ///       BaseController.cs:4145-4156 WA_Seq_GenObjCode_Get
+    /// API:  MstProductController.cs:19-87 WA_Mst_Product_Get, 90-158 WA_Mst_Product_Save
+    /// BIZ:  Product.cs:4230-4643 Mst_Product_Get, 4644-4802 WAS_Mst_Product_Get,
+    ///       4805-4941 Mst_Product_Save, 4943-5621 Mst_Product_SaveX, 5623-5760 WAS_Mst_Product_Save
+    /// </summary>
+    [HttpPost("edit")]
+    public async Task<IActionResult> Edit([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_EditReq? req)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 1. Hỗ trợ truyền chuỗi model JSON như gate MVC (Mst_ProductController.cs:1906, 1922)
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var deserialized = System.Text.Json.JsonSerializer.Deserialize<Mst_Product_EditReq>(
+                        req.Model,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (deserialized != null)
+                    {
+                        req = deserialized;
+                    }
+                }
+                catch
+                {
+                    // Giữ nguyên req nếu parse chuỗi thất bại
+                }
+            }
+
+            // 2. Trích xuất thông tin sản phẩm chỉnh sửa
+            var inputPrd = req?.Mst_Product;
+            if (inputPrd == null && req != null && (!string.IsNullOrEmpty(req.ProductCode) || !string.IsNullOrEmpty(req.ProductLevelSys)))
+            {
+                inputPrd = new Mst_Product_EditItem
+                {
+                    OrgID = req.OrgID,
+                    NetworkID = req.NetworkID,
+                    ProductCode = req.ProductCode,
+                    ProductLevelSys = req.ProductLevelSys,
+                    ProductCodeUser = req.ProductCodeUser,
+                    ProductName = req.ProductName,
+                    ProductNameEN = req.ProductNameEN,
+                    ProductBarCode = req.ProductBarCode,
+                    ProductCodeBase = req.ProductCodeBase,
+                    ProductCodeRoot = req.ProductCodeRoot,
+                    BrandCode = req.BrandCode,
+                    ProductType = req.ProductType,
+                    ProductGrpCode = req.ProductGrpCode,
+                    UnitCode = req.UnitCode,
+                    ValConvert = req.ValConvert,
+                    FlagBuy = req.FlagBuy,
+                    FlagSell = req.FlagSell,
+                    FlagActive = req.FlagActive,
+                    UPBuy = req.UPBuy,
+                    UPSell = req.UPSell,
+                    QtyMaxSt = req.QtyMaxSt,
+                    QtyMinSt = req.QtyMinSt,
+                    QtyEffSt = req.QtyEffSt,
+                    VATRateCode = req.VATRateCode,
+                    Remark = req.Remark,
+                    ListOfPrdDynamicFieldValue = req.ListOfPrdDynamicFieldValue,
+                    CustomField1 = req.CustomField1,
+                    CustomField2 = req.CustomField2,
+                    CustomField3 = req.CustomField3,
+                    CustomField4 = req.CustomField4,
+                    CustomField5 = req.CustomField5,
+                    FlagSerial = req.FlagSerial,
+                    FlagLot = req.FlagLot,
+                    FlagFG = req.FlagFG,
+                    ProductStd = req.ProductStd,
+                    ProductExpiry = req.ProductExpiry,
+                    ProductQuyCach = req.ProductQuyCach,
+                    ProductMnfUrl = req.ProductMnfUrl,
+                    ProductIntro = req.ProductIntro,
+                    ProductUserGuide = req.ProductUserGuide,
+                    ProductDrawing = req.ProductDrawing,
+                    ProductOrigin = req.ProductOrigin
+                };
+            }
+
+            // Guard: Nếu không có dữ liệu sản phẩm hoặc thiếu ProductLevelSys -> báo lỗi Mst_Product_Save (Gate bắt NullReferenceException dòng 2714)
+            if (inputPrd == null || string.IsNullOrWhiteSpace(inputPrd.ProductLevelSys))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Product_Save", "Exception", "Thông tin sản phẩm không hợp lệ hoặc thiếu ProductLevelSys.");
+            }
+
+            var orgId = StdParam(inputPrd.OrgID ?? req?.OrgID) ?? "1001";
+            var networkId = StdParam(inputPrd.NetworkID ?? req?.NetworkID) ?? "1001";
+            var prdLevelSys = StdParam(inputPrd.ProductLevelSys);
+            var flagRedirect = StdFlag(req?.FlagRedirect);
+            var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+            // =========================================================================
+            // NHÁNH 1: Sản phẩm cấp 2 L2PRD (Gate Mst_ProductController.cs:1964-2168)
+            // =========================================================================
+            if (string.Equals(prdLevelSys, "L2PRD", StringComparison.OrdinalIgnoreCase))
+            {
+                var prdCode = StdParam(inputPrd.ProductCode);
+                if (string.IsNullOrEmpty(prdCode))
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_Product_Save", "Exception", "Mã sản phẩm không được để trống.");
+                }
+
+                // Tìm sản phẩm hiện có theo OrgID và ProductCode (strWhereClause_Mst_Product_Update dòng 1971)
+                var existingPrd = await _db.Set<Mst_Product>()
+                    .FirstOrDefaultAsync(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc)
+                                           && EF.Functions.Like((x.ProductCode ?? "").ToLower(), PortQuery.Equal(prdCode), PortQuery.Esc));
+
+                if (existingPrd == null)
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_Product_Save", "Exception", $"Không tìm thấy sản phẩm {prdCode} để sửa.");
+                }
+
+                // Cập nhật thông tin cơ bản qua MapProduct (Gate Mst_ProductController.cs:1977, 2723-2764)
+                if (inputPrd.ProductCodeUser != null) existingPrd.ProductCodeUser = StdParam(inputPrd.ProductCodeUser);
+                if (inputPrd.ProductName != null) existingPrd.ProductName = StdStr(inputPrd.ProductName);
+                if (inputPrd.ProductNameEN != null) existingPrd.ProductNameEN = StdStr(inputPrd.ProductNameEN);
+                if (inputPrd.ProductBarCode != null) existingPrd.ProductBarCode = StdParam(inputPrd.ProductBarCode);
+                if (inputPrd.ListOfPrdDynamicFieldValue != null) existingPrd.ListOfPrdDynamicFieldValue = inputPrd.ListOfPrdDynamicFieldValue;
+                if (inputPrd.BrandCode != null) existingPrd.BrandCode = StdParam(inputPrd.BrandCode);
+                if (inputPrd.ProductType != null) existingPrd.ProductType = StdParam(inputPrd.ProductType);
+                if (inputPrd.ProductGrpCode != null) existingPrd.ProductGrpCode = StdParam(inputPrd.ProductGrpCode);
+                if (inputPrd.UnitCode != null) existingPrd.UnitCode = StdParam(inputPrd.UnitCode);
+                if (inputPrd.ValConvert.HasValue) existingPrd.ValConvert = inputPrd.ValConvert;
+                if (!string.IsNullOrEmpty(inputPrd.FlagSell)) existingPrd.FlagSell = StdFlag(inputPrd.FlagSell);
+                if (!string.IsNullOrEmpty(inputPrd.FlagBuy)) existingPrd.FlagBuy = StdFlag(inputPrd.FlagBuy);
+                if (inputPrd.UPBuy.HasValue) existingPrd.UPBuy = inputPrd.UPBuy;
+                if (inputPrd.UPSell.HasValue) existingPrd.UPSell = inputPrd.UPSell;
+                if (inputPrd.QtyMaxSt.HasValue) existingPrd.QtyMaxSt = inputPrd.QtyMaxSt;
+                if (inputPrd.QtyMinSt.HasValue) existingPrd.QtyMinSt = inputPrd.QtyMinSt;
+                if (inputPrd.QtyEffSt.HasValue) existingPrd.QtyEffSt = inputPrd.QtyEffSt;
+                if (inputPrd.VATRateCode != null) existingPrd.VATRateCode = StdParam(inputPrd.VATRateCode);
+                if (inputPrd.Remark != null) existingPrd.Remark = StdStr(inputPrd.Remark);
+                if (inputPrd.CustomField1 != null) existingPrd.CustomField1 = StdStr(inputPrd.CustomField1);
+                if (inputPrd.CustomField2 != null) existingPrd.CustomField2 = StdStr(inputPrd.CustomField2);
+                if (inputPrd.CustomField3 != null) existingPrd.CustomField3 = StdStr(inputPrd.CustomField3);
+                if (inputPrd.CustomField4 != null) existingPrd.CustomField4 = StdStr(inputPrd.CustomField4);
+                if (inputPrd.CustomField5 != null) existingPrd.CustomField5 = StdStr(inputPrd.CustomField5);
+                if (!string.IsNullOrEmpty(inputPrd.FlagFG)) existingPrd.FlagFG = StdFlag(inputPrd.FlagFG);
+                if (!string.IsNullOrEmpty(inputPrd.FlagSerial)) existingPrd.FlagSerial = StdFlag(inputPrd.FlagSerial);
+                if (!string.IsNullOrEmpty(inputPrd.FlagLot)) existingPrd.FlagLot = StdFlag(inputPrd.FlagLot);
+                if (!string.IsNullOrEmpty(inputPrd.FlagActive)) existingPrd.FlagActive = StdFlag(inputPrd.FlagActive);
+                if (inputPrd.ProductStd != null) existingPrd.ProductStd = StdStr(inputPrd.ProductStd);
+                if (inputPrd.ProductExpiry != null) existingPrd.ProductExpiry = StdStr(inputPrd.ProductExpiry);
+                if (inputPrd.ProductQuyCach != null) existingPrd.ProductQuyCach = StdStr(inputPrd.ProductQuyCach);
+                if (inputPrd.ProductMnfUrl != null) existingPrd.ProductMnfUrl = StdStr(inputPrd.ProductMnfUrl);
+                if (inputPrd.ProductIntro != null) existingPrd.ProductIntro = StdStr(inputPrd.ProductIntro);
+                if (inputPrd.ProductUserGuide != null) existingPrd.ProductUserGuide = StdStr(inputPrd.ProductUserGuide);
+                if (inputPrd.ProductDrawing != null) existingPrd.ProductDrawing = StdStr(inputPrd.ProductDrawing);
+                if (inputPrd.ProductOrigin != null) existingPrd.ProductOrigin = StdStr(inputPrd.ProductOrigin);
+
+                existingPrd.LUDTimeUTC = dtimeSys;
+                existingPrd.LUBy = "port";
+                existingPrd.LogLUDTimeUTC = dtimeSys;
+                existingPrd.LogLUBy = "port";
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // GAP: Mst_ProductService.Instance.WA_Mst_Product_Update gọi sang hệ thống ngoài Product Center bỏ qua theo Rule P3
+                // GAP: Prd_BOM, Mst_ProductImages, Mst_ProductFiles chưa có entity trong repo đích (Rule A.18)
+
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Hàng hóa đã được sửa thành công!" },
+                    RedirectUrl = flagRedirect == "1" ? "/api/mst_product/create" : "/api/mst_product/index"
+                });
+            }
+            // =========================================================================
+            // NHÁNH 2: Sản phẩm ROOTPRD hoặc BASEPRD (Gate Mst_ProductController.cs:2169-2711)
+            // =========================================================================
+            else if (string.Equals(prdLevelSys, "ROOTPRD", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(prdLevelSys, "BASEPRD", StringComparison.OrdinalIgnoreCase))
+            {
+                var proRoot = StdParam(inputPrd.ProductCodeRoot) ?? StdParam(inputPrd.ProductCode);
+                var proBase = StdParam(inputPrd.ProductCodeBase) ?? StdParam(inputPrd.ProductCode);
+
+                if (string.IsNullOrEmpty(proRoot))
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_Product_Save", "Exception", "Mã sản phẩm gốc (ProductCodeRoot) không được để trống.");
+                }
+
+                // Tìm các sản phẩm có cùng ProductCodeRoot (Gate Mst_ProductController.cs:2179-2188)
+                var rootPattern = PortQuery.Equal(proRoot);
+                var listProductSearch = await _db.Set<Mst_Product>()
+                    .Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc)
+                             && (EF.Functions.Like((x.ProductCodeRoot ?? "").ToLower(), rootPattern, PortQuery.Esc)
+                                 || EF.Functions.Like((x.ProductCode ?? "").ToLower(), rootPattern, PortQuery.Esc)))
+                    .ToListAsync();
+
+                if (listProductSearch.Count == 0)
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_Product_Save", "Exception", $"Không tìm thấy sản phẩm có mã gốc {proRoot}.");
+                }
+
+                // 2.1. Cập nhật thông tin sản phẩm khớp ProductCode (Gate Mst_ProductController.cs:2208-2245)
+                var targetPrd = listProductSearch.FirstOrDefault(it => string.Equals(it.ProductCode, inputPrd.ProductCode, StringComparison.OrdinalIgnoreCase))
+                             ?? listProductSearch.FirstOrDefault(it => string.Equals(it.ProductCodeRoot, proRoot, StringComparison.OrdinalIgnoreCase)
+                                                                    && string.Equals(it.ProductLevelSys, "ROOTPRD", StringComparison.OrdinalIgnoreCase))
+                             ?? listProductSearch[0];
+
+                if (inputPrd.ProductCodeUser != null) targetPrd.ProductCodeUser = StdParam(inputPrd.ProductCodeUser);
+                if (inputPrd.ProductName != null) targetPrd.ProductName = StdStr(inputPrd.ProductName);
+                if (inputPrd.ProductNameEN != null) targetPrd.ProductNameEN = StdStr(inputPrd.ProductNameEN);
+                if (inputPrd.ProductBarCode != null) targetPrd.ProductBarCode = StdParam(inputPrd.ProductBarCode);
+                if (!string.IsNullOrEmpty(inputPrd.FlagBuy)) targetPrd.FlagBuy = StdFlag(inputPrd.FlagBuy);
+                if (!string.IsNullOrEmpty(inputPrd.FlagLot)) targetPrd.FlagLot = StdFlag(inputPrd.FlagLot);
+                if (!string.IsNullOrEmpty(inputPrd.FlagSell)) targetPrd.FlagSell = StdFlag(inputPrd.FlagSell);
+                if (!string.IsNullOrEmpty(inputPrd.FlagSerial)) targetPrd.FlagSerial = StdFlag(inputPrd.FlagSerial);
+                if (inputPrd.ProductDrawing != null) targetPrd.ProductDrawing = StdStr(inputPrd.ProductDrawing);
+                if (inputPrd.ProductExpiry != null) targetPrd.ProductExpiry = StdStr(inputPrd.ProductExpiry);
+                if (inputPrd.ProductIntro != null) targetPrd.ProductIntro = StdStr(inputPrd.ProductIntro);
+                if (inputPrd.ProductMnfUrl != null) targetPrd.ProductMnfUrl = StdStr(inputPrd.ProductMnfUrl);
+                if (inputPrd.ProductOrigin != null) targetPrd.ProductOrigin = StdStr(inputPrd.ProductOrigin);
+                if (inputPrd.ProductQuyCach != null) targetPrd.ProductQuyCach = StdStr(inputPrd.ProductQuyCach);
+                if (inputPrd.ProductStd != null) targetPrd.ProductStd = StdStr(inputPrd.ProductStd);
+                if (inputPrd.ProductUserGuide != null) targetPrd.ProductUserGuide = StdStr(inputPrd.ProductUserGuide);
+                if (inputPrd.QtyEffSt.HasValue) targetPrd.QtyEffSt = inputPrd.QtyEffSt;
+                if (inputPrd.QtyMaxSt.HasValue) targetPrd.QtyMaxSt = inputPrd.QtyMaxSt;
+                if (inputPrd.QtyMinSt.HasValue) targetPrd.QtyMinSt = inputPrd.QtyMinSt;
+                if (inputPrd.Remark != null) targetPrd.Remark = StdStr(inputPrd.Remark);
+                if (inputPrd.UPBuy.HasValue) targetPrd.UPBuy = inputPrd.UPBuy;
+                if (inputPrd.UPSell.HasValue) targetPrd.UPSell = inputPrd.UPSell;
+                if (inputPrd.BrandCode != null) targetPrd.BrandCode = StdParam(inputPrd.BrandCode);
+                if (inputPrd.ProductGrpCode != null) targetPrd.ProductGrpCode = StdParam(inputPrd.ProductGrpCode);
+                if (inputPrd.VATRateCode != null) targetPrd.VATRateCode = StdParam(inputPrd.VATRateCode);
+                if (inputPrd.ListOfPrdDynamicFieldValue != null) targetPrd.ListOfPrdDynamicFieldValue = inputPrd.ListOfPrdDynamicFieldValue;
+                if (inputPrd.CustomField1 != null) targetPrd.CustomField1 = StdStr(inputPrd.CustomField1);
+                if (inputPrd.CustomField2 != null) targetPrd.CustomField2 = StdStr(inputPrd.CustomField2);
+                if (inputPrd.CustomField3 != null) targetPrd.CustomField3 = StdStr(inputPrd.CustomField3);
+                if (inputPrd.CustomField4 != null) targetPrd.CustomField4 = StdStr(inputPrd.CustomField4);
+                if (inputPrd.CustomField5 != null) targetPrd.CustomField5 = StdStr(inputPrd.CustomField5);
+                if (!string.IsNullOrEmpty(inputPrd.FlagFG)) targetPrd.FlagFG = StdFlag(inputPrd.FlagFG);
+                if (!string.IsNullOrEmpty(inputPrd.FlagActive)) targetPrd.FlagActive = StdFlag(inputPrd.FlagActive);
+
+                targetPrd.LUDTimeUTC = dtimeSys;
+                targetPrd.LUBy = "port";
+                targetPrd.LogLUDTimeUTC = dtimeSys;
+                targetPrd.LogLUBy = "port";
+
+                // 2.2. Xử lý thêm thuộc tính mới - nối thêm vào ProductName (Gate Mst_ProductController.cs:2340-2356)
+                if (req?.Lst_Prd_Attribute_New != null && req.Lst_Prd_Attribute_New.Count > 0)
+                {
+                    foreach (var item in listProductSearch)
+                    {
+                        foreach (var it in req.Lst_Prd_Attribute_New)
+                        {
+                            if (!string.IsNullOrEmpty(it.AttributeValue))
+                            {
+                                item.ProductName = item.ProductName + "-" + it.AttributeValue.Trim();
+                            }
+                        }
+                    }
+                }
+
+                // 2.3. Kiểm tra đơn vị trùng (Gate Mst_ProductController.cs:2380-2403)
+                // LỖI NGUỒN GIỮ NGUYÊN (Mst_ProductController.cs:2398-2400): Khi trùng đơn vị, gate gán resultEntry.Success = true kèm câu cảnh báo
+                var listUnitOld = listProductSearch
+                    .Select(x => x.UnitCode?.Trim())
+                    .Where(x => !string.IsNullOrEmpty(x))
+                    .ToList();
+
+                if (req?.Lst_Unit != null && req.Lst_Unit.Count > 0 && req.Lst_Mst_ProductUI_Create != null && req.Lst_Mst_ProductUI_Create.Count > 0)
+                {
+                    foreach (var item in req.Lst_Mst_ProductUI_Create)
+                    {
+                        var uCode = item.UnitCode?.Trim();
+                        if (!string.IsNullOrEmpty(uCode) && listUnitOld.Any(oldUnit => string.Equals(oldUnit, uCode, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            await tx.RollbackAsync();
+                            return Ok(new
+                            {
+                                Success = true,
+                                Messages = new[] { "Mã đơn vị '" + item.UnitCode + "' không được trùng!" }
+                            });
+                        }
+                    }
+                }
+
+                // 2.4. Cập nhật thông tin đơn vị cho sản phẩm cơ sở / con (Gate Mst_ProductController.cs:2404-2440)
+                if (req?.Lst_Unit != null && req.Lst_Unit.Count > 0)
+                {
+                    foreach (var unitItem in req.Lst_Unit)
+                    {
+                        var matchingPrd = listProductSearch.FirstOrDefault(it =>
+                            string.Equals(it.ProductCode, unitItem.ProductCode, StringComparison.OrdinalIgnoreCase));
+                        if (matchingPrd != null)
+                        {
+                            if (unitItem.UnitCode != null) matchingPrd.UnitCode = StdParam(unitItem.UnitCode);
+                            if (unitItem.UPBuy.HasValue) matchingPrd.UPBuy = unitItem.UPBuy;
+                            if (unitItem.UPSell.HasValue) matchingPrd.UPSell = unitItem.UPSell;
+                            if (unitItem.ValConvert.HasValue) matchingPrd.ValConvert = unitItem.ValConvert;
+                            if (!string.IsNullOrEmpty(unitItem.FlagBuy)) matchingPrd.FlagBuy = StdFlag(unitItem.FlagBuy);
+                            if (!string.IsNullOrEmpty(unitItem.FlagSell)) matchingPrd.FlagSell = StdFlag(unitItem.FlagSell);
+                            matchingPrd.LUDTimeUTC = dtimeSys;
+                            matchingPrd.LUBy = "port";
+                        }
+                    }
+                }
+
+                // 2.5. Thêm sản phẩm mới khi thêm đơn vị quy đổi (Gate Mst_ProductController.cs:2442-2525)
+                if (req?.Lst_Mst_ProductUI_Create != null && req.Lst_Mst_ProductUI_Create.Count > 0)
+                {
+                    for (int i = 0; i < req.Lst_Mst_ProductUI_Create.Count; i++)
+                    {
+                        var newItem = req.Lst_Mst_ProductUI_Create[i];
+                        var newCode = !string.IsNullOrEmpty(newItem.ProductCode)
+                            ? StdParam(newItem.ProductCode)!
+                            : $"PRD_NEW_{DateTime.UtcNow:yyyyMMddHHmmss}_{i + 1}";
+
+                        var timestampSuffix = DateTime.Now.ToString("yyMMddHHmmsss");
+                        var baseUserCode = StdParam(newItem.ProductCodeUser) ?? targetPrd.ProductCodeUser ?? "PRD";
+                        var newUserCode = $"{baseUserCode}-{timestampSuffix}";
+
+                        var newProductEntity = new Mst_Product
+                        {
+                            OrgID = orgId,
+                            NetworkID = networkId,
+                            ProductCode = newCode,
+                            ProductLevelSys = StdParam(newItem.ProductLevelSys) ?? "BASEPRD",
+                            ProductCodeUser = newUserCode,
+                            BrandCode = StdParam(newItem.BrandCode) ?? targetPrd.BrandCode,
+                            ProductType = StdParam(newItem.ProductType) ?? targetPrd.ProductType ?? "PRODUCT",
+                            ProductGrpCode = StdParam(newItem.ProductGrpCode) ?? targetPrd.ProductGrpCode,
+                            ProductName = StdStr(newItem.ProductName) ?? targetPrd.ProductName,
+                            ProductNameEN = StdStr(newItem.ProductNameEN) ?? targetPrd.ProductNameEN,
+                            ProductBarCode = StdParam(newItem.ProductBarCode),
+                            ProductCodeNetwork = null,
+                            ProductCodeBase = StdParam(newItem.ProductCodeBase) ?? proBase,
+                            ProductCodeRoot = proRoot,
+                            ProductImagePathList = null,
+                            ProductFilePathList = null,
+                            UnitCode = StdParam(newItem.UnitCode) ?? "CAI",
+                            ValConvert = newItem.ValConvert ?? 1.0,
+                            FlagSell = !string.IsNullOrEmpty(newItem.FlagSell) ? StdFlag(newItem.FlagSell) : targetPrd.FlagSell ?? "1",
+                            FlagBuy = !string.IsNullOrEmpty(newItem.FlagBuy) ? StdFlag(newItem.FlagBuy) : targetPrd.FlagBuy ?? "1",
+                            UPBuy = newItem.UPBuy ?? targetPrd.UPBuy,
+                            UPSell = newItem.UPSell ?? targetPrd.UPSell,
+                            QtyMaxSt = newItem.QtyMaxSt,
+                            QtyMinSt = newItem.QtyMinSt,
+                            QtyEffSt = newItem.QtyEffSt,
+                            ListOfPrdDynamicFieldValue = null,
+                            Remark = StdStr(newItem.Remark) ?? targetPrd.Remark,
+                            VATRateCode = StdParam(newItem.VATRateCode) ?? targetPrd.VATRateCode,
+                            FlagFG = !string.IsNullOrEmpty(newItem.FlagFG) ? StdFlag(newItem.FlagFG) : targetPrd.FlagFG,
+                            FlagSerial = !string.IsNullOrEmpty(newItem.FlagSerial) ? StdFlag(newItem.FlagSerial) : targetPrd.FlagSerial,
+                            FlagLot = !string.IsNullOrEmpty(newItem.FlagLot) ? StdFlag(newItem.FlagLot) : targetPrd.FlagLot,
+                            ProductStd = StdStr(newItem.ProductStd) ?? targetPrd.ProductStd,
+                            ProductExpiry = StdStr(newItem.ProductExpiry) ?? targetPrd.ProductExpiry,
+                            ProductQuyCach = StdStr(newItem.ProductQuyCach) ?? targetPrd.ProductQuyCach,
+                            ProductMnfUrl = StdStr(newItem.ProductMnfUrl) ?? targetPrd.ProductMnfUrl,
+                            ProductIntro = StdStr(newItem.ProductIntro) ?? targetPrd.ProductIntro,
+                            ProductUserGuide = StdStr(newItem.ProductUserGuide) ?? targetPrd.ProductUserGuide,
+                            ProductDrawing = StdStr(newItem.ProductDrawing) ?? targetPrd.ProductDrawing,
+                            ProductOrigin = StdStr(newItem.ProductOrigin) ?? targetPrd.ProductOrigin,
+                            CreateDTimeUTC = dtimeSys,
+                            CreateBy = "port",
+                            LUDTimeUTC = dtimeSys,
+                            LUBy = "port",
+                            FlagActive = !string.IsNullOrEmpty(newItem.FlagActive) ? StdFlag(newItem.FlagActive) : "1",
+                            LogLUDTimeUTC = dtimeSys,
+                            LogLUBy = "port",
+                            CodeGuid = Guid.NewGuid().ToString()
+                        };
+
+                        _db.Set<Mst_Product>().Add(newProductEntity);
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                // GAP: Mst_ProductService.Instance.WA_Mst_Product_Update gọi sang hệ thống ngoài Product Center bỏ qua theo Rule P3
+                // GAP: Prd_Attribute, Prd_BOM, Mst_ProductImages, Mst_ProductFiles chưa có entity trong repo đích (Rule A.18)
+
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Hàng hóa đã được sửa thành công!" },
+                    RedirectUrl = flagRedirect == "1" ? "/api/mst_product/create" : "/api/mst_product/index"
+                });
+            }
+            else
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_Product_Save", "Exception", $"ProductLevelSys '{prdLevelSys}' không được hỗ trợ.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            // BIZ Product.cs:4827, 4918: strErrorCodeDefault = TError.ErridQContract.Mst_Product_Save
+            return PortResult.Fail("Mst_Product_Save", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -2052,4 +2460,152 @@ public class Mst_ProductGroupExt
     public string? FlagActive { get; set; }
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
+}
+
+/// <summary>
+/// Tham số đầu vào cho action Edit của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:1906-2721 Edit(string model)
+/// </summary>
+public class Mst_Product_EditReq
+{
+    // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_ProductController.cs:1906, 1922)
+    public string? Model { get; set; }
+
+    // Thông tin sản phẩm chỉnh sửa theo RQ_Mst_ProductUI (Gate Mst_ProductController.cs:1929)
+    public Mst_Product_EditItem? Mst_Product { get; set; }
+
+    // Danh sách sản phẩm mới khi thêm đơn vị khác đơn vị cơ bản (Gate Mst_ProductController.cs:1923, 2442)
+    public List<Mst_Product_EditItem>? Lst_Mst_ProductUI_Create { get; set; }
+
+    // Danh sách thuộc tính cần cập nhật (Gate Mst_ProductController.cs:2267)
+    public List<Prd_Attribute>? Lst_Prd_Attribute { get; set; }
+
+    // Danh sách thuộc tính mới (Gate Mst_ProductController.cs:2338)
+    public List<Prd_Attribute>? Lst_Prd_Attribute_New { get; set; }
+
+    // Danh sách thuộc tính cần xoá (Gate Mst_ProductController.cs:2250)
+    public List<Prd_Attribute>? Lst_Prd_Attribute_Delete { get; set; }
+
+    // Danh sách đơn vị cần cập nhật (Gate Mst_ProductController.cs:2389, 2409)
+    public List<Mst_Unit_EditItem>? Lst_Unit { get; set; }
+
+    // Danh sách đơn vị cần xoá (Gate Mst_ProductController.cs:2362)
+    public List<Mst_Unit_EditItem>? Lst_Unit_Delete { get; set; }
+
+    // Danh sách hình ảnh, tệp tin và BOM
+    public List<Mst_ProductImages_Item>? Lst_Mst_ProductImages { get; set; }
+    public List<Mst_ProductFiles_Item>? Lst_Mst_ProductFiles { get; set; }
+    public List<Prd_BOM_Item>? Lst_Prd_BOM { get; set; }
+
+    // Cờ chuyển hướng sau khi sửa (Gate Mst_ProductController.cs:1932, 2158, 2702)
+    public string? FlagRedirect { get; set; }
+
+    // Hỗ trợ truyền phẳng các trường sản phẩm ở cấp cao nhất
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ProductCode { get; set; }
+    public string? ProductLevelSys { get; set; }
+    public string? ProductCodeUser { get; set; }
+    public string? ProductName { get; set; }
+    public string? ProductNameEN { get; set; }
+    public string? ProductBarCode { get; set; }
+    public string? ProductCodeBase { get; set; }
+    public string? ProductCodeRoot { get; set; }
+    public string? BrandCode { get; set; }
+    public string? ProductType { get; set; }
+    public string? ProductGrpCode { get; set; }
+    public string? UnitCode { get; set; }
+    public double? ValConvert { get; set; }
+    public string? FlagBuy { get; set; }
+    public string? FlagSell { get; set; }
+    public string? FlagActive { get; set; }
+    public double? UPBuy { get; set; }
+    public double? UPSell { get; set; }
+    public double? QtyMaxSt { get; set; }
+    public double? QtyMinSt { get; set; }
+    public double? QtyEffSt { get; set; }
+    public string? VATRateCode { get; set; }
+    public string? Remark { get; set; }
+    public string? ListOfPrdDynamicFieldValue { get; set; }
+    public string? CustomField1 { get; set; }
+    public string? CustomField2 { get; set; }
+    public string? CustomField3 { get; set; }
+    public string? CustomField4 { get; set; }
+    public string? CustomField5 { get; set; }
+    public string? FlagSerial { get; set; }
+    public string? FlagLot { get; set; }
+    public string? FlagFG { get; set; }
+    public string? ProductStd { get; set; }
+    public string? ProductExpiry { get; set; }
+    public string? ProductQuyCach { get; set; }
+    public string? ProductMnfUrl { get; set; }
+    public string? ProductIntro { get; set; }
+    public string? ProductUserGuide { get; set; }
+    public string? ProductDrawing { get; set; }
+    public string? ProductOrigin { get; set; }
+}
+
+/// <summary>
+/// DTO thông tin sản phẩm chỉnh sửa (Gate Mst_ProductController.cs:1929, RQ_Mst_ProductUI.cs).
+/// </summary>
+public class Mst_Product_EditItem
+{
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ProductCode { get; set; }
+    public string? ProductLevelSys { get; set; }
+    public string? ProductCodeUser { get; set; }
+    public string? ProductName { get; set; }
+    public string? ProductNameEN { get; set; }
+    public string? ProductBarCode { get; set; }
+    public string? ProductCodeBase { get; set; }
+    public string? ProductCodeRoot { get; set; }
+    public string? BrandCode { get; set; }
+    public string? ProductType { get; set; }
+    public string? ProductGrpCode { get; set; }
+    public string? UnitCode { get; set; }
+    public double? ValConvert { get; set; }
+    public string? FlagBuy { get; set; }
+    public string? FlagSell { get; set; }
+    public string? FlagActive { get; set; }
+    public double? UPBuy { get; set; }
+    public double? UPSell { get; set; }
+    public double? QtyMaxSt { get; set; }
+    public double? QtyMinSt { get; set; }
+    public double? QtyEffSt { get; set; }
+    public string? VATRateCode { get; set; }
+    public string? Remark { get; set; }
+    public string? ListOfPrdDynamicFieldValue { get; set; }
+    public string? CustomField1 { get; set; }
+    public string? CustomField2 { get; set; }
+    public string? CustomField3 { get; set; }
+    public string? CustomField4 { get; set; }
+    public string? CustomField5 { get; set; }
+    public string? FlagSerial { get; set; }
+    public string? FlagLot { get; set; }
+    public string? FlagFG { get; set; }
+    public string? ProductStd { get; set; }
+    public string? ProductExpiry { get; set; }
+    public string? ProductQuyCach { get; set; }
+    public string? ProductMnfUrl { get; set; }
+    public string? ProductIntro { get; set; }
+    public string? ProductUserGuide { get; set; }
+    public string? ProductDrawing { get; set; }
+    public string? ProductOrigin { get; set; }
+
+    public List<Prd_Attribute>? Lst_Prd_Attribute { get; set; }
+}
+
+/// <summary>
+/// DTO thông tin đơn vị quy đổi chỉnh sửa (Gate Mst_ProductController.cs:2389, 2409).
+/// </summary>
+public class Mst_Unit_EditItem
+{
+    public string? UnitCode { get; set; }
+    public string? ProductCode { get; set; }
+    public double? UPBuy { get; set; }
+    public double? UPSell { get; set; }
+    public double? ValConvert { get; set; }
+    public string? FlagBuy { get; set; }
+    public string? FlagSell { get; set; }
 }
