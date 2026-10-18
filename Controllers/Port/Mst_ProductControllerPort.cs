@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ProductController.cs — Mst_Product
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:29-200 (Index), 241-391 (DoSearch), 395-440 (LoadData), 444-513 (Search_Product_Auto), 518-794 (Create GET), 796-1088 (Create POST), 1100-1152 (GetBOM), 1154-1208 (SearchProduct), 1210-1319 (GetSearch), 1322-1415 (ProductIngredient), 1418-1901 (Update), 1906-2721 (Edit), 2880-2943 (DeleteUnit), 2950-2960 (ExportTemplate), 4818-4859 (GetImportDicColumsTemplate), 202-237 (GetPrdBase), 4964-5004 (strWhereClause_Mst_Product), 5020-5036 (strWhereGetProductId), 5037-5053 (strWhereSearchProductProductId), 5076-5187 (strWhereClause_Mst_Product_Search), 5188-5205 (strWhereClause_Mst_Product_Get_Base), 5206-5223 (strWhereClause_Mst_Product_Get_Level2), 5224-5249 (strWhereClause_Mst_Product_Update), 5250-5312 (strWhereClause_Mst_ProductProductUserCodeOrProductName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstProductController.cs:19-87 (WA_Mst_Product_Get), 89-158 (WA_Mst_Product_Save), MstProductGroupController.cs:19-89 (WA_Mst_ProductGroup_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Product\Product.cs:4230-4643 (Mst_Product_Get), 4644-4802 (WAS_Mst_Product_Get), 4805-5550 (Mst_Product_Save, WAS_Mst_Product_Save, Mst_Product_SaveX), 30-146 (WAS_Mst_ProductGroup_Get), 147-293 (Mst_ProductGroup_Get), 295-459 (Mst_ProductGroup_GetX)
 [ApiController]
@@ -19,11 +20,50 @@ public class Mst_ProductControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
 
-    public Mst_ProductControllerPort(AppDbContext db, IConfiguration? config = null)
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { "ProductCodeUser", "Mã hàng(*)" },
+        { "ProductName", "Tên hàng(*)" },
+        { "ProductBarCode", "Mã vạch" },
+        { "ProductCodeBase", "Mã hàng liên quan" },
+        { "ProductCodeRoot", "Mã hàng gốc" },
+        { "BrandCode", "Mã nhãn hiệu" },
+        { "ProductGrpCode", "Nhóm hàng (*)" },
+        { "ProductType", "Loại hàng" },
+        { "ProductImagePathList", "Ảnh sản phẩm" },
+        { "ProductFilePathList", "File đính kèm" },
+        { "FlagSerial", "QL Serial" },
+        { "FlagLot", "QL LOT" },
+        { "UnitCode", "Đơn vị" },
+        { "ValConvert", "Quy đổi" },
+        { "FlagSell", "Được bán" },
+        { "FlagBuy", "Được mua" },
+        { "UPBuy", "Giá mua" },
+        { "UPSell", "Giá bán" },
+        { "QtyMinSt", "Tồn nhỏ nhất" },
+        { "QtyEffSt", "Tồn tối ưu" },
+        { "QtyMaxSt", "Tồn lớn nhất" },
+        { "ListAttribute", "Thuộc tính" },
+        { "ListBOM", "Hàng thành phần" },
+        { "ListOfPrdDynamicFieldValue", "List các trường động" },
+        { "ProductStd", "Tiêu chuẩn" },
+        { "ProductExpiry", "Hạn sử dụng" },
+        { "ProductQuyCach", "Quy cách" },
+        { "ProductMnfUrl", "Link quy trình sx" },
+        { "ProductIntro", "Chi tiết sản phẩm" },
+        { "ProductUserGuide", "Hướng dẫn sử dụng" },
+        { "ProductDrawing", "Bản vẽ" },
+        { "ProductOrigin", "Xuất xứ" },
+        { "Remark", "Ghi chú" }
+    };
+
+    public Mst_ProductControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -2032,6 +2072,46 @@ public class Mst_ProductControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xuất tệp mẫu Excel để nhập sản phẩm.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ProductController.cs:2950-2960 ExportTemplate()
+    ///       hàm phụ: Mst_ProductController.cs:4818-4859 (GetImportDicColumsTemplate), BaseController.cs:664-682 (GenExcelExportFilePath)
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    [HttpPost("export-template")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Product_ExportTemplateReq? req = null)
+    {
+        try
+        {
+            // 1. Tạo danh sách rỗng (Gate line 2952: var list = new List<Mst_Product>())
+            var list = new List<Mst_Product>();
+
+            // 2. Lấy từ điển cột từ GetImportDicColumsTemplate() gồm 33 cột (Gate lines 2954, 4818-4859)
+            var dicColNames = ExportTemplateDicColumns;
+
+            // 3. Sinh đường dẫn file vật lý và URL ảo (Gate lines 2955-2956: GenExcelExportFilePath)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_Product));
+
+            // 4. Xuất danh sách rỗng ra file Excel chứa dòng tiêu đề (Gate line 2957: ExcelExport.ExportToExcelFromList)
+            PortExcel.ExportToExcelFromList(list, dicColNames, filePath, nameof(Mst_Product));
+
+            // 5. Trả kết quả thành công khớp gate MVC (Gate line 2959)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            // Gate lines 2950-2960; xử lý ngoại lệ hệ thống và trả lỗi chuẩn
+            return PortResult.Fail("Mst_Product_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -2719,3 +2799,12 @@ public class Mst_Product_DeleteUnitReq
     public string? OrgID { get; set; }
     public string? NetworkID { get; set; }
 }
+
+/// <summary>
+/// Tham số đầu vào cho action ExportTemplate của Mst_ProductController.
+/// Gate: Mst_ProductController.cs:2950-2960 ExportTemplate()
+/// </summary>
+public class Mst_Product_ExportTemplateReq
+{
+}
+

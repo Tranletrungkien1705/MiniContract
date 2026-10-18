@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using MiniContract.Controllers.Port;
 using MiniContract.Data;
 using MiniContract.Models.Port;
@@ -1732,6 +1735,116 @@ public class Mst_ProductControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ExportTemplate_WithNullReq_ReturnsExcelSuccessWith33Columns()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        var result = controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+        Assert.EndsWith(".xlsx", strUrl);
+
+        var physicalPath = Path.Combine(testEnv.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_Product");
+        Assert.NotNull(ws);
+
+        // Tiêu đề: đúng 33 cột từ GetImportDicColumsTemplate() (Mst_ProductController.cs:4818-4859)
+        Assert.Equal(33, ws.Row(1).LastCellUsed()?.Address.ColumnNumber);
+        Assert.Equal("Mã hàng(*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên hàng(*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Mã vạch", ws.Cell(1, 3).GetString());
+        Assert.Equal("Mã hàng liên quan", ws.Cell(1, 4).GetString());
+        Assert.Equal("Mã hàng gốc", ws.Cell(1, 5).GetString());
+        Assert.Equal("Mã nhãn hiệu", ws.Cell(1, 6).GetString());
+        Assert.Equal("Nhóm hàng (*)", ws.Cell(1, 7).GetString());
+        Assert.Equal("Loại hàng", ws.Cell(1, 8).GetString());
+        Assert.Equal("Ảnh sản phẩm", ws.Cell(1, 9).GetString());
+        Assert.Equal("File đính kèm", ws.Cell(1, 10).GetString());
+        Assert.Equal("QL Serial", ws.Cell(1, 11).GetString());
+        Assert.Equal("QL LOT", ws.Cell(1, 12).GetString());
+        Assert.Equal("Đơn vị", ws.Cell(1, 13).GetString());
+        Assert.Equal("Quy đổi", ws.Cell(1, 14).GetString());
+        Assert.Equal("Được bán", ws.Cell(1, 15).GetString());
+        Assert.Equal("Được mua", ws.Cell(1, 16).GetString());
+        Assert.Equal("Giá mua", ws.Cell(1, 17).GetString());
+        Assert.Equal("Giá bán", ws.Cell(1, 18).GetString());
+        Assert.Equal("Tồn nhỏ nhất", ws.Cell(1, 19).GetString());
+        Assert.Equal("Tồn tối ưu", ws.Cell(1, 20).GetString());
+        Assert.Equal("Tồn lớn nhất", ws.Cell(1, 21).GetString());
+        Assert.Equal("Thuộc tính", ws.Cell(1, 22).GetString());
+        Assert.Equal("Hàng thành phần", ws.Cell(1, 23).GetString());
+        Assert.Equal("List các trường động", ws.Cell(1, 24).GetString());
+        Assert.Equal("Tiêu chuẩn", ws.Cell(1, 25).GetString());
+        Assert.Equal("Hạn sử dụng", ws.Cell(1, 26).GetString());
+        Assert.Equal("Quy cách", ws.Cell(1, 27).GetString());
+        Assert.Equal("Link quy trình sx", ws.Cell(1, 28).GetString());
+        Assert.Equal("Chi tiết sản phẩm", ws.Cell(1, 29).GetString());
+        Assert.Equal("Hướng dẫn sử dụng", ws.Cell(1, 30).GetString());
+        Assert.Equal("Bản vẽ", ws.Cell(1, 31).GetString());
+        Assert.Equal("Xuất xứ", ws.Cell(1, 32).GetString());
+        Assert.Equal("Ghi chú", ws.Cell(1, 33).GetString());
+
+        // File mẫu rỗng: không có dòng dữ liệu (dòng cuối cùng sử dụng là dòng 1 tiêu đề)
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(1, lastRow);
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public void ExportTemplate_WithEmptyBody_AlsoSucceeds()
+    {
+        var testEnv = new TestWebHostEnvironment();
+        Directory.CreateDirectory(testEnv.WebRootPath);
+        var controller = new Mst_ProductControllerPort(_db, null, testEnv);
+
+        var result = controller.ExportTemplate(new Mst_Product_ExportTemplateReq());
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+
+        try { Directory.Delete(testEnv.WebRootPath, true); } catch { }
+    }
+
+    [Fact]
+    public void ExportTemplate_WhenExceptionOccurs_ReturnsFailResult()
+    {
+        var brokenEnv = new TestWebHostEnvironment { WebRootPath = "Z:\\non_existent_drive_for_test\\" };
+        var brokenController = new Mst_ProductControllerPort(_db, null, brokenEnv);
+
+        var result = brokenController.ExportTemplate(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Product_ExportTemplate", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
     public async Task Index_ServerIntegrationTest_FreePort()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"minicontract_product_test_{Guid.NewGuid():N}.db");
@@ -2290,6 +2403,36 @@ public class Mst_ProductControllerPortTests : IDisposable
             var doc53 = JsonDocument.Parse(body53);
             Assert.True(doc53.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Mã sản phẩm 'PRD_UNIT_DELETE_LIVE' không có trong hệ thống!", doc53.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Ca 54: POST /api/mst_product/exporttemplate với body rỗng {} -> 200 OK, Success = true, CheckSuccess = "1", strUrl trỏ tới file .xlsx
+            var req54 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res54 = await http.PostAsync("/api/mst_product/exporttemplate", req54);
+            var body54 = await res54.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res54.StatusCode);
+            var doc54 = JsonDocument.Parse(body54);
+            Assert.True(doc54.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc54.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc54.RootElement.GetProperty("CheckSuccess").GetString());
+            var url54 = doc54.RootElement.GetProperty("strUrl").GetString();
+            Assert.NotNull(url54);
+            Assert.StartsWith("/TempFiles/", url54);
+            Assert.EndsWith(".xlsx", url54);
+
+            // Ca 55: POST /api/mst_product/exporttemplate với body rỗng hoàn toàn "" -> 200 OK
+            var req55 = new StringContent("", Encoding.UTF8, "application/json");
+            var res55 = await http.PostAsync("/api/mst_product/exporttemplate", req55);
+            var body55 = await res55.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res55.StatusCode);
+            var doc55 = JsonDocument.Parse(body55);
+            Assert.True(doc55.RootElement.GetProperty("Success").GetBoolean());
+
+            // Ca 56: POST /api/mst_product/export-template (kebab-case route alias) -> 200 OK
+            var req56 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res56 = await http.PostAsync("/api/mst_product/export-template", req56);
+            var body56 = await res56.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, res56.StatusCode);
+            var doc56 = JsonDocument.Parse(body56);
+            Assert.True(doc56.RootElement.GetProperty("Success").GetBoolean());
         }
         finally
         {
@@ -2308,5 +2451,15 @@ public class Mst_ProductControllerPortTests : IDisposable
                 try { File.Delete(tempDb); } catch { }
             }
         }
+    }
+
+    private class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_prd_" + Guid.NewGuid().ToString("N"));
+        public IFileProvider WebRootFileProvider { get; set; } = null!;
+        public string ApplicationName { get; set; } = "MiniContract.Tests";
+        public IFileProvider ContentRootFileProvider { get; set; } = null!;
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public string EnvironmentName { get; set; } = "Development";
     }
 }
