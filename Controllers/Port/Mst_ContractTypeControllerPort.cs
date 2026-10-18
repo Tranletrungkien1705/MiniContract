@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -8,18 +9,20 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:44050-44141, 44142-44297, 45024-45180
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index), 89-140 (Create)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44299-44548 (WAS/Biz Create), 45024-45180 (Search/Index), 45181-45278 (CreateX)
 [ApiController]
 [Route("api/mst_contracttype")]
 public class Mst_ContractTypeControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IConfiguration? _config;
 
-    public Mst_ContractTypeControllerPort(AppDbContext db)
+    public Mst_ContractTypeControllerPort(AppDbContext db, IConfiguration? config = null)
     {
         _db = db;
+        _config = config;
     }
 
     /// <summary>
@@ -112,6 +115,132 @@ public class Mst_ContractTypeControllerPort : ControllerBase
             return PortResult.Fail("Mst_ContractType_Get", "Exception", ex.Message);
         }
     }
+
+    /// <summary>
+    /// Tạo mới loại hợp đồng.
+    /// Gate: Mst_ContractTypeController.cs:92-95 (GET View), 97-146 Create(string model)
+    /// API:  MstContractTypeController.cs:89-140 WA_Mst_ContractType_Create
+    /// BIZ:  Master.cs:44299-44548 WAS_Mst_ContractType_Create -> Mst_ContractType_Create:44384-44548 -> Mst_ContractType_CreateX:45181-45278
+    /// </summary>
+    [HttpPost("create")]
+    public async Task<IActionResult> Create([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ContractType_CreateReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc thiếu dữ liệu (lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_ContractType_Create", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_ContractTypeController.cs:99, 111)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_ContractType_CreateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.ContractType ??= modelObj.ContractType;
+                    req.OrgID ??= modelObj.OrgID;
+                    req.ContractTypeName ??= modelObj.ContractTypeName;
+                    req.Description ??= modelObj.Description;
+                    req.FlagActive ??= modelObj.FlagActive;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.ContractType) && string.IsNullOrWhiteSpace(req.ContractTypeName) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_ContractType_Create", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào theo Master.cs:45215-45220
+        var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (_config?["Biz_NetworkID"] ?? "1001");
+        if (string.IsNullOrEmpty(networkId))
+        {
+            return PortResult.Fail("Mst_ContractType_Create_InvalidNetworkID", "Check.strNetworkID", req.NetworkID);
+        }
+
+        var contractType = StdParam(req.ContractType);
+        if (string.IsNullOrEmpty(contractType))
+        {
+            return PortResult.Fail("Mst_ContractType_Create", "Check.ContractType", req.ContractType);
+        }
+
+        var orgId = req.OrgID != null ? StdParam(req.OrgID) : (_config?["Biz_OrgID"] ?? "7200000001");
+        var contractTypeName = req.ContractTypeName?.Trim() ?? ""; // Master.cs:45218 string.Format("{0}", objContractTypeName)
+        var description = req.Description?.Trim() ?? ""; // Master.cs:45219 string.Format("{0}", objDescription)
+        var dtimeSys = DateTime.UtcNow; // Master.cs:44310, 44409, 45266
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port"; // Master.cs:45267
+
+        var entity = new Mst_ContractType
+        {
+            NetworkID = networkId,
+            ContractType = contractType,
+            OrgID = orgId ?? "",
+            ContractTypeName = contractTypeName,
+            Description = description,
+            FlagActive = "1", // Master.cs:45265 TConst.Flag.Active
+            LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = userCode
+        };
+
+        // 3. Mở transaction và kiểm tra trùng lặp khóa chính trong DB (Master.cs:44431, 45240-45247, 43988-44030)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Set<Mst_ContractType>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
+
+            if (existing != null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_ContractType_CheckDB_OrganExist",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractType", contractType);
+            }
+
+            // 4. Lưu bản ghi mới vào DB (Master.cs:45258-45275)
+            _db.Set<Mst_ContractType>().Add(entity);
+            await _db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_ContractType_Create", "Exception", ex.Message);
+        }
+
+        // 5. Trả kết quả thành công khớp gate MVC (Mst_ContractTypeController.cs:135-138)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Tạo mới loại hợp đồng thành công!" },
+            Title = "Tạo mới loại hợp đồng thành công!",
+            RedirectUrl = "/Mst_ContractType",
+            Data = entity
+        });
+    }
+
+    private static string? StdParam(object? value)
+    {
+        var s = value?.ToString()?.Trim();
+        return string.IsNullOrEmpty(s) ? null : s.ToUpperInvariant();
+    }
+
+    private static string? StdStr(object? value)
+    {
+        var s = value?.ToString()?.Trim();
+        return string.IsNullOrEmpty(s) ? null : s.Normalize();
+    }
 }
 
 public class Mst_ContractType_IndexReq
@@ -134,4 +263,20 @@ public class Mst_ContractType_IndexReq
     public string? ContractTypeName { get; set; }
     public string? FlagActive { get; set; }
     public string? KeyWord { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Create.
+/// Gate: Mst_ContractTypeController.cs:99 Create(string model)
+/// BIZ:  Master.cs:45205-45210
+/// </summary>
+public class Mst_ContractType_CreateReq
+{
+    public string? Model { get; set; }
+    public string? NetworkID { get; set; }
+    public string? ContractType { get; set; }
+    public string? OrgID { get; set; }
+    public string? ContractTypeName { get; set; }
+    public string? Description { get; set; }
+    public string? FlagActive { get; set; }
 }
