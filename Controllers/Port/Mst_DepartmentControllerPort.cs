@@ -217,17 +217,49 @@ public class Mst_DepartmentControllerPort : ControllerBase
             return PortResult.Fail("Mst_Department_Create", "Check.strJson", null);
         }
 
-        // 2. Chuẩn hoá tham số đầu vào theo Master.cs:36827-36830
-        var strDepartmentCode = StdParam(req.DepartmentCode);
-        var strDepartmentCodeParent = StdParam(req.DepartmentCodeParent);
-        var strMST = StdParam(req.MST);
-        var strDepartmentName = req.DepartmentName != null ? string.Format("{0}", req.DepartmentName).Trim() : "";
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (_config?["Biz_NetworkID"] ?? "1001");
 
-        // 3. Guards theo Master.cs:36838-36894
+        var (err, entity) = await CreateCoreAsync(req.DepartmentCode, req.DepartmentCodeParent, req.MST, req.DepartmentName, networkId, userCode);
+        if (err != null)
+        {
+            return err;
+        }
+
+        // 6. Trả kết quả thành công khớp gate MVC (Mst_DepartmentController.cs:179-182)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Tạo mới bộ phận phòng ban thành công!" },
+            Title = "Tạo mới bộ phận phòng ban thành công!",
+            RedirectUrl = "/Mst_Department",
+            Data = entity
+        });
+    }
+
+    /// <summary>
+    /// Nghiệp vụ cốt lõi tạo mới phòng ban bộ phận (Master.cs:36795-36931 Mst_Department_CreateX).
+    /// Dùng cho cả action Create đơn lẻ và vòng lặp Import từ Excel (hành vi import một phần).
+    /// </summary>
+    private async Task<(IActionResult? Error, Mst_Department? Entity)> CreateCoreAsync(
+        string? deptCode,
+        string? deptCodeParent,
+        string? mst,
+        string? deptName,
+        string? networkId,
+        string? userCode)
+    {
+        // 1. Chuẩn hoá tham số đầu vào theo Master.cs:36827-36830
+        var strDepartmentCode = StdParam(deptCode);
+        var strDepartmentCodeParent = StdParam(deptCodeParent);
+        var strMST = StdParam(mst);
+        var strDepartmentName = deptName != null ? string.Format("{0}", deptName).Trim() : "";
+
+        // 2. Guards theo Master.cs:36838-36894
         // Guard 1: DepartmentCode null hoặc rỗng (Master.cs:36838-36848)
         if (string.IsNullOrEmpty(strDepartmentCode))
         {
-            return PortResult.Fail("Mst_Department_Create_InvalidDepartmentCode", "Check.strDepartmentCode", req.DepartmentCode);
+            return (PortResult.Fail("Mst_Department_Create_InvalidDepartmentCode", "Check.strDepartmentCode", deptCode), null);
         }
 
         // Mở Transaction (Master.cs:36101)
@@ -241,14 +273,14 @@ public class Mst_DepartmentControllerPort : ControllerBase
             if (deptExists)
             {
                 await tx.RollbackAsync();
-                return PortResult.Fail("Mst_Department_CheckDB_DepartmentExist", "Check.DepartmentCode", strDepartmentCode);
+                return (PortResult.Fail("Mst_Department_CheckDB_DepartmentExist", "Check.DepartmentCode", strDepartmentCode), null);
             }
 
             // Guard 3: Kiểm tra MST trong Mst_NNT (Master.cs:36860-36867, 12028-12065 Mst_NNT_CheckDB với FlagExist="1", FlagActive="1")
             if (string.IsNullOrEmpty(strMST))
             {
                 await tx.RollbackAsync();
-                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", req.MST);
+                return (PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", mst), null);
             }
 
             var nnt = await _db.Set<Mst_NNT>()
@@ -257,16 +289,16 @@ public class Mst_DepartmentControllerPort : ControllerBase
             if (nnt == null)
             {
                 await tx.RollbackAsync();
-                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", strMST);
+                return (PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", strMST), null);
             }
 
             if (nnt.FlagActive != "1")
             {
                 await tx.RollbackAsync();
-                return PortResult.Fail("Mst_NNT_CheckDB_FlagActiveNotMatched",
+                return (PortResult.Fail("Mst_NNT_CheckDB_FlagActiveNotMatched",
                     "Check.MST", strMST,
                     "Check.strFlagActiveListToCheck", "1",
-                    "DB.FlagActive", nnt.FlagActive);
+                    "DB.FlagActive", nnt.FlagActive), null);
             }
 
             // Guard 4: Kiểm tra phòng ban cha nếu có DepartmentCodeParent (Master.cs:36871-36882, 35660-35697 Mst_Department_CheckDB với FlagExist="1", FlagActive="1")
@@ -278,16 +310,16 @@ public class Mst_DepartmentControllerPort : ControllerBase
                 if (parentDept == null)
                 {
                     await tx.RollbackAsync();
-                    return PortResult.Fail("Mst_Department_CheckDB_DepartmentNotFound", "Check.DepartmentCode", strDepartmentCodeParent);
+                    return (PortResult.Fail("Mst_Department_CheckDB_DepartmentNotFound", "Check.DepartmentCode", strDepartmentCodeParent), null);
                 }
 
                 if (parentDept.FlagActive != "1")
                 {
                     await tx.RollbackAsync();
-                    return PortResult.Fail("Mst_Department_CheckDB_FlagActiveNotMatched",
+                    return (PortResult.Fail("Mst_Department_CheckDB_FlagActiveNotMatched",
                         "Check.DepartmentCode", strDepartmentCodeParent,
                         "Check.strFlagActiveListToCheck", "1",
-                        "DB.FlagActive", parentDept.FlagActive);
+                        "DB.FlagActive", parentDept.FlagActive), null);
                 }
             }
 
@@ -295,19 +327,18 @@ public class Mst_DepartmentControllerPort : ControllerBase
             if (string.IsNullOrEmpty(strDepartmentName))
             {
                 await tx.RollbackAsync();
-                return PortResult.Fail("Mst_Department_Create_InvalidDepartmentName", "Check.strDepartmentName", strDepartmentName);
+                return (PortResult.Fail("Mst_Department_Create_InvalidDepartmentName", "Check.strDepartmentName", strDepartmentName), null);
             }
 
-            // 4. Lưu bản ghi mới vào Mst_Department (Master.cs:36898-36924)
+            // 3. Lưu bản ghi mới vào Mst_Department (Master.cs:36898-36924)
             var dtimeSys = DateTime.UtcNow;
-            var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
-            var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (_config?["Biz_NetworkID"] ?? "1001");
+            var netId = networkId ?? (_config?["Biz_NetworkID"] ?? "1001");
+            var usr = string.IsNullOrWhiteSpace(userCode) ? "port" : userCode;
 
             var entity = new Mst_Department
             {
                 DepartmentCode = strDepartmentCode,
-                NetworkID = networkId,
+                NetworkID = netId,
                 DepartmentCodeParent = strDepartmentCodeParent,
                 DepartmentBUCode = "X",
                 DepartmentBUPattern = "X",
@@ -316,31 +347,23 @@ public class Mst_DepartmentControllerPort : ControllerBase
                 DepartmentName = strDepartmentName,
                 FlagActive = "1", // TConst.Flag.Active
                 LogLUDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss"),
-                LogLUBy = userCode
+                LogLUBy = usr
             };
 
             _db.Set<Mst_Department>().Add(entity);
             await _db.SaveChangesAsync();
 
-            // 5. Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU() (Master.cs:36928, 35700-35736)
+            // 4. Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU() (Master.cs:36928, 35700-35736)
             await UpdBUAsync();
 
             await tx.CommitAsync();
 
-            // 6. Trả kết quả thành công khớp gate MVC (Mst_DepartmentController.cs:179-182)
-            return Ok(new
-            {
-                Success = true,
-                Messages = new[] { "Tạo mới bộ phận phòng ban thành công!" },
-                Title = "Tạo mới bộ phận phòng ban thành công!",
-                RedirectUrl = "/Mst_Department",
-                Data = entity
-            });
+            return (null, entity);
         }
         catch (Exception ex)
         {
             await tx.RollbackAsync();
-            return PortResult.Fail("Mst_Department_Create", "Exception", ex.Message);
+            return (PortResult.Fail("Mst_Department_Create", "Exception", ex.Message), null);
         }
     }
 
@@ -905,6 +928,145 @@ public class Mst_DepartmentControllerPort : ControllerBase
             // Gate lines 571-574: resultEntry.SetFailed().AddException(this, ex)
             return PortResult.Fail("Mst_Department_ExportTemplate", "Exception", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Nhập dữ liệu bộ phận phòng ban từ tệp Excel.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:583-730 Import(HttpPostedFileWrapper file)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:91-160 WA_Mst_Department_Create
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35981-36061 (WAS_Mst_Department_Create) -> 36062-36200 (Mst_Department_Create) -> 36795-36931 (Mst_Department_CreateX), 35634-35698 (Mst_Department_CheckDB), 12001-12070 (Mst_NNT_CheckDB), 35700-35736 (Mst_Department_UpdBU)
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import(IFormFile? file)
+    {
+        if (file == null && Request?.HasFormContentType == true && Request.Form.Files.Count > 0)
+        {
+            file = Request.Form.Files[0];
+        }
+
+        // 1. Kiểm tra file upload (Gate lines 596-604)
+        if (file == null || file.Length == 0)
+        {
+            return PortResult.Fail("Mst_Department_Import", "Message", "File excel import không hợp lệ!");
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext != ".xlsx" && ext != ".xls")
+        {
+            return PortResult.Fail("Mst_Department_Import", "Message", "File excel import không hợp lệ!");
+        }
+
+        // 2. Đọc bảng tính bằng PortExcel.ReadSheet từ ô A2 (Gate lines 613-615 ExcelImportNew.Query(filePath, "A2"))
+        // 3 cột từ GetImportDicColumsTemplate() (Gate:746-756):
+        // 1. DepartmentCode: Mã bộ phận (*)
+        // 2. DepartmentName: Tên bộ phận (*)
+        // 3. DepartmentCodeParent: Bộ phận quản lý (*)
+        int columnCount;
+        List<Dictionary<string, string?>> rows;
+        try
+        {
+            using var stream = file.OpenReadStream();
+            (columnCount, rows) = PortExcel.ReadSheet(stream, new[] { "DepartmentCode", "DepartmentName", "DepartmentCodeParent" });
+        }
+        catch
+        {
+            return PortResult.Fail("Mst_Department_Import", "Message", "File excel import không hợp lệ!");
+        }
+
+        // 3. Kiểm tra bảng rỗng (Gate lines 616, 718-722: table == null || table.Rows.Count == 0)
+        if (rows == null || rows.Count == 0)
+        {
+            return PortResult.Fail("Mst_Department_Import", "Message", "File excel import không có dữ liệu!");
+        }
+
+        // 4. Kiểm tra số cột (Gate lines 618-623: table.Columns.Count != 3)
+        if (columnCount != 3)
+        {
+            return PortResult.Fail("Mst_Department_Import", "Message", "File excel import không hợp lệ!");
+        }
+
+        // 5. Kiểm tra rỗng từng trường cho toàn bộ danh sách (Gate lines 626-656 #region["Check null"])
+        foreach (var dr in rows)
+        {
+            var code = dr.GetValueOrDefault("DepartmentCode");
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return PortResult.Fail("Mst_Department_Import", "Message", "Mã bộ phận không được trống!");
+            }
+
+            var name = dr.GetValueOrDefault("DepartmentName");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return PortResult.Fail("Mst_Department_Import", "Message", "Tên bộ phận không được trống!");
+            }
+
+            var parent = dr.GetValueOrDefault("DepartmentCodeParent");
+            if (string.IsNullOrWhiteSpace(parent))
+            {
+                return PortResult.Fail("Mst_Department_Import", "Message", "Bộ phận quản lý không được trống!");
+            }
+        }
+
+        // 6. Kiểm tra trùng lặp mã trong chính file Excel (Gate lines 658-676 #region["Check duplicate"])
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var departmentCodeCur = (rows[i].GetValueOrDefault("DepartmentCode") ?? "").Trim();
+            for (var j = 0; j < rows.Count; j++)
+            {
+                if (i != j)
+                {
+                    var otherCodeCur = (rows[j].GetValueOrDefault("DepartmentCode") ?? "").Trim();
+                    if (departmentCodeCur.Equals(otherCodeCur, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var exitsData = "Mã bộ phận '" + departmentCodeCur + "' bị lặp trong file excel!";
+                        return PortResult.Fail("Mst_Department_Import", "Message", exitsData);
+                    }
+                }
+            }
+        }
+
+        // 7. Chuẩn bị tham số hệ thống: NetworkID, MST, UserCode (Gate lines 589-592, 685-687)
+        var networkId = StdParam(Request?.Headers["NetworkID"].FirstOrDefault())
+            ?? (_config?["Biz_NetworkID"] ?? "1001");
+
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+
+        var mst = StdParam(Request?.Headers["MST"].FirstOrDefault())
+            ?? _config?["Biz_MST"];
+
+        if (string.IsNullOrEmpty(mst))
+        {
+            mst = await _db.Set<Mst_NNT>()
+                .Where(x => x.FlagActive == "1")
+                .OrderBy(x => x.MST)
+                .Select(x => x.MST)
+                .FirstOrDefaultAsync();
+        }
+
+        // 8. Duyệt từng dòng và lưu dữ liệu độc lập với transaction riêng (Gate lines 680-712; hành vi import một phần)
+        foreach (var item in rows)
+        {
+            var code = item.GetValueOrDefault("DepartmentCode");
+            var name = item.GetValueOrDefault("DepartmentName");
+            var parent = item.GetValueOrDefault("DepartmentCodeParent");
+
+            var (err, _) = await CreateCoreAsync(code, parent, mst, name, networkId, userCode);
+            if (err != null)
+            {
+                // Dừng ngay ở dòng k và trả lỗi của dòng đó (các dòng trước k đã được commit thành công)
+                return err;
+            }
+        }
+
+        // 9. Trả kết quả thành công khớp gate MVC (Gate lines 714-716)
+        return Ok(new
+        {
+            Success = true,
+            Messages = new[] { "Đã nhập dữ liệu excel thành công!" },
+            Title = "Đã nhập dữ liệu excel thành công!",
+            RedirectUrl = "/Mst_Department"
+        });
     }
 
     /// <summary>

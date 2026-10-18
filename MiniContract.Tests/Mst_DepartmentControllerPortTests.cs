@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ClosedXML.Excel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -1136,6 +1137,277 @@ public class Mst_DepartmentControllerPortTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(strUrlReq));
     }
 
+    private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Mst_Department");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+        return new FormFile(ms, 0, ms.Length, "file", fileName);
+    }
+
+    private static byte[] CreateExcelBytes(string[] headers, List<string?[]> dataRows)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Mst_Department");
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(1, c + 1).Value = headers[c];
+        }
+        for (int r = 0; r < dataRows.Count; r++)
+        {
+            for (int c = 0; c < dataRows[r].Length; c++)
+            {
+                var val = dataRows[r][c];
+                if (val != null)
+                {
+                    ws.Cell(r + 2, c + 1).Value = val;
+                }
+            }
+        }
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task Import_NullFile_ReturnsFail_InvalidFile()
+    {
+        var res = await _controller.Import(null);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Import", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("File excel import không hợp lệ!", root.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyFile_ReturnsFail_InvalidFile()
+    {
+        var emptyFile = new FormFile(new MemoryStream(), 0, 0, "file", "test.xlsx");
+        var res = await _controller.Import(emptyFile);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidExtension_ReturnsFail_InvalidFile()
+    {
+        var ms = new MemoryStream(new byte[] { 1, 2, 3 });
+        var txtFile = new FormFile(ms, 0, ms.Length, "file", "test.txt");
+        var res = await _controller.Import(txtFile);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDataRows_ReturnsFail_NoData()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>());
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("File excel import không có dữ liệu!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_InvalidColumnCount_ReturnsFail_InvalidFile()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_1", "Phòng 1" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("File excel import không hợp lệ!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDepartmentCode_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "", "Phòng Marketing", "DEPT_BGD" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Mã bộ phận không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDepartmentName_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_MKT", "", "DEPT_BGD" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Tên bộ phận không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_EmptyDepartmentCodeParent_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_MKT", "Phòng Marketing", "" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Bộ phận quản lý không được trống!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DuplicateInExcel_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_DUP", "Phòng 1", "DEPT_BGD" },
+            new string?[] { "DEPT_DUP", "Phòng 2", "DEPT_BGD" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Mã bộ phận 'DEPT_DUP' bị lặp trong file excel!", doc.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Import_DepartmentCodeAlreadyExistsInDB_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_BGD", "Ban Giám Đốc Mới", "DEPT_BGD" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_DepartmentExist", doc.RootElement.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_ParentNotFoundInDB_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_NEW", "Phòng Mới", "DEPT_NONEXIST" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_DepartmentNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("DEPT_NONEXIST", doc.RootElement.GetProperty("Params").GetProperty("Check.DepartmentCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_ParentInactiveInDB_ReturnsFail()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_NEW", "Phòng Mới", "DEPT_KD_INACT" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_FlagActiveNotMatched", doc.RootElement.GetProperty("ErrorCode").GetString());
+        Assert.Equal("DEPT_KD_INACT", doc.RootElement.GetProperty("Params").GetProperty("Check.DepartmentCode").GetString());
+    }
+
+    [Fact]
+    public async Task Import_Success_SingleRow_RoundTrip()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_MKT", "Phòng Marketing", "DEPT_BGD" }
+        });
+        var res = await _controller.Import(file);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công!", root.GetProperty("Title").GetString());
+
+        // Đọc lại từ DB để xác minh round-trip
+        var item = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_MKT");
+        Assert.NotNull(item);
+        Assert.Equal("Phòng Marketing", item.DepartmentName);
+        Assert.Equal("DEPT_BGD", item.DepartmentCodeParent);
+        Assert.Equal("1", item.FlagActive);
+        Assert.Equal("DEPT_BGD.DEPT_MKT", item.DepartmentBUCode);
+        Assert.Equal("2", item.DepartmentLevel);
+    }
+
+    [Fact]
+    public async Task Import_Success_MultiRow_Hierarchy_RoundTrip()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_TECH", "Khối Công Nghệ", "DEPT_BGD" },
+            new string?[] { "DEPT_DEV", "Phòng Phát Triển", "DEPT_TECH" }
+        });
+        var res = await _controller.Import(file);
+        var okRes = Assert.IsType<OkObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okRes.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        // Xác minh cả 2 bản ghi trong DB và cây BU
+        var tech = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_TECH");
+        Assert.NotNull(tech);
+        Assert.Equal("DEPT_BGD.DEPT_TECH", tech.DepartmentBUCode);
+        Assert.Equal("2", tech.DepartmentLevel);
+
+        var dev = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_DEV");
+        Assert.NotNull(dev);
+        Assert.Equal("DEPT_BGD.DEPT_TECH.DEPT_DEV", dev.DepartmentBUCode);
+        Assert.Equal("3", dev.DepartmentLevel);
+    }
+
+    [Fact]
+    public async Task Import_PartialImport_WhenSecondRowFails_FirstRowCommitted()
+    {
+        var file = CreateExcelFormFile("test.xlsx", new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" }, new List<string?[]>
+        {
+            new string?[] { "DEPT_PARTIAL_OK", "Phòng Hợp Lệ", "DEPT_BGD" },
+            new string?[] { "DEPT_PARTIAL_FAIL", "Phòng Lỗi", "DEPT_NONEXIST" }
+        });
+        var res = await _controller.Import(file);
+        var badRes = Assert.IsType<BadRequestObjectResult>(res);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badRes.Value));
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Department_CheckDB_DepartmentNotFound", doc.RootElement.GetProperty("ErrorCode").GetString());
+
+        // Kiểm tra dòng 1 đã được commit vào DB (hành vi import một phần)
+        var itemOk = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_PARTIAL_OK");
+        Assert.NotNull(itemOk);
+        Assert.Equal("Phòng Hợp Lệ", itemOk.DepartmentName);
+
+        // Kiểm tra dòng 2 không được commit
+        var itemFail = await _db.Set<Mst_Department>().FirstOrDefaultAsync(x => x.DepartmentCode == "DEPT_PARTIAL_FAIL");
+        Assert.Null(itemFail);
+    }
+
     [Fact]
     public async Task RealServer_Verification_Port()
     {
@@ -1377,6 +1649,61 @@ public class Mst_DepartmentControllerPortTests : IDisposable
             var doc14 = JsonDocument.Parse(body14);
             Assert.True(doc14.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Đã xuất excel thành công!", doc14.RootElement.GetProperty("Title").GetString());
+
+            // =========================================================================
+            // Kiểm thử endpoint Import trên server thật
+            // =========================================================================
+
+            // Ca 15: POST /api/mst_department/import với file rỗng (0 bytes) -> 400 BadRequest
+            using var emptyFileForm = new MultipartFormDataContent();
+            emptyFileForm.Add(new ByteArrayContent(Array.Empty<byte>()), "file", "empty.xlsx");
+            var res15 = await http.PostAsync("/api/mst_department/import", emptyFileForm);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 15 POST /api/mst_department/import (0 byte file)] Status: {(int)res15.StatusCode} Response: {body15}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res15.StatusCode);
+            var doc15 = JsonDocument.Parse(body15);
+            Assert.False(doc15.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Department_Import", doc15.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.Equal("File excel import không hợp lệ!", doc15.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // Ca 16: POST /api/mst_department/import với file .txt không hợp lệ -> 400 BadRequest
+            using var formTxt = new MultipartFormDataContent();
+            formTxt.Add(new ByteArrayContent(Encoding.UTF8.GetBytes("plain text")), "file", "invalid.txt");
+            var res16 = await http.PostAsync("/api/mst_department/import", formTxt);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 16 POST /api/mst_department/import (invalid ext)] Status: {(int)res16.StatusCode} Response: {body16}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res16.StatusCode);
+            var doc16 = JsonDocument.Parse(body16);
+            Assert.Equal("File excel import không hợp lệ!", doc16.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+
+            // Ca 17: POST /api/mst_department/import với file Excel hợp lệ tạo DEPT_SRV_IMP
+            var excelBytes = CreateExcelBytes(
+                new[] { "Mã bộ phận (*)", "Tên bộ phận (*)", "Bộ phận quản lý (*)" },
+                new List<string?[]> { new string?[] { "DEPT_SRV_IMP", "Phòng Import Server Thật", "DEPT_BGD" } }
+            );
+            using var formExcel = new MultipartFormDataContent();
+            formExcel.Add(new ByteArrayContent(excelBytes), "file", "import_test.xlsx");
+            var res17 = await http.PostAsync("/api/mst_department/import", formExcel);
+            var body17 = await res17.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 17 POST /api/mst_department/import (valid excel)] Status: {(int)res17.StatusCode} Response: {body17}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res17.StatusCode);
+            var doc17 = JsonDocument.Parse(body17);
+            Assert.True(doc17.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã nhập dữ liệu excel thành công!", doc17.RootElement.GetProperty("Title").GetString());
+
+            // Ca 18: Gọi /api/mst_department/detail để xác minh round-trip phòng ban DEPT_SRV_IMP đã được import thật trên DB
+            var req18 = new StringContent("{\"DepartmentCode\":\"DEPT_SRV_IMP\"}", Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/mst_department/detail", req18);
+            var body18 = await res18.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 18 POST /api/mst_department/detail (verify imported dept)] Status: {(int)res18.StatusCode} Response: {body18}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res18.StatusCode);
+            var doc18 = JsonDocument.Parse(body18);
+            Assert.True(doc18.RootElement.GetProperty("Success").GetBoolean());
+            var data18 = doc18.RootElement.GetProperty("Data");
+            Assert.Equal("DEPT_SRV_IMP", data18.GetProperty("DepartmentCode").GetString());
+            Assert.Equal("Phòng Import Server Thật", data18.GetProperty("DepartmentName").GetString());
+            Assert.Equal("DEPT_BGD", data18.GetProperty("DepartmentCodeParent").GetString());
+            Assert.Equal("1", data18.GetProperty("FlagActive").GetString());
         }
         finally
         {
