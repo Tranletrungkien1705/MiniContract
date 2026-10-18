@@ -1074,6 +1074,117 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
         Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
     }
 
+    // ================== Kiểm thử endpoint ExportTemplate ==================
+
+    [Fact]
+    public void ExportTemplate_EmptyBody_ReturnsExcelSuccessWithThreeHeaderColumnsOnly()
+    {
+        var result = _controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+        Assert.EndsWith(".xlsx", strUrl);
+
+        var physicalPath = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Mst_FinishedContractReason");
+        Assert.NotNull(ws);
+
+        // Tiêu đề: đúng 3 cột từ GetImportDicColums() (Gate:594-602)
+        Assert.Equal(3, ws.Row(1).LastCellUsed()?.Address.ColumnNumber);
+        Assert.Equal("Mã lý do(*)", ws.Cell(1, 1).GetString());
+        Assert.Equal("Nội dung(*)", ws.Cell(1, 2).GetString());
+        Assert.Equal("Mô tả", ws.Cell(1, 3).GetString());
+
+        // File mẫu rỗng: không có dòng dữ liệu (dòng cuối cùng sử dụng là dòng 1 tiêu đề)
+        var lastRow = ws.LastRowUsed()?.RowNumber();
+        Assert.Equal(1, lastRow);
+    }
+
+    [Fact]
+    public void ExportTemplate_WithRequestBody_AlsoSucceeds()
+    {
+        var result = _controller.ExportTemplate(new { arbitrary = "test_value" });
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+
+        string strUrl = root.GetProperty("strUrl").GetString()!;
+        Assert.StartsWith("/TempFiles/", strUrl);
+    }
+
+    [Fact]
+    public void ExportTemplate_WhenExceptionOccurs_ReturnsFailResult()
+    {
+        // Môi trường lỗi với đường dẫn không hợp lệ khiến việc tạo thư mục/file ném ngoại lệ
+        var brokenEnv = new TestWebHostEnvironment { WebRootPath = "Z:\\non_existent_drive_for_test\\" };
+        var brokenController = new Mst_FinishedContractReasonControllerPort(_db, null, brokenEnv);
+
+        var result = brokenController.ExportTemplate(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_FinishedContractReason_ExportTemplate", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Exception", out _));
+    }
+
+    [Fact]
+    public async Task ExportTemplate_FillDataAndImport_RoundTripSucceeds()
+    {
+        // 1. Xuất template
+        var exportRes = _controller.ExportTemplate(null);
+        var okExport = Assert.IsType<OkObjectResult>(exportRes);
+        var docExport = JsonDocument.Parse(JsonSerializer.Serialize(okExport.Value));
+        var strUrl = docExport.RootElement.GetProperty("strUrl").GetString()!;
+        var templatePhysical = Path.Combine(_env.WebRootPath, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+        // 2. Mở file template mẫu và điền 1 dòng dữ liệu hợp lệ
+        using (var wb = new XLWorkbook(templatePhysical))
+        {
+            var ws = wb.Worksheet("Mst_FinishedContractReason");
+            ws.Cell(2, 1).Value = "REASON_FROM_TPL";
+            ws.Cell(2, 2).Value = "Lý do từ template mẫu";
+            ws.Cell(2, 3).Value = "Mô tả điền từ template";
+            wb.Save();
+        }
+
+        // 3. Nhập file template đã điền dữ liệu qua endpoint Import
+        var fileBytes = await File.ReadAllBytesAsync(templatePhysical);
+        using var ms = new MemoryStream(fileBytes);
+        var formFile = new FormFile(ms, 0, ms.Length, "file", "template_filled.xlsx");
+
+        var importRes = await _controller.Import(formFile);
+        var okImport = Assert.IsType<OkObjectResult>(importRes);
+        var docImport = JsonDocument.Parse(JsonSerializer.Serialize(okImport.Value));
+        Assert.True(docImport.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã nhập dữ liệu excel thành công", docImport.RootElement.GetProperty("Title").GetString());
+
+        // 4. Kiểm tra round-trip: dữ liệu từ file template đã được ghi nhận vào DB
+        var saved = await _db.Set<Mst_FinishedContractReason>()
+            .FirstOrDefaultAsync(x => x.NetworkID == "1001" && x.ContractFinishReasonCode == "REASON_FROM_TPL");
+        Assert.NotNull(saved);
+        Assert.Equal("Lý do từ template mẫu", saved.ContractFinishReasonName);
+        Assert.Equal("Mô tả điền từ template", saved.FinishDescription);
+    }
+
     [Fact]
     public async Task RealServer_Verification_Port8585()
     {
@@ -1614,6 +1725,45 @@ public class Mst_FinishedContractReasonControllerPortTests : IDisposable
             Assert.True(doc42.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("File Excel nhập không có dữ liệu!", doc42.RootElement.GetProperty("Title").GetString());
             Assert.Equal("1", doc42.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // ================== Kiểm thử endpoint ExportTemplate ==================
+            // Request 43: POST ExportTemplate với body rỗng ({}) -> 200 OK, Title = "Đã xuất excel thành công", strUrl hợp lệ
+            var req43 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res43 = await http.PostAsync("/api/mst_finishedcontractreason/exporttemplate", req43);
+            var body43 = await res43.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ43: {body43}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res43.StatusCode);
+            var doc43 = JsonDocument.Parse(body43);
+            Assert.True(doc43.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", doc43.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc43.RootElement.GetProperty("CheckSuccess").GetString());
+            string tplUrl = doc43.RootElement.GetProperty("strUrl").GetString()!;
+            Assert.StartsWith("/TempFiles/", tplUrl);
+
+            // Request 44: POST ExportTemplate không truyền content body -> 200 OK
+            var req44 = new StringContent("", Encoding.UTF8, "application/json");
+            var res44 = await http.PostAsync("/api/mst_finishedcontractreason/exporttemplate", req44);
+            var body44 = await res44.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ44: {body44}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res44.StatusCode);
+            var doc44 = JsonDocument.Parse(body44);
+            Assert.True(doc44.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công", doc44.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc44.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // Request 45: Tải file template vừa xuất và kiểm tra định dạng Excel thực tế (3 cột, không có dòng dữ liệu)
+            var resFile = await http.GetAsync(tplUrl);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resFile.StatusCode);
+            var tplBytes = await resFile.Content.ReadAsByteArrayAsync();
+            using var tplStream = new MemoryStream(tplBytes);
+            using var tplWb = new XLWorkbook(tplStream);
+            var tplWs = tplWb.Worksheet("Mst_FinishedContractReason");
+            Assert.NotNull(tplWs);
+            Assert.Equal(3, tplWs.Row(1).LastCellUsed()?.Address.ColumnNumber);
+            Assert.Equal("Mã lý do(*)", tplWs.Cell(1, 1).GetString());
+            Assert.Equal("Nội dung(*)", tplWs.Cell(1, 2).GetString());
+            Assert.Equal("Mô tả", tplWs.Cell(1, 3).GetString());
+            Assert.Equal(1, tplWs.LastRowUsed()?.RowNumber());
         }
         finally
         {

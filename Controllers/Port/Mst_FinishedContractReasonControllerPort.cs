@@ -11,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_FinishedContractReasonController.cs — Mst_FinishedContractReason
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete), 351-499 (Import), 505-564 (Export)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_FinishedContractReasonController.cs:21-85 (Index), 87-90 (Create GET), 92-140 (Create POST), 142-193 (Update), 197-249 (Edit), 251-295 (Detail), 298-346 (Delete), 351-499 (Import), 505-564 (Export), 568-590 (ExportTemplate)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstFinishedContractReasonController.cs:20-88 (Index, Update, Export), 89-140 (Create), 160-228 (Edit/Update), 230-298 (Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:45487-45558 (CheckDB), 45559-45655 (WAS Get/Update/Export), 45656-45812 (Biz Get/Update/Export), 45814-46046 (WAS/Biz Create), 46048-46303 (WAS/Biz Update), 46304-46382 (WAS Delete), 46383-46528 (Biz Delete), 46529-46685 (Search/Index/Update/Export GetX), 46686-46781 (CreateX), 46782-46889 (UpdateX), 46890-46947 (DeleteX)
 [ApiController]
@@ -28,6 +28,13 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         { "ContractFinishReasonName", "Nội dung(*)" },
         { "FinishDescription", "Mô tả" },
         { "FlagActive", "Trạng thái" }
+    };
+
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { "ContractFinishReasonCode", "Mã lý do(*)" },
+        { "ContractFinishReasonName", "Nội dung(*)" },
+        { "FinishDescription", "Mô tả" }
     };
 
     public Mst_FinishedContractReasonControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
@@ -731,6 +738,44 @@ public class Mst_FinishedContractReasonControllerPort : ControllerBase
         catch (Exception ex)
         {
             return PortResult.Fail("Mst_FinishedContractReason_Export", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Xuất tệp mẫu Excel để nhập nguyên nhân chấm dứt hợp đồng.
+    /// Gate: Mst_FinishedContractReasonController.cs:568-590 ExportTemplate()
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] object? req = null)
+    {
+        try
+        {
+            // 1. Tạo danh sách rỗng (Gate line 573: var listInv = new List<Mst_FinishedContractReason>())
+            var listInv = new List<Mst_FinishedContractReason>();
+
+            // 2. Lấy từ điển cột từ GetImportDicColums() gồm 3 cột (Gate lines 574, 594-602)
+            var dicColNames = ExportTemplateDicColumns;
+
+            // 3. Sinh đường dẫn file vật lý và URL ảo (Gate lines 577-578: GenExcelExportFilePath)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_FinishedContractReason));
+
+            // 4. Xuất danh sách rỗng ra file Excel chứa dòng tiêu đề (Gate line 579: ExcelExport.ExportToExcelFromList)
+            PortExcel.ExportToExcelFromList(listInv, dicColNames, filePath, nameof(Mst_FinishedContractReason));
+
+            // 5. Trả kết quả thành công khớp gate MVC (Gate line 581: Nonsense.MESS_EXPORT_EXCEL_SUCCESS)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            // Gate lines 584-589: resultEntry.SetFailed().AddException(ex)
+            return PortResult.Fail("Mst_FinishedContractReason_ExportTemplate", "Exception", ex.Message);
         }
     }
 
