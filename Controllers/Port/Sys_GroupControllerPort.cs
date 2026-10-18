@@ -10,6 +10,8 @@ namespace MiniContract.Controllers.Port;
 // port 1:1 Sys_GroupController.cs — Sys_Group
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:22-102 (Index)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:107-156 (GetDetailData)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\SysGroupController.cs:20-91 (WA_Sys_Group_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\System.cs:2283-2397 (WAS_Sys_Group_Get) -> 1966-2281 (Sys_Group_Get_New20191102)
@@ -131,6 +133,90 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action GetDetailData từ gate Sys_GroupController.cs:107-156.
+    /// Chuỗi gọi:
+    /// 1. Dựng điều kiện strWhereClause_SysGroup theo groupcode:
+    ///    Sys_Group.GroupCode = groupcode (gate dòng 118-119, 1080-1091).
+    /// 2. Đóng gói RQ_Sys_Group với Rt_Cols_Sys_Group = null, Rt_Cols_Sys_UserInGroup = "*" (gate dòng 121-141).
+    /// 3. Gọi Sys_GroupService.Instance.WA_Sys_Group_Get (gate dòng 143)
+    ///    -> API WA_Sys_Group_Get (SysGroupController.cs:20-91)
+    ///    -> BIZ WAS_Sys_Group_Get (System.cs:2283-2397)
+    ///    -> Sys_Group_Get_New20191102 (System.cs:1966-2281).
+    ///    SQL: Lọc nhóm qua #tbl_Sys_Group_Filter_Draft và #tbl_Sys_Group_Filter (System.cs:2076-2106).
+    ///    Lấy dữ liệu người dùng trong nhóm qua inner join Sys_UserInGroup suig on t.GroupCode = suig.GroupCode
+    ///    left join Sys_User su on suig.UserCode = su.UserCode
+    ///    left join Sys_Group sg on suig.GroupCode = sg.GroupCode (System.cs:2146-2167).
+    /// 4. Nếu có kết quả thì listUserInGroup.AddRange(objRT_Sys_GroupCur.Lst_Sys_UserInGroup) (gate dòng 144-147).
+    /// 5. Trả về JsonView("ShowDetailData", listUserInGroup) (gate dòng 148).
+    /// 6. Bắt ngoại lệ catch (Exception ex) -> PortResult.Fail("Sys_Group_Get", "Exception", ex.Message) (gate dòng 150-155).
+    /// </summary>
+    [HttpPost("getdetaildata")]
+    public async Task<IActionResult> GetDetailData([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_GetDetailDataReq? req)
+    {
+        try
+        {
+            var groupCode = StdParam(req?.GroupCode);
+            if (string.IsNullOrEmpty(groupCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupcode", out var qGroupCode))
+            {
+                groupCode = StdParam(qGroupCode.ToString());
+            }
+
+            var mst = StdParam(req?.MST);
+            if (string.IsNullOrEmpty(mst) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("mst", out var qMst))
+            {
+                mst = StdParam(qMst.ToString());
+            }
+
+            var groupQuery = _db.Set<Sys_Group>().AsNoTracking();
+            if (!string.IsNullOrEmpty(groupCode))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            }
+            if (!string.IsNullOrEmpty(mst))
+            {
+                groupQuery = groupQuery.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+
+            var groups = groupQuery.OrderBy(x => x.GroupCode);
+
+            var query = from t in groups
+                        join suig in _db.Set<Sys_UserInGroup>().AsNoTracking() on t.GroupCode equals suig.GroupCode
+                        join su in _db.Set<Sys_User>().AsNoTracking() on suig.UserCode equals su.UserCode into gUser
+                        from su in gUser.DefaultIfEmpty()
+                        join sg in _db.Set<Sys_Group>().AsNoTracking() on suig.GroupCode equals sg.GroupCode into gGroup
+                        from sg in gGroup.DefaultIfEmpty()
+                        orderby t.GroupCode, suig.UserCode
+                        select new Sys_UserInGroup
+                        {
+                            GroupCode = suig.GroupCode,
+                            UserCode = suig.UserCode,
+                            MST = suig.MST ?? (sg != null ? sg.MST : null),
+                            LogLUDTimeUTC = suig.LogLUDTimeUTC,
+                            LogLUBy = suig.LogLUBy,
+                            su_UserCode = su != null ? su.UserCode : suig.UserCode,
+                            su_UserName = su != null ? su.UserName : null,
+                            su_FlagSysAdmin = su != null ? su.FlagSysAdmin : null,
+                            su_FlagActive = su != null ? su.FlagActive : null,
+                            sg_GroupCode = sg != null ? sg.GroupCode : suig.GroupCode,
+                            sg_GroupName = sg != null ? sg.GroupName : null,
+                            sg_FlagActive = sg != null ? sg.FlagActive : null,
+                        };
+
+            var listUserInGroup = await query.ToListAsync();
+
+            return Ok(new
+            {
+                Success = true,
+                Data = listUserInGroup
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Get", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -161,4 +247,14 @@ public class Sys_Group_IndexReq
     public string? FlagActive { get; set; }
     public string? MST { get; set; }
     public string? KeyWord { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action GetDetailData của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:107 GetDetailData(string groupcode)
+/// </summary>
+public class Sys_Group_GetDetailDataReq
+{
+    public string? GroupCode { get; set; }
+    public string? MST { get; set; }
 }
