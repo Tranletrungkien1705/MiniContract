@@ -10,7 +10,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_CustomerController.cs — Mst_Customer
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
 [ApiController]
@@ -1545,6 +1545,156 @@ public class Mst_CustomerControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Kiểm tra trùng khách hàng theo số điện thoại, email hoặc mã số thuế trước khi lưu.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:2043-2166 Customer_Check(string model)
+    ///       Mst_CustomerController.cs:3915-3937 strWhereClause_Mst_Customer_By_Or
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 WA_Mst_Customer_Get
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 WAS_Mst_Customer_Get -> 996-1462 Mst_Customer_Get
+    /// </summary>
+    [HttpPost("customer_check")]
+    public async Task<IActionResult> Customer_Check([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Customer_Customer_CheckReq? req)
+    {
+        // 1. Kiểm tra body rỗng (LESSON A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_Customer_Customer_Check", "Check.strJson", null);
+        }
+
+        var objMst_Customer_Check = new Mst_Customer_Check
+        {
+            Success = true,
+            Action = "0"
+        };
+
+        try
+        {
+            // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_CustomerController.cs:2043, 2052)
+            if (!string.IsNullOrWhiteSpace(req.Model))
+            {
+                try
+                {
+                    var modelObj = JsonSerializer.Deserialize<Mst_Customer_Customer_CheckReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        req.OrgID ??= modelObj.OrgID;
+                        req.NetworkID ??= modelObj.NetworkID;
+                        req.CustomerCode ??= modelObj.CustomerCode;
+                        req.CustomerCodeSys ??= modelObj.CustomerCodeSys;
+                        req.CustomerName ??= modelObj.CustomerName;
+                        req.CustomerMobilePhone ??= modelObj.CustomerMobilePhone;
+                        req.ContactEmail ??= modelObj.ContactEmail;
+                        req.MST ??= modelObj.MST;
+                    }
+                }
+                catch
+                {
+                    // Giữ nguyên req nếu chuỗi model không parse được
+                }
+            }
+
+            var phone = req.CustomerMobilePhone?.Trim();
+            var email = req.ContactEmail?.Trim();
+            var mst = req.MST?.Trim();
+            var customerCodeSys = req.CustomerCodeSys?.Trim();
+
+            // Nếu cả 3 trường đều rỗng: strWhereClause_Mst_Customer_By_Or rỗng -> Action = "0" (Mst_CustomerController.cs:2065, 2151-2155)
+            if (string.IsNullOrEmpty(phone) && string.IsNullOrEmpty(email) && string.IsNullOrEmpty(mst))
+            {
+                objMst_Customer_Check.Action = "0";
+                return Ok(objMst_Customer_Check);
+            }
+
+            var orgId = StdParam(req.OrgID) ?? Request?.Headers["OrgID"].FirstOrDefault() ?? _config?["Biz_OrgID"] ?? "7200000001";
+
+            // Dựng truy vấn tìm kiếm Mst_Customer theo điều kiện OR giữa Phone, Email, MST (Mst_CustomerController.cs:3915-3937 và Customer.cs:1120-1137, 1344-1386)
+            var query = _db.Set<Mst_Customer>().AsNoTracking();
+
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            // Điều kiện OR: CustomerMobilePhone = @p_0 or ContactEmail = @p_1 or MST = @p_2
+            query = query.Where(x =>
+                (!string.IsNullOrEmpty(phone) && EF.Functions.Like((x.CustomerMobilePhone ?? "").ToLower(), PortQuery.Equal(phone), PortQuery.Esc)) ||
+                (!string.IsNullOrEmpty(email) && EF.Functions.Like((x.ContactEmail ?? "").ToLower(), PortQuery.Equal(email), PortQuery.Esc)) ||
+                (!string.IsNullOrEmpty(mst) && EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc))
+            );
+
+            // Sắp xếp CreateDTimeUTC desc theo SQL nguồn (Customer.cs:1136, 1250)
+            var matchedCustomers = await query.OrderByDescending(x => x.CreateDTimeUTC).ToListAsync();
+
+            if (matchedCustomers.Count > 0)
+            {
+                objMst_Customer_Check.Action = "1"; // hiển thị cảnh báo
+                var messages = "";
+
+                foreach (var item in matchedCustomers)
+                {
+                    // Bỏ qua kiểm tra trùng nếu là chính bản ghi đang sửa (CustomerCodeSys trùng nhau) (Mst_CustomerController.cs:2107-2114)
+                    if (!string.IsNullOrEmpty(item.CustomerCodeSys) && !string.IsNullOrEmpty(customerCodeSys))
+                    {
+                        if (string.Equals(item.CustomerCodeSys, customerCodeSys, StringComparison.OrdinalIgnoreCase))
+                        {
+                            objMst_Customer_Check = new Mst_Customer_Check { Success = true, Action = "0" };
+                            continue;
+                        }
+                    }
+
+                    var customerMobilePhoneCur = item.CustomerMobilePhone?.Trim() ?? "";
+                    var contactEmailCur = item.ContactEmail?.Trim() ?? "";
+                    var mstCur = item.MST?.Trim() ?? "";
+
+                    if (!string.IsNullOrEmpty(phone) && !string.IsNullOrEmpty(customerMobilePhoneCur))
+                    {
+                        if (string.Equals(customerMobilePhoneCur, phone, StringComparison.OrdinalIgnoreCase))
+                        {
+                            messages = "Khách hàng có số điện thoại '" + phone + "' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?";
+                            break;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(email) && !string.IsNullOrEmpty(contactEmailCur))
+                    {
+                        if (string.Equals(contactEmailCur, email, StringComparison.OrdinalIgnoreCase))
+                        {
+                            messages = "Khách hàng có email '" + email + "' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?";
+                            break;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(mst) && !string.IsNullOrEmpty(mstCur))
+                    {
+                        if (string.Equals(mstCur, mst, StringComparison.OrdinalIgnoreCase))
+                        {
+                            messages = "Khách hàng có MST '" + mst + "' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?";
+                            break;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(messages))
+                {
+                    objMst_Customer_Check.Action = "1";
+                }
+
+                objMst_Customer_Check.CustomerCode = matchedCustomers[0].CustomerCode ?? "";
+                objMst_Customer_Check.Messages = messages;
+            }
+            else
+            {
+                objMst_Customer_Check.Action = "0"; // gọi hàm lưu luôn (Mst_CustomerController.cs:2146-2149)
+            }
+
+            return Ok(objMst_Customer_Check);
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_Customer_Customer_Check", "Exception", ex.Message);
+        }
+    }
+
     private class CustomerDynamicFieldParamType
     {
         public string Title { get; set; } = "";
@@ -1821,6 +1971,29 @@ public class Mst_Customer_CreateReq
     public string? Remark { get; set; }
     public string? FlagActive { get; set; }
     public string? FlagRedirect { get; set; }
+}
+
+public class Mst_Customer_Customer_CheckReq
+{
+    // Hỗ trợ truyền chuỗi JSON model (Mst_CustomerController.cs:2043, 2052)
+    public string? Model { get; set; }
+
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? CustomerCode { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerMobilePhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? MST { get; set; }
+}
+
+public class Mst_Customer_Check
+{
+    public bool Success { get; set; } = true;
+    public string? Messages { get; set; }
+    public string Action { get; set; } = "0"; // 1: hiển thị cảnh báo; 0: gọi hàm lưu luôn
+    public string? CustomerCode { get; set; }
 }
 
 

@@ -2243,6 +2243,287 @@ public class Mst_CustomerControllerPortTests : IDisposable
         }
     }
 
+    // ==========================================
+    // CÁC TEST CHO CUSTOMER_CHECK (Port #164)
+    // Gate: Mst_CustomerController.cs:2043-2166 Customer_Check(string model)
+    // ==========================================
+
+    [Fact]
+    public async Task Customer_Check_NullReq_ReturnsBadRequest_CheckStrJson()
+    {
+        var result = await _controller.Customer_Check(null);
+        var badReq = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badReq.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Customer_Check", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_EmptyReq_AllFieldsEmpty_ReturnsAction0()
+    {
+        var req = new Mst_Customer_Customer_CheckReq();
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0", root.GetProperty("Action").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_MatchingPhone_ReturnsAction1_AndWarningMessage()
+    {
+        // 0901234567 thuộc CUS001 (KH001)
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            CustomerMobilePhone = "0901234567",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("Action").GetString());
+        Assert.Equal("KH001", root.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Khách hàng có số điện thoại '0901234567' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_MatchingEmail_ReturnsAction1_AndWarningMessage()
+    {
+        // beta@domain.vn thuộc CUS002 (KH002)
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            ContactEmail = "beta@domain.vn",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("Action").GetString());
+        Assert.Equal("KH002", root.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Khách hàng có email 'beta@domain.vn' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_MatchingMST_ReturnsAction1_AndWarningMessage()
+    {
+        // 0101234567 thuộc CUS001 (KH001)
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            MST = "0101234567",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("Action").GetString());
+        Assert.Equal("KH001", root.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Khách hàng có MST '0101234567' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_MatchingPhone_SameCustomerCodeSys_ReturnsAction0()
+    {
+        // Khi sửa chính CUS001 có SĐT 0901234567, không báo trùng chính nó
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            CustomerCodeSys = "CUS001",
+            CustomerMobilePhone = "0901234567",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0", root.GetProperty("Action").GetString());
+        Assert.Equal("KH001", root.GetProperty("CustomerCode").GetString());
+        Assert.Equal("", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_NoMatchingRecord_ReturnsAction0()
+    {
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            CustomerMobilePhone = "0999888777",
+            ContactEmail = "notfound@domain.vn",
+            MST = "999888777",
+            OrgID = "7200000001"
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0", root.GetProperty("Action").GetString());
+    }
+
+    [Fact]
+    public async Task Customer_Check_ViaModelJsonString_ReturnsAction1()
+    {
+        var modelJson = JsonSerializer.Serialize(new
+        {
+            CustomerMobilePhone = "0912345678",
+            OrgID = "7200000001"
+        });
+        var req = new Mst_Customer_Customer_CheckReq
+        {
+            Model = modelJson
+        };
+        var result = await _controller.Customer_Check(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("Action").GetString());
+        Assert.Equal("KH002", root.GetProperty("CustomerCode").GetString());
+        Assert.Equal("Khách hàng có số điện thoại '0912345678' đã tồn tại. Bạn có muốn lấy thông tin KH hiện tại không?", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task RealServer_Verification_Customer_Check()
+    {
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_cust_chk_{Guid.NewGuid():N}.db");
+        var dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var port = FreePort.Get();
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        psi.Environment["PORT"] = port.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                await Task.Delay(500);
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            Assert.True(started, $"MiniContract server failed to start within 15 seconds on port {port}.");
+
+            // 1. Guard check: Body rỗng (null/empty) -> 400 Bad Request
+            var reqEmpty = new StringContent("", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/mst_customer/customer_check", reqEmpty);
+            var bodyEmpty = await resEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Customer_Check Empty Body: {bodyEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resEmpty.StatusCode);
+            var docEmpty = JsonDocument.Parse(bodyEmpty);
+            Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_Customer_Customer_Check", docEmpty.RootElement.GetProperty("ErrorCode").GetString());
+
+            // 2. Ca body {} -> 200 OK, Action = "0"
+            var reqObjEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resObjEmpty = await http.PostAsync("/api/mst_customer/customer_check", reqObjEmpty);
+            var bodyObjEmpty = await resObjEmpty.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Customer_Check Object Empty: {bodyObjEmpty}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resObjEmpty.StatusCode);
+            var docObjEmpty = JsonDocument.Parse(bodyObjEmpty);
+            Assert.True(docObjEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0", docObjEmpty.RootElement.GetProperty("Action").GetString());
+
+            // 3. Ca trùng Phone -> Action = "1", cảnh báo
+            var phonePayload = JsonSerializer.Serialize(new { CustomerMobilePhone = "0901234567" });
+            var reqPhone = new StringContent(phonePayload, Encoding.UTF8, "application/json");
+            var resPhone = await http.PostAsync("/api/mst_customer/customer_check", reqPhone);
+            var bodyPhone = await resPhone.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Customer_Check Phone Match: {bodyPhone}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resPhone.StatusCode);
+            var docPhone = JsonDocument.Parse(bodyPhone);
+            Assert.True(docPhone.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("1", docPhone.RootElement.GetProperty("Action").GetString());
+            Assert.Equal("KH001", docPhone.RootElement.GetProperty("CustomerCode").GetString());
+            Assert.Contains("0901234567", docPhone.RootElement.GetProperty("Messages").GetString());
+
+            // 4. Ca trùng Phone nhưng cùng CustomerCodeSys -> Action = "0"
+            var sameSysPayload = JsonSerializer.Serialize(new { CustomerMobilePhone = "0901234567", CustomerCodeSys = "CUS001" });
+            var reqSameSys = new StringContent(sameSysPayload, Encoding.UTF8, "application/json");
+            var resSameSys = await http.PostAsync("/api/mst_customer/customer_check", reqSameSys);
+            var bodySameSys = await resSameSys.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Customer_Check Same CodeSys: {bodySameSys}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resSameSys.StatusCode);
+            var docSameSys = JsonDocument.Parse(bodySameSys);
+            Assert.True(docSameSys.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0", docSameSys.RootElement.GetProperty("Action").GetString());
+
+            // 5. Ca không trùng -> Action = "0"
+            var nonMatchPayload = JsonSerializer.Serialize(new { CustomerMobilePhone = "0999000111", ContactEmail = "noone@domain.vn" });
+            var reqNonMatch = new StringContent(nonMatchPayload, Encoding.UTF8, "application/json");
+            var resNonMatch = await http.PostAsync("/api/mst_customer/customer_check", reqNonMatch);
+            var bodyNonMatch = await resNonMatch.Content.ReadAsStringAsync();
+            _output?.WriteLine($"RealServer Customer_Check Non Match: {bodyNonMatch}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, resNonMatch.StatusCode);
+            var docNonMatch = JsonDocument.Parse(bodyNonMatch);
+            Assert.True(docNonMatch.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0", docNonMatch.RootElement.GetProperty("Action").GetString());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb)) File.Delete(tempDb);
+            }
+            catch { }
+        }
+    }
+
     private class TestWebHostEnvironment : IWebHostEnvironment
     {
         public string WebRootPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "test_wwwroot_" + Guid.NewGuid().ToString("N"));
