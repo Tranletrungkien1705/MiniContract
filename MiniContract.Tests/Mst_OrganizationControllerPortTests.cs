@@ -483,6 +483,135 @@ public class Mst_OrganizationControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_NullBody_FailsWithCheckStrJson()
+    {
+        var result = await _controller.Edit(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Update", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyBody_FailsWithCheckStrJson()
+    {
+        var req = new Mst_Organization_EditReq();
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Update", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_MissingMST_ReturnsGateMessage()
+    {
+        var req = new Mst_Organization_EditReq
+        {
+            OrgID = "7200000001",
+            NNTFullName = "Tên cập nhật không có MST"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Mã chi nhánh trống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_NonExistentMST_ReturnsGateMessage()
+    {
+        var req = new Mst_Organization_EditReq
+        {
+            MST = "9999999999",
+            OrgID = "7299999999",
+            NNTFullName = "Chi nhánh không tồn tại"
+        };
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Mã chi nhánh '7299999999' không có trong hệ thống!", msgs[0].GetString());
+    }
+
+    [Fact]
+    public async Task Edit_EmptyNNTFullName_FailsWithInvalidNNTFullName()
+    {
+        var req = new Mst_Organization_EditReq
+        {
+            MST = "0100000001",
+            NNTFullName = "   "
+        };
+        var result = await _controller.Edit(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Update_InvalidNNTFullName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Edit_Success_RoundTrip()
+    {
+        var req = new Mst_Organization_EditReq
+        {
+            MST = "0100000002",
+            NNTFullName = "Chi nhánh TP Hồ Chí Minh - Cập nhật",
+            NNTShortName = "CN HCM UPD",
+            PresentBy = "Trần Thị B Updated",
+            NNTPosition = "Giám Đốc Chi Nhánh",
+            ProvinceCode = "79",
+            DistrictCode = "760",
+            NNTAddress = "Số 100 Nguyễn Huệ, Quận 1, TP Hồ Chí Minh",
+            ContactName = "Trần Thị B",
+            ContactPhone = "02839999999",
+            ContactEmail = "hcm.updated@solution.hn",
+            AccNo = "9876543210",
+            AccHolder = "Chi nhánh HCM",
+            BankName = "Vietcombank",
+            SignType = "SERVER",
+            FlagActive = "1"
+        };
+
+        var result = await _controller.Edit(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var msgs = root.GetProperty("Messages");
+        Assert.Equal("Sửa chi nhánh thành công!", msgs[0].GetString());
+
+        // Kiểm tra round-trip ghi lại vào DB
+        var nntInDb = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(x => x.MST == "0100000002");
+        Assert.NotNull(nntInDb);
+        Assert.Equal("Chi nhánh TP Hồ Chí Minh - Cập nhật", nntInDb.NNTFullName);
+        Assert.Equal("CN HCM UPD", nntInDb.NNTShortName);
+        Assert.Equal("Trần Thị B Updated", nntInDb.PresentBy);
+        Assert.Equal("Giám Đốc Chi Nhánh", nntInDb.NNTPosition);
+        Assert.Equal("Số 100 Nguyễn Huệ, Quận 1, TP Hồ Chí Minh", nntInDb.NNTAddress);
+        Assert.Equal("hcm.updated@solution.hn", nntInDb.ContactEmail);
+        Assert.Equal("SERVER", nntInDb.SignType);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8583()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -661,6 +790,69 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             Assert.Equal("0100000003", doc13.RootElement.GetProperty("Data").GetProperty("MST").GetString());
             Assert.Equal("7200000002", doc13.RootElement.GetProperty("Data").GetProperty("OrgID").GetString());
             Assert.Equal(0, doc13.RootElement.GetProperty("Data").GetProperty("Lst_Mst_OrgSignConfig").GetArrayLength());
+
+            // Request 14: POST /api/mst_organization/edit empty body -> 400 Bad Request
+            var req14 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/mst_organization/edit", req14);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ14 (Edit Empty Body): {body14}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res14.StatusCode);
+            var doc14 = JsonDocument.Parse(body14);
+            Assert.False(doc14.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Update", doc14.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 15: POST /api/mst_organization/edit missing MST -> 200 OK với Message "Mã chi nhánh trống!"
+            var req15 = new StringContent("{\"OrgID\":\"7200000001\",\"NNTFullName\":\"Cập nhật thiếu MST\"}", Encoding.UTF8, "application/json");
+            var res15 = await http.PostAsync("/api/mst_organization/edit", req15);
+            var body15 = await res15.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ15 (Edit Missing MST): {body15}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res15.StatusCode);
+            var doc15 = JsonDocument.Parse(body15);
+            Assert.True(doc15.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã chi nhánh trống!", doc15.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 16: POST /api/mst_organization/edit non-existent MST -> 200 OK với Message "Mã chi nhánh '...' không có trong hệ thống!"
+            var req16 = new StringContent("{\"MST\":\"9999999999\",\"OrgID\":\"7299999999\",\"NNTFullName\":\"Chi nhánh không tồn tại\"}", Encoding.UTF8, "application/json");
+            var res16 = await http.PostAsync("/api/mst_organization/edit", req16);
+            var body16 = await res16.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ16 (Edit Non-existent MST): {body16}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res16.StatusCode);
+            var doc16 = JsonDocument.Parse(body16);
+            Assert.True(doc16.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã chi nhánh '7299999999' không có trong hệ thống!", doc16.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 17: POST /api/mst_organization/edit empty NNTFullName -> 400 Bad Request
+            var req17 = new StringContent("{\"MST\":\"0100000001\",\"NNTFullName\":\"   \"}", Encoding.UTF8, "application/json");
+            var res17 = await http.PostAsync("/api/mst_organization/edit", req17);
+            var body17 = await res17.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ17 (Edit Empty NNTFullName): {body17}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res17.StatusCode);
+            var doc17 = JsonDocument.Parse(body17);
+            Assert.False(doc17.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Update_InvalidNNTFullName", doc17.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 18: POST /api/mst_organization/edit round-trip cập nhật MST 0100000002 -> 200 OK
+            var req18 = new StringContent("{\"MST\":\"0100000002\",\"NNTFullName\":\"Chi nhánh TP Hồ Chí Minh - RealServer\",\"NNTShortName\":\"CN HCM Real\",\"SignType\":\"SERVER\",\"ContactEmail\":\"realserver.hcm@solution.hn\"}", Encoding.UTF8, "application/json");
+            var res18 = await http.PostAsync("/api/mst_organization/edit", req18);
+            var body18 = await res18.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ18 (Edit Success Round-trip): {body18}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res18.StatusCode);
+            var doc18 = JsonDocument.Parse(body18);
+            Assert.True(doc18.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Sửa chi nhánh thành công!", doc18.RootElement.GetProperty("Messages")[0].GetString());
+
+            // Request 19: POST /api/mst_organization/update xác minh dữ liệu vừa cập nhật ở Request 18 -> 200 OK
+            var req19 = new StringContent("{\"MST\":\"0100000002\"}", Encoding.UTF8, "application/json");
+            var res19 = await http.PostAsync("/api/mst_organization/update", req19);
+            var body19 = await res19.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ19 (Update Verify Edited Record): {body19}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res19.StatusCode);
+            var doc19 = JsonDocument.Parse(body19);
+            Assert.True(doc19.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Chi nhánh TP Hồ Chí Minh - RealServer", doc19.RootElement.GetProperty("Data").GetProperty("NNTFullName").GetString());
+            Assert.Equal("CN HCM Real", doc19.RootElement.GetProperty("Data").GetProperty("NNTShortName").GetString());
+            Assert.Equal("SERVER", doc19.RootElement.GetProperty("Data").GetProperty("SignType").GetString());
+            Assert.Equal("realserver.hcm@solution.hn", doc19.RootElement.GetProperty("Data").GetProperty("ContactEmail").GetString());
         }
         finally
         {

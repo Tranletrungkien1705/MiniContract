@@ -146,6 +146,9 @@ public class Mst_NNT
     // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\Mst_NNT.cs:100
     public string? Remark { get; set; }
 
+    // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\Mst_NNT.cs:140
+    public string? SignType { get; set; }
+
     // D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Models\Mst_NNT.cs:102
     public string? LogLUDTimeUTC { get; set; }
 
@@ -205,6 +208,7 @@ public class Mst_NNTConfiguration : IEntityTypeConfiguration<Mst_NNT>
         builder.Property(x => x.RegisterStatus).HasMaxLength(50);
         builder.Property(x => x.TCTStatus).HasMaxLength(50);
         builder.Property(x => x.FlagActive).HasMaxLength(1);
+        builder.Property(x => x.SignType).HasMaxLength(50);
         builder.Property(x => x.Remark).HasMaxLength(500);
         builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
         builder.Property(x => x.LogLUBy).HasMaxLength(50);
