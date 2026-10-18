@@ -19,6 +19,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:730-880 (Detail)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:884-946 (Delete)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:951-965 (ShowPopupChangePassword)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:968-982 (ShowPopupChangePasswordCheckOld)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1936-1947 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1962-1982 (strWhereClause_SysUserName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:1984-2020 (strWhereClause_Mst_NNT)
@@ -1616,6 +1617,69 @@ public class Sys_UserControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action ShowPopupChangePasswordCheckOld từ gate Sys_UserController.cs:968-982.
+    /// Nguồn:
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_UserController.cs:968-982 (ShowPopupChangePasswordCheckOld)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:504-507, 508-534 (JsonView)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:563-605 (JsonViewError)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:467-478 (RenderRazorViewToString)
+    /// View: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Views\Sys_User\ShowPopupChangePasswordCheckOld.cshtml:1-30
+    /// Chuỗi gọi:
+    /// 1. Action ShowPopupChangePasswordCheckOld(string usercode) nhận tham số usercode (gate dòng 968).
+    /// 2. Gán ViewBag.UserCode = usercode (gate dòng 973).
+    /// 3. Gọi JsonView("ShowPopupChangePasswordCheckOld", null) (gate dòng 974) render view Razor và trả JSON { Success = true, Html = html }.
+    ///    Không gọi dịch vụ BIZ hay API bên ngoài, không đọc/ghi database (source_excerpt mục 4: 0 lỗi, 0 bảng/dịch vụ).
+    /// 4. Nhánh ngoại lệ: catch (Exception ex) -> resultEntry.SetFailed().AddException(this, ex) -> JsonViewError(...) (gate dòng 976-981).
+    /// 5. Ở API Port: hỗ trợ POST và GET, trả về Success = true kèm UserCode và Data = { UserCode }.
+    /// </summary>
+    [HttpGet("showpopupchangepasswordcheckold")]
+    [HttpPost("showpopupchangepasswordcheckold")]
+    public IActionResult ShowPopupChangePasswordCheckOld([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_User_ShowPopupChangePasswordCheckOldReq? req = null)
+    {
+        try
+        {
+            var rawUserCode = req?.UserCode;
+            if (string.IsNullOrEmpty(rawUserCode) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("usercode", out var qUserCode))
+            {
+                rawUserCode = qUserCode.ToString();
+            }
+
+            if (string.IsNullOrEmpty(rawUserCode) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_User_ShowPopupChangePasswordCheckOldReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null && !string.IsNullOrWhiteSpace(modelObj.UserCode))
+                    {
+                        rawUserCode = modelObj.UserCode;
+                    }
+                }
+                catch
+                {
+                    rawUserCode = req.Model;
+                }
+            }
+
+            var userCode = StdParam(rawUserCode);
+
+            return Ok(new
+            {
+                Success = true,
+                UserCode = userCode,
+                Html = "<h2>ShowPopupChangePasswordCheckOld</h2>",
+                Data = new Sys_User_ShowPopupChangePasswordCheckOldData
+                {
+                    UserCode = userCode
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_User_ShowPopupChangePasswordCheckOld", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
@@ -1884,6 +1948,25 @@ public class Sys_User_ShowPopupChangePasswordReq
 /// Tương ứng ViewBag.UserCode trong gate Sys_UserController.cs:956.
 /// </summary>
 public class Sys_User_ShowPopupChangePasswordData
+{
+    public string? UserCode { get; set; }
+}
+
+/// <summary>
+/// Model nhận tham số cho action ShowPopupChangePasswordCheckOld của Sys_UserController.
+/// Gate: Sys_UserController.cs:968 ShowPopupChangePasswordCheckOld(string usercode)
+/// </summary>
+public class Sys_User_ShowPopupChangePasswordCheckOldReq
+{
+    public string? UserCode { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// Model dữ liệu trả về cho action ShowPopupChangePasswordCheckOld của Sys_UserController.
+/// Tương ứng ViewBag.UserCode trong gate Sys_UserController.cs:973.
+/// </summary>
+public class Sys_User_ShowPopupChangePasswordCheckOldData
 {
     public string? UserCode { get; set; }
 }

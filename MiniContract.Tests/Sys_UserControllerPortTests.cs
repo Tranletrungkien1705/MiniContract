@@ -1379,6 +1379,81 @@ public class Sys_UserControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ShowPopupChangePasswordCheckOld_NullReq_ReturnsSuccessTrueAndNullUserCode()
+    {
+        // Khi req null (body rỗng): trả về Success = true, UserCode = null (gate: Sys_UserController.cs:973-974)
+        var result = _controller.ShowPopupChangePasswordCheckOld(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").GetProperty("UserCode").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("UserCode").ValueKind);
+        Assert.Equal("<h2>ShowPopupChangePasswordCheckOld</h2>", root.GetProperty("Html").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePasswordCheckOld_EmptyReq_ReturnsSuccessTrueAndNullUserCode()
+    {
+        // Khi req rỗng (không truyền UserCode): trả về Success = true, UserCode = null
+        var req = new Sys_User_ShowPopupChangePasswordCheckOldReq();
+        var result = _controller.ShowPopupChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("Data").GetProperty("UserCode").ValueKind);
+    }
+
+    [Fact]
+    public void ShowPopupChangePasswordCheckOld_ValidUserCode_ReturnsSuccessTrueAndUppercaseUserCode()
+    {
+        // Khi truyền UserCode: chuẩn hoá mã viết hoa và trả về Success = true kèm UserCode
+        var req = new Sys_User_ShowPopupChangePasswordCheckOldReq { UserCode = "u01" };
+        var result = _controller.ShowPopupChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("U01", root.GetProperty("UserCode").GetString());
+        Assert.Equal("U01", root.GetProperty("Data").GetProperty("UserCode").GetString());
+        Assert.Equal("<h2>ShowPopupChangePasswordCheckOld</h2>", root.GetProperty("Html").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePasswordCheckOld_ViaModelJson_Success()
+    {
+        // Hỗ trợ truyền qua chuỗi JSON Model
+        var modelJson = JsonSerializer.Serialize(new { UserCode = "u02" });
+        var req = new Sys_User_ShowPopupChangePasswordCheckOldReq { Model = modelJson };
+        var result = _controller.ShowPopupChangePasswordCheckOld(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("U02", root.GetProperty("Data").GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
+    public void ShowPopupChangePasswordCheckOld_Comparison_ReturnsDifferentUserCodes()
+    {
+        // So sánh 2 ca đầu vào khác nhau: u01 vs u02 -> kết quả trả về UserCode tương ứng
+        var req1 = new Sys_User_ShowPopupChangePasswordCheckOldReq { UserCode = "u01" };
+        var res1 = _controller.ShowPopupChangePasswordCheckOld(req1);
+        var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res1).Value));
+        Assert.Equal("U01", doc1.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+        var req2 = new Sys_User_ShowPopupChangePasswordCheckOldReq { UserCode = "u02" };
+        var res2 = _controller.ShowPopupChangePasswordCheckOld(req2);
+        var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(res2).Value));
+        Assert.Equal("U02", doc2.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_user_{Guid.NewGuid():N}.db");
@@ -1930,6 +2005,48 @@ public class Sys_UserControllerPortTests : IDisposable
             var doc51 = JsonDocument.Parse(await res51.Content.ReadAsStringAsync());
             Assert.True(doc51.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("U01", doc51.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 52. Action ShowPopupChangePasswordCheckOld: POST /api/sys_user/showpopupchangepasswordcheckold với body rỗng -> 200 OK, Success = true, UserCode = null
+            var req52 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res52 = await http.PostAsync("/api/sys_user/showpopupchangepasswordcheckold", req52);
+            Assert.True(res52.IsSuccessStatusCode);
+            var doc52 = JsonDocument.Parse(await res52.Content.ReadAsStringAsync());
+            Assert.True(doc52.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, doc52.RootElement.GetProperty("Data").GetProperty("UserCode").ValueKind);
+            Assert.Equal("<h2>ShowPopupChangePasswordCheckOld</h2>", doc52.RootElement.GetProperty("Html").GetString());
+
+            // 53. Action ShowPopupChangePasswordCheckOld: POST /api/sys_user/showpopupchangepasswordcheckold với UserCode = u01 -> 200 OK, UserCode = U01
+            var req53 = new StringContent(JsonSerializer.Serialize(new { UserCode = "u01" }), Encoding.UTF8, "application/json");
+            var res53 = await http.PostAsync("/api/sys_user/showpopupchangepasswordcheckold", req53);
+            Assert.True(res53.IsSuccessStatusCode);
+            var doc53 = JsonDocument.Parse(await res53.Content.ReadAsStringAsync());
+            Assert.True(doc53.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U01", doc53.RootElement.GetProperty("UserCode").GetString());
+            Assert.Equal("U01", doc53.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 54. Action ShowPopupChangePasswordCheckOld: so sánh ca UserCode = u02 -> kết quả khác biệt U02
+            var req54 = new StringContent(JsonSerializer.Serialize(new { UserCode = "u02" }), Encoding.UTF8, "application/json");
+            var res54 = await http.PostAsync("/api/sys_user/showpopupchangepasswordcheckold", req54);
+            Assert.True(res54.IsSuccessStatusCode);
+            var doc54 = JsonDocument.Parse(await res54.Content.ReadAsStringAsync());
+            Assert.True(doc54.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U02", doc54.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 55. Action ShowPopupChangePasswordCheckOld: GET /api/sys_user/showpopupchangepasswordcheckold?usercode=u03 -> 200 OK, UserCode = U03
+            var res55 = await http.GetAsync("/api/sys_user/showpopupchangepasswordcheckold?usercode=u03");
+            Assert.True(res55.IsSuccessStatusCode);
+            var doc55 = JsonDocument.Parse(await res55.Content.ReadAsStringAsync());
+            Assert.True(doc55.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U03", doc55.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
+
+            // 56. Action ShowPopupChangePasswordCheckOld: POST với Model JSON string -> 200 OK, UserCode = U01
+            var modelJson56 = JsonSerializer.Serialize(new { UserCode = "u01" });
+            var req56 = new StringContent(JsonSerializer.Serialize(new { Model = modelJson56 }), Encoding.UTF8, "application/json");
+            var res56 = await http.PostAsync("/api/sys_user/showpopupchangepasswordcheckold", req56);
+            Assert.True(res56.IsSuccessStatusCode);
+            var doc56 = JsonDocument.Parse(await res56.Content.ReadAsStringAsync());
+            Assert.True(doc56.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("U01", doc56.RootElement.GetProperty("Data").GetProperty("UserCode").GetString());
         }
         finally
         {
