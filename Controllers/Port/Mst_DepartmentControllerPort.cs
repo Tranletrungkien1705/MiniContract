@@ -11,7 +11,7 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_DepartmentController.cs — Mst_Department
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail), 422-485 (Delete), 491-548 (Export)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:24-87 (Index), 91-141 (GET Create View), 142-190 (POST Create), 195-259 (Update View), 263-348 (POST Edit), 353-418 (Detail), 422-485 (Delete), 491-548 (Export), 552-577 (ExportTemplate)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstDepartmentController.cs:20-89 (WA_Mst_Department_Get), 91-160 (WA_Mst_Department_Create), 162-231 (WA_Mst_Department_Update), 233-302 (WA_Mst_Department_Delete)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:35634-35698 (Mst_Department_CheckDB), 35700-35736 (Mst_Department_UpdBU), 35737-35980 (Get/GetX/Export), 35981-36200 (WAS/Biz Create), 36201-36284 (WAS_Mst_Department_Update), 36285-36432 (Mst_Department_Update), 36433-36510 (WAS_Mst_Department_Delete), 36511-36640 (Mst_Department_Delete), 36795-36931 (Mst_Department_CreateX), 36932-37041 (Mst_Department_UpdateX), 37042-37097 (Mst_Department_DeleteX), 12001-12070 (Mst_NNT_CheckDB), 12121-12218 (WAS_Mst_NNT_Get)
 [ApiController]
@@ -29,6 +29,13 @@ public class Mst_DepartmentControllerPort : ControllerBase
         { "DepartmentCodeParent", "Bộ phận quản lý (*)" },
         { "MST", "Mã đơn vị (*)" },
         { "FlagActive", "Trạng thái" }
+    };
+
+    private static readonly Dictionary<string, string> ExportTemplateDicColumns = new()
+    {
+        { "DepartmentCode", "Mã bộ phận (*)" },
+        { "DepartmentName", "Tên bộ phận (*)" },
+        { "DepartmentCodeParent", "Bộ phận quản lý (*)" }
     };
 
     public Mst_DepartmentControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
@@ -861,6 +868,46 @@ public class Mst_DepartmentControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xuất tệp mẫu Excel để nhập bộ phận phòng ban.
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_DepartmentController.cs:552-577 ExportTemplate()
+    ///       hàm phụ: Mst_DepartmentController.cs:746-756 (GetImportDicColumsTemplate), BaseController.cs:664-682 (GenExcelExportFilePath)
+    /// </summary>
+    [HttpPost("exporttemplate")]
+    [HttpPost("export-template")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Department_ExportTemplateReq? req = null)
+    {
+        try
+        {
+            // 1. Tạo danh sách rỗng (Gate line 561: var list = new List<Mst_Department>())
+            var list = new List<Mst_Department>();
+
+            // 2. Lấy từ điển cột từ GetImportDicColumsTemplate() gồm 3 cột (Gate lines 563, 746-756)
+            var dicColNames = ExportTemplateDicColumns;
+
+            // 3. Sinh đường dẫn file vật lý và URL ảo (Gate lines 564-565: GenExcelExportFilePath)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Mst_Department));
+
+            // 4. Xuất danh sách rỗng ra file Excel chứa dòng tiêu đề (Gate line 566: ExcelExport.ExportToExcelFromList)
+            PortExcel.ExportToExcelFromList(list, dicColNames, filePath, nameof(Mst_Department));
+
+            // 5. Trả kết quả thành công khớp gate MVC (Gate line 568)
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            // Gate lines 571-574: resultEntry.SetFailed().AddException(this, ex)
+            return PortResult.Fail("Mst_Department_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Cập nhật cây phân cấp phòng ban Mst_Department_UpdBU (Master.cs:35700-35736).
     /// </summary>
     private async Task UpdBUAsync()
@@ -1127,4 +1174,11 @@ public class Mst_Department_ExportReq
     public string? DepartmentCodeParent { get; set; }
     public string? DepartmentBUCode { get; set; }
     public string? DepartmentLevel { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action ExportTemplate của Mst_DepartmentController.
+/// </summary>
+public class Mst_Department_ExportTemplateReq
+{
 }

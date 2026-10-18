@@ -1091,6 +1091,52 @@ public class Mst_DepartmentControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void ExportTemplate_WithNullOrEmptyBody_ReturnsExcelWith3ColumnsAnd0DataRows()
+    {
+        // 1. Kiểm thử với body null
+        var resultNull = _controller.ExportTemplate(null);
+        var okNull = Assert.IsType<OkObjectResult>(resultNull);
+        var docNull = JsonDocument.Parse(JsonSerializer.Serialize(okNull.Value));
+        var rootNull = docNull.RootElement;
+
+        Assert.True(rootNull.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", rootNull.GetProperty("Title").GetString());
+        Assert.Equal("1", rootNull.GetProperty("CheckSuccess").GetString());
+        var strUrlNull = rootNull.GetProperty("strUrl").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(strUrlNull));
+        Assert.StartsWith("/TempFiles/", strUrlNull);
+
+        // Kiểm tra file vật lý Excel tạo ra
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrlNull!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"Exported template file does not exist at {physicalPath}");
+
+        using (var wb = new XLWorkbook(physicalPath))
+        {
+            var ws = wb.Worksheet(1);
+            Assert.Equal("Mst_Department", ws.Name);
+            // Dòng 1 có đúng 3 cột theo GetImportDicColumsTemplate() (Mst_DepartmentController.cs:746-756)
+            Assert.Equal("Mã bộ phận (*)", ws.Cell(1, 1).GetString());
+            Assert.Equal("Tên bộ phận (*)", ws.Cell(1, 2).GetString());
+            Assert.Equal("Bộ phận quản lý (*)", ws.Cell(1, 3).GetString());
+
+            // Đúng 1 dòng tiêu đề và 0 dòng dữ liệu
+            Assert.Equal(1, ws.LastRowUsed()?.RowNumber());
+        }
+
+        // 2. Kiểm thử với body rỗng new Mst_Department_ExportTemplateReq()
+        var resultReq = _controller.ExportTemplate(new Mst_Department_ExportTemplateReq());
+        var okReq = Assert.IsType<OkObjectResult>(resultReq);
+        var docReq = JsonDocument.Parse(JsonSerializer.Serialize(okReq.Value));
+        var rootReq = docReq.RootElement;
+        Assert.True(rootReq.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", rootReq.GetProperty("Title").GetString());
+        Assert.Equal("1", rootReq.GetProperty("CheckSuccess").GetString());
+        var strUrlReq = rootReq.GetProperty("strUrl").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(strUrlReq));
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_mst_department_{Guid.NewGuid():N}.db");
@@ -1278,6 +1324,59 @@ public class Mst_DepartmentControllerPortTests : IDisposable
 
             // Xác minh 2 tệp excel khác nhau được tạo ra
             Assert.NotEqual(url10a, url10b);
+
+            // =========================================================================
+            // Kiểm thử endpoint ExportTemplate trên server thật
+            // =========================================================================
+
+            // Ca 11: POST /api/mst_department/exporttemplate với body rỗng ({}) -> 200 OK, Title = "Đã xuất excel thành công!", strUrl hợp lệ
+            var req11 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/mst_department/exporttemplate", req11);
+            var body11 = await res11.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 11 POST /api/mst_department/exporttemplate (empty JSON)] Status: {(int)res11.StatusCode} Response: {body11}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res11.StatusCode);
+            var doc11 = JsonDocument.Parse(body11);
+            Assert.True(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc11.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc11.RootElement.GetProperty("CheckSuccess").GetString());
+            string tplUrl = doc11.RootElement.GetProperty("strUrl").GetString()!;
+            Assert.StartsWith("/TempFiles/", tplUrl);
+
+            // Ca 12: POST /api/mst_department/exporttemplate không truyền body (content rỗng "") -> 200 OK
+            var req12 = new StringContent("", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/mst_department/exporttemplate", req12);
+            var body12 = await res12.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 12 POST /api/mst_department/exporttemplate (empty body string)] Status: {(int)res12.StatusCode} Response: {body12}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res12.StatusCode);
+            var doc12 = JsonDocument.Parse(body12);
+            Assert.True(doc12.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc12.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc12.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // Ca 13: Tải file template vừa xuất từ server thật và kiểm tra định dạng Excel (3 cột, 0 dòng dữ liệu)
+            var resFile = await http.GetAsync(tplUrl);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resFile.StatusCode);
+            var bytes = await resFile.Content.ReadAsByteArrayAsync();
+            using (var ms = new MemoryStream(bytes))
+            using (var wb = new XLWorkbook(ms))
+            {
+                var ws = wb.Worksheet(1);
+                Assert.Equal("Mst_Department", ws.Name);
+                Assert.Equal("Mã bộ phận (*)", ws.Cell(1, 1).GetString());
+                Assert.Equal("Tên bộ phận (*)", ws.Cell(1, 2).GetString());
+                Assert.Equal("Bộ phận quản lý (*)", ws.Cell(1, 3).GetString());
+                Assert.Equal(1, ws.LastRowUsed()?.RowNumber());
+            }
+
+            // Ca 14: POST alias route /api/mst_department/export-template với body ({}) -> 200 OK
+            var req14 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res14 = await http.PostAsync("/api/mst_department/export-template", req14);
+            var body14 = await res14.Content.ReadAsStringAsync();
+            _output?.WriteLine($"[Ca 14 POST /api/mst_department/export-template (alias route)] Status: {(int)res14.StatusCode} Response: {body14}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res14.StatusCode);
+            var doc14 = JsonDocument.Parse(body14);
+            Assert.True(doc14.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc14.RootElement.GetProperty("Title").GetString());
         }
         finally
         {
