@@ -30,11 +30,15 @@ public class Mst_OrganizationControllerPortTests : IDisposable
         _db = new AppDbContext(opt, new TenantContext { OrgId = TenantContext.DefaultOrgId });
         _db.Database.EnsureCreated();
 
-        // Chạy seeder Mst_Area trước (Order = 20) rồi Mst_NNT (Order = 25)
+        // Chạy seeder Mst_Area trước (Order = 20) rồi Mst_Org (Order = 22) và Mst_NNT (Order = 25)
         new Mst_AreaSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Mst_OrgSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Mst_NNTSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
-        _controller = new Mst_OrganizationControllerPort(_db);
+        var config = new Microsoft.Extensions.Configuration.ConfigurationManager();
+        config["Biz_NetworkID"] = "1001";
+
+        _controller = new Mst_OrganizationControllerPort(_db, config);
     }
 
     public void Dispose()
@@ -168,6 +172,228 @@ public class Mst_OrganizationControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_NullBody_FailsWithCheckStrJson()
+    {
+        var result = await _controller.Create(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Create", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_EmptyBody_FailsWithCheckStrJson()
+    {
+        var req = new Mst_Organization_CreateReq();
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Create", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MissingMST_FailsWithInvalidMST()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            OrgID = "7200000099",
+            NNTFullName = "Công ty TNHH Mới"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Create_InvalidMST", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MissingNNTFullName_FailsWithInvalidNNTFullName()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            OrgID = "7200000099",
+            NNTFullName = ""
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Create_InvalidNNTFullName", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_MissingOrgID_FailsWithInvalidOrgID()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            NNTFullName = "Công ty TNHH Mới",
+            OrgID = ""
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Org_Create_InvalidOrgID", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ExistingMST_FailsWithNNTExist()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000001",
+            OrgID = "7200000099",
+            NNTFullName = "Chi nhánh Trùng MST"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTExist", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ExistingOrgID_FailsWithOrgExist()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            OrgID = "7200000001",
+            NNTFullName = "Chi nhánh Trùng OrgID"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_Org_CheckDB_OrgExist", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_NonExistentParent_FailsWithNNTNotFound()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            OrgID = "7200000099",
+            NNTFullName = "Chi nhánh Cha Không Tồn Tại",
+            MSTParent = "9999999999"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTNotFound", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_InactiveParent_FailsWithFlagActiveNotMatched()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            OrgID = "7200000099",
+            NNTFullName = "Chi nhánh Cha Bị Khoá",
+            MSTParent = "0100000003" // Seed có FlagActive = "0"
+        };
+        var result = await _controller.Create(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_FlagActiveNotMatched", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Create_CertMismatch_ReturnsWarningMessage()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000099",
+            OrgID = "7200000099",
+            NNTFullName = "Chi nhánh Test CKS",
+            CANumber = "CA001",
+            MSTToken = "0100000088"
+        };
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("MST trong chứng thư số không trùng với MST của chi nhánh!", root.GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task Create_Success_RoundTrip()
+    {
+        var req = new Mst_Organization_CreateReq
+        {
+            MST = "0100000088",
+            OrgID = "7200000088",
+            NNTFullName = "Chi nhánh Hải Phòng",
+            NNTShortName = "CN Hải Phòng",
+            MSTParent = "0100000001",
+            ProvinceCode = "31",
+            DistrictCode = "303",
+            AreaCode = "MB",
+            Remark = "Tạo mới chi nhánh HP"
+        };
+
+        var result = await _controller.Create(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Tạo chi nhánh thành công!", root.GetProperty("Message").GetString());
+
+        // Kiểm tra round-trip ghi vào CSDL cho cả 2 bảng Mst_NNT và Mst_Org
+        var nntInDb = await _db.Set<Mst_NNT>().FirstOrDefaultAsync(x => x.MST == "0100000088");
+        Assert.NotNull(nntInDb);
+        Assert.Equal("7200000088", nntInDb.OrgID);
+        Assert.Equal("Chi nhánh Hải Phòng", nntInDb.NNTFullName);
+        Assert.Equal("1", nntInDb.FlagActive);
+        Assert.Equal("0100000001", nntInDb.MSTParent);
+
+        var orgInDb = await _db.Set<Mst_Org>().FirstOrDefaultAsync(x => x.OrgID == "7200000088");
+        Assert.NotNull(orgInDb);
+        Assert.Equal("1", orgInDb.FlagActive);
+        Assert.Equal("7200000001", orgInDb.OrgParent);
+        Assert.Equal("0100000088", orgInDb.MST);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8583()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_test_{Guid.NewGuid():N}.db");
@@ -261,6 +487,47 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             var doc5 = JsonDocument.Parse(body5);
             Assert.Equal(1, doc5.RootElement.GetProperty("Data").GetProperty("DataList").GetArrayLength());
             Assert.Equal("0100000002", doc5.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("MST").GetString());
+
+            // Request 6: POST /api/mst_organization/create empty body -> 400 Bad Request
+            var req6 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/mst_organization/create", req6);
+            var body6 = await res6.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ6 (Create Empty): {body6}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res6.StatusCode);
+            var doc6 = JsonDocument.Parse(body6);
+            Assert.False(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_Create", doc6.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 7: POST /api/mst_organization/create trùng MST -> 400 Bad Request
+            var req7 = new StringContent("{\"MST\":\"0100000001\",\"OrgID\":\"7200000099\",\"NNTFullName\":\"Trùng MST\"}", Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/mst_organization/create", req7);
+            var body7 = await res7.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ7 (Create Duplicate MST): {body7}");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, res7.StatusCode);
+            var doc7 = JsonDocument.Parse(body7);
+            Assert.False(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_NNT_CheckDB_NNTExist", doc7.RootElement.GetProperty("ErrorCode").GetString());
+
+            // Request 8: POST /api/mst_organization/create thành công -> 200 OK
+            var req8 = new StringContent("{\"MST\":\"0100000099\",\"OrgID\":\"7200000099\",\"NNTFullName\":\"Chi nhánh Cần Thơ\",\"MSTParent\":\"0100000001\"}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/mst_organization/create", req8);
+            var body8 = await res8.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ8 (Create Success): {body8}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res8.StatusCode);
+            var doc8 = JsonDocument.Parse(body8);
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Tạo chi nhánh thành công!", doc8.RootElement.GetProperty("Message").GetString());
+
+            // Request 9: POST /api/mst_organization/index đọc lại bản ghi vừa tạo -> 200 OK
+            var req9 = new StringContent("{\"OrgID\":\"7200000099\"}", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/mst_organization/index", req9);
+            var body9 = await res9.Content.ReadAsStringAsync();
+            _output?.WriteLine($"REQ9 (Index Verify Created Org): {body9}");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res9.StatusCode);
+            var doc9 = JsonDocument.Parse(body9);
+            Assert.Equal(1, doc9.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            Assert.Equal("0100000099", doc9.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("MST").GetString());
+            Assert.Equal("Chi nhánh Cần Thơ", doc9.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("NNTFullName").GetString());
         }
         finally
         {

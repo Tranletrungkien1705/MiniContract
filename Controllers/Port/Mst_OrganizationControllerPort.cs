@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -8,18 +9,20 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_OrganizationController.cs — Mst_NNT
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12121-12218, 12314-12444, 25188-25368
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_OrganizationController.cs:25-109, 363-431
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstNNTController.cs:19-89, 1109-1179
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:12001-12120, 12121-12218, 25188-25368, 32350-32449, 33301-33849, 34791-35208; MasterData.Org.cs:516-635
 [ApiController]
 [Route("api/mst_organization")]
 public class Mst_OrganizationControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IConfiguration? _config;
 
-    public Mst_OrganizationControllerPort(AppDbContext db)
+    public Mst_OrganizationControllerPort(AppDbContext db, IConfiguration? config = null)
     {
         _db = db;
+        _config = config;
     }
 
     /// <summary>
@@ -111,6 +114,313 @@ public class Mst_OrganizationControllerPort : ControllerBase
             Success = true,
             Data = pageInfo
         });
+    }
+
+    /// <summary>
+    /// Tạo mới tổ chức / chi nhánh (Mst_NNT và Mst_Org).
+    /// Gate: Mst_OrganizationController.cs:363-431 [HttpPost] Create(string model)
+    /// API:  MstNNTController.cs:1109-1179 WA_Mst_NNT_CreateForNetwork
+    /// BIZ:  Master.cs:32350-32449 WAS_Mst_NNT_CreateForNetwork_New20200417 -> Mst_NNT_CreateForNetwork_New20200417 (33301-33849)
+    ///       -> Mst_NNT_CreateForNetworkX_New20200208 (34791-35208)
+    ///       MasterData.Org.cs:516-635 Mst_Org_Create_X
+    /// </summary>
+    [HttpPost("create")]
+    public async Task<IActionResult> Create([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_Organization_CreateReq? req)
+    {
+        // 1. Kiểm tra body rỗng (Lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_NNT_Create", "Check.strJson", null);
+        }
+
+        // 2. Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_OrganizationController.cs:365, 386)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_Organization_CreateReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.MST ??= modelObj.MST;
+                    req.OrgID ??= modelObj.OrgID;
+                    req.NNTFullName ??= modelObj.NNTFullName;
+                    req.NNTShortName ??= modelObj.NNTShortName;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.MSTParent ??= modelObj.MSTParent;
+                    req.ProvinceCode ??= modelObj.ProvinceCode;
+                    req.DistrictCode ??= modelObj.DistrictCode;
+                    req.DLCode ??= modelObj.DLCode;
+                    req.NNTAddress ??= modelObj.NNTAddress;
+                    req.NNTMobile ??= modelObj.NNTMobile;
+                    req.NNTPhone ??= modelObj.NNTPhone;
+                    req.NNTFax ??= modelObj.NNTFax;
+                    req.PresentBy ??= modelObj.PresentBy;
+                    req.BusinessRegNo ??= modelObj.BusinessRegNo;
+                    req.NNTPosition ??= modelObj.NNTPosition;
+                    req.PresentIDNo ??= modelObj.PresentIDNo;
+                    req.PresentIDType ??= modelObj.PresentIDType;
+                    req.GovTaxID ??= modelObj.GovTaxID;
+                    req.ContactName ??= modelObj.ContactName;
+                    req.ContactPhone ??= modelObj.ContactPhone;
+                    req.ContactEmail ??= modelObj.ContactEmail;
+                    req.Website ??= modelObj.Website;
+                    req.CANumber ??= modelObj.CANumber;
+                    req.CAOrg ??= modelObj.CAOrg;
+                    req.CAEffDTimeUTCStart ??= modelObj.CAEffDTimeUTCStart;
+                    req.CAEffDTimeUTCEnd ??= modelObj.CAEffDTimeUTCEnd;
+                    req.PackageCode ??= modelObj.PackageCode;
+                    req.CreatedDate ??= modelObj.CreatedDate;
+                    req.AccNo ??= modelObj.AccNo;
+                    req.AccHolder ??= modelObj.AccHolder;
+                    req.BankName ??= modelObj.BankName;
+                    req.BizType ??= modelObj.BizType;
+                    req.BizFieldCode ??= modelObj.BizFieldCode;
+                    req.BizSizeCode ??= modelObj.BizSizeCode;
+                    req.DealerType ??= modelObj.DealerType;
+                    req.AreaCode ??= modelObj.AreaCode;
+                    req.Remark ??= modelObj.Remark;
+                    req.MSTToken ??= modelObj.MSTToken;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.MST) && string.IsNullOrWhiteSpace(req.NNTFullName) && string.IsNullOrWhiteSpace(req.OrgID) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_NNT_Create", "Check.strJson", null);
+        }
+
+        // 3. Gate guard: kiểm tra MST trong chứng thư số và mã số thuế chi nhánh (Mst_OrganizationController.cs:388-396)
+        if (!string.IsNullOrEmpty(req.CANumber))
+        {
+            if (!string.IsNullOrEmpty(req.MSTToken) && !string.Equals(req.MST, req.MSTToken, StringComparison.OrdinalIgnoreCase))
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Message = "MST trong chứng thư số không trùng với MST của chi nhánh!"
+                });
+            }
+        }
+
+        // 4. Chuẩn hoá tham số đầu vào (Master.cs:34887-34923, MasterData.Org.cs:552-556)
+        var dtimeSys = DateTime.UtcNow;
+        var dtimeSysStr = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+        var userCode = Request?.Headers["WAUserCode"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(userCode)) userCode = "port";
+        var networkId = StdParam(req.NetworkID) ?? _config?["Biz_NetworkID"] ?? "1001";
+        var strMST = StdParam(req.MST);
+        var strNNTFullName = StdStr(req.NNTFullName);
+        var strOrgID = StdParam(req.OrgID);
+
+        // 5. Kiểm tra tính hợp lệ cơ bản
+        if (string.IsNullOrEmpty(strMST))
+        {
+            return PortResult.Fail("Mst_NNT_Create_InvalidMST", "Check.strMST", req.MST);
+        }
+
+        if (string.IsNullOrEmpty(strNNTFullName))
+        {
+            return PortResult.Fail("Mst_NNT_Create_InvalidNNTFullName", "Check.strNNTFullName", req.NNTFullName);
+        }
+
+        if (string.IsNullOrEmpty(strOrgID))
+        {
+            return PortResult.Fail("Mst_Org_Create_InvalidOrgID", "Check.strOrgID", req.OrgID);
+        }
+
+        // 6. Kiểm tra trùng mã MST trong Mst_NNT (Master.cs:34942-34950, Master.cs:12039-12050)
+        var mstExist = await _db.Set<Mst_NNT>().AnyAsync(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(strMST), PortQuery.Esc));
+        if (mstExist)
+        {
+            return PortResult.Fail("Mst_NNT_CheckDB_NNTExist", "Check.MST", strMST);
+        }
+
+        // 7. Kiểm tra trùng mã OrgID trong Mst_Org (MasterData.Org.cs:573-580, MasterData.Org.cs:67-78)
+        var orgExist = await _db.Set<Mst_Org>().AnyAsync(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(strOrgID), PortQuery.Esc));
+        if (orgExist)
+        {
+            return PortResult.Fail("Mst_Org_CheckDB_OrgExist", "Check.OrgID", strOrgID);
+        }
+
+        // 8. Xác định MSTParent và kiểm tra tổ chức cha (Mst_OrganizationController.cs:369-376, Master.cs:34953-34965, 12028-12065)
+        var strMSTParent = StdParam(req.MSTParent);
+        if (string.IsNullOrEmpty(strMSTParent))
+        {
+            var rootNNT = await _db.Set<Mst_NNT>().AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.MSTParent ?? "").ToLower(), PortQuery.Equal("ALL"), PortQuery.Esc));
+            if (rootNNT != null)
+            {
+                strMSTParent = rootNNT.MST;
+            }
+        }
+
+        Mst_NNT? parentNNT = null;
+        if (!string.IsNullOrEmpty(strMSTParent))
+        {
+            parentNNT = await _db.Set<Mst_NNT>().AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(strMSTParent), PortQuery.Esc));
+            if (parentNNT == null)
+            {
+                return PortResult.Fail("Mst_NNT_CheckDB_NNTNotFound", "Check.MST", strMSTParent);
+            }
+            if (parentNNT.FlagActive != "1")
+            {
+                return PortResult.Fail("Mst_NNT_CheckDB_FlagActiveNotMatched",
+                    "Check.MST", strMSTParent,
+                    "Check.strFlagActiveListToCheck", "1",
+                    "DB.FlagActive", parentNNT.FlagActive);
+            }
+        }
+
+        // 9. Thực thi transaction ghi CSDL (Master.cs:33402)
+        using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // (a) Tạo Mst_Org và tính phân cấp OrgBU (Master.cs:33514-33528, MasterData.Org.cs:604-635)
+            var parentOrg = parentNNT != null && !string.IsNullOrEmpty(parentNNT.OrgID)
+                ? await _db.Set<Mst_Org>().AsNoTracking().FirstOrDefaultAsync(x => x.OrgID == parentNNT.OrgID)
+                : null;
+
+            var orgLevel = 1;
+            var orgBUCode = strOrgID;
+            if (parentOrg != null)
+            {
+                if (int.TryParse(parentOrg.OrgLevel, out var pl)) orgLevel = pl + 1;
+                orgBUCode = (string.IsNullOrEmpty(parentOrg.OrgBUCode) ? "" : parentOrg.OrgBUCode + ".") + strOrgID;
+            }
+
+            var org = new Mst_Org
+            {
+                OrgID = strOrgID,
+                NetworkID = networkId,
+                OrgParent = parentOrg?.OrgID ?? "0",
+                OrgBUCode = orgBUCode,
+                OrgBUPattern = orgBUCode + "%",
+                OrgLevel = orgLevel.ToString(),
+                Remark = StdStr(req.Remark) ?? "",
+                OrgIDSln = null,
+                FlagActive = "1",
+                LogLUDTimeUTC = dtimeSysStr,
+                LogLUBy = userCode,
+                MST = strMST
+            };
+            _db.Set<Mst_Org>().Add(org);
+            await _db.SaveChangesAsync();
+
+            // (b) Tạo Mst_NNT và tính phân cấp MSTBU (Master.cs:35104-35173, Master.cs:12084-12120)
+            var nntLevel = 1;
+            var nntBUCode = strMST;
+            if (parentNNT != null)
+            {
+                if (int.TryParse(parentNNT.MSTLevel, out var nl)) nntLevel = nl + 1;
+                nntBUCode = (string.IsNullOrEmpty(parentNNT.MSTBUCode) ? "" : parentNNT.MSTBUCode + ".") + strMST;
+            }
+
+            var nnt = new Mst_NNT
+            {
+                MST = strMST,
+                OrgID = strOrgID,
+                NNTFullName = strNNTFullName,
+                NNTShortName = StdStr(req.NNTShortName),
+                NetworkID = networkId,
+                MSTParent = strMSTParent,
+                MSTBUCode = nntBUCode,
+                MSTBUPattern = nntBUCode + "%",
+                MSTLevel = nntLevel.ToString(),
+                ProvinceCode = StdParam(req.ProvinceCode),
+                DistrictCode = StdParam(req.DistrictCode),
+                DLCode = StdParam(req.DLCode),
+                NNTAddress = StdStr(req.NNTAddress),
+                NNTMobile = StdStr(req.NNTMobile),
+                NNTPhone = StdStr(req.NNTPhone),
+                NNTFax = StdStr(req.NNTFax),
+                PresentBy = StdStr(req.PresentBy),
+                BusinessRegNo = StdStr(req.BusinessRegNo),
+                NNTPosition = StdStr(req.NNTPosition),
+                PresentIDNo = StdStr(req.PresentIDNo),
+                PresentIDType = StdStr(req.PresentIDType),
+                GovTaxID = StdParam(req.GovTaxID),
+                ContactName = StdStr(req.ContactName),
+                ContactPhone = StdStr(req.ContactPhone),
+                ContactEmail = StdStr(req.ContactEmail),
+                Website = StdStr(req.Website),
+                CANumber = StdStr(req.CANumber),
+                CAOrg = StdStr(req.CAOrg),
+                CAEffDTimeUTCStart = StdStr(req.CAEffDTimeUTCStart),
+                CAEffDTimeUTCEnd = StdStr(req.CAEffDTimeUTCEnd),
+                PackageCode = StdStr(req.PackageCode),
+                CreatedDate = StdStr(req.CreatedDate),
+                AccNo = StdStr(req.AccNo),
+                AccHolder = StdStr(req.AccHolder),
+                BankName = StdStr(req.BankName),
+                BizType = StdParam(req.BizType),
+                BizFieldCode = StdParam(req.BizFieldCode),
+                BizSizeCode = StdParam(req.BizSizeCode),
+                DealerType = StdParam(req.DealerType),
+                AreaCode = StdParam(req.AreaCode),
+                RegisterStatus = "Finish",
+                FlagActive = "1",
+                TCTStatus = "1",
+                CreateDTime = dtimeSysStr,
+                CreateBy = userCode,
+                LogLUDTimeUTC = dtimeSysStr,
+                LogLUBy = userCode
+            };
+            _db.Set<Mst_NNT>().Add(nnt);
+            await _db.SaveChangesAsync();
+
+            // (c) Hậu kiểm TotalQtyNetWork (Master.cs:35177-35205):
+            var totalQty = await _db.Set<Mst_NNT>()
+                .CountAsync(x => x.MSTLevel == "1" && x.MST != "ALL" && string.IsNullOrEmpty(x.MSTParent));
+            if (totalQty > 1)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_NNT_Create_InvalidTotalNetworkID", "Check.TotalQtyNetWork", totalQty, "Check.TotalQtyNetWork", totalQty);
+            }
+
+            // (d) Khởi tạo giá trị mặc định từ OrgID '0' (Master.cs:33596-33775)
+            var rootAreas = await _db.Set<Mst_Area>().AsNoTracking().Where(x => x.OrgID == "0").ToListAsync();
+            foreach (var a in rootAreas)
+            {
+                _db.Set<Mst_Area>().Add(new Mst_Area
+                {
+                    OrgID = strOrgID,
+                    AreaCode = a.AreaCode,
+                    NetworkID = networkId,
+                    AreaCodeParent = a.AreaCodeParent,
+                    AreaBUCode = a.AreaBUCode,
+                    AreaBUPattern = a.AreaBUPattern,
+                    AreaLevel = a.AreaLevel,
+                    AreaName = a.AreaName,
+                    AreaDesc = a.AreaDesc,
+                    FlagActive = a.FlagActive,
+                    LogLUDTimeUTC = dtimeSysStr,
+                    LogLUBy = userCode
+                });
+            }
+            if (rootAreas.Count > 0)
+            {
+                await _db.SaveChangesAsync();
+            }
+
+            await tx.CommitAsync();
+
+            return Ok(new
+            {
+                Success = true,
+                Message = "Tạo chi nhánh thành công!",
+                Data = nnt
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_NNT_Create", "Exception", ex.Message);
+        }
     }
 
     private static string? StdParam(string? value)
@@ -258,4 +568,48 @@ public class Mst_NNT_IndexItem
         LogLUDTimeUTC = src.LogLUDTimeUTC;
         LogLUBy = src.LogLUBy;
     }
+}
+
+public class Mst_Organization_CreateReq
+{
+    public string? Model { get; set; }
+    public string? MST { get; set; }
+    public string? OrgID { get; set; }
+    public string? NNTFullName { get; set; }
+    public string? NNTShortName { get; set; }
+    public string? NetworkID { get; set; }
+    public string? MSTParent { get; set; }
+    public string? ProvinceCode { get; set; }
+    public string? DistrictCode { get; set; }
+    public string? DLCode { get; set; }
+    public string? NNTAddress { get; set; }
+    public string? NNTMobile { get; set; }
+    public string? NNTPhone { get; set; }
+    public string? NNTFax { get; set; }
+    public string? PresentBy { get; set; }
+    public string? BusinessRegNo { get; set; }
+    public string? NNTPosition { get; set; }
+    public string? PresentIDNo { get; set; }
+    public string? PresentIDType { get; set; }
+    public string? GovTaxID { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? Website { get; set; }
+    public string? CANumber { get; set; }
+    public string? CAOrg { get; set; }
+    public string? CAEffDTimeUTCStart { get; set; }
+    public string? CAEffDTimeUTCEnd { get; set; }
+    public string? PackageCode { get; set; }
+    public string? CreatedDate { get; set; }
+    public string? AccNo { get; set; }
+    public string? AccHolder { get; set; }
+    public string? BankName { get; set; }
+    public string? BizType { get; set; }
+    public string? BizFieldCode { get; set; }
+    public string? BizSizeCode { get; set; }
+    public string? DealerType { get; set; }
+    public string? AreaCode { get; set; }
+    public string? Remark { get; set; }
+    public string? MSTToken { get; set; }
 }
