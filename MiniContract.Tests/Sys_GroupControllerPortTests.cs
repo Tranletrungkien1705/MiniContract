@@ -1370,6 +1370,81 @@ public class Sys_GroupControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Export_NullReq_ReturnsAllGroupsExcel()
+    {
+        var result = await _controller.Export(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+        Assert.NotNull(strUrl);
+        Assert.Contains("/TempFiles/", strUrl);
+        Assert.EndsWith(".xlsx", strUrl);
+    }
+
+    [Fact]
+    public async Task Export_FilterByGroupName_SingleMatch()
+    {
+        var req = new Sys_Group_ExportReq { GroupName = "Quản lý" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
+    public async Task Export_FilterByGroupName_NoMatch_ReturnsNoData()
+    {
+        var req = new Sys_Group_ExportReq { GroupName = "KHONG_CO_NHOM_NAY" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Không có dữ liệu!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.False(root.TryGetProperty("strUrl", out _));
+    }
+
+    [Fact]
+    public async Task Export_FilterByFlagActive()
+    {
+        var req = new Sys_Group_ExportReq { FlagActive = "0" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+    }
+
+    [Fact]
+    public async Task Export_ViaModelJson_Success()
+    {
+        var req = new Sys_Group_ExportReq { Model = "{\"GroupName\":\"Quản lý\"}" };
+        var result = await _controller.Export(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Đã xuất excel thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_Verification()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_sys_group_{Guid.NewGuid():N}.db");
@@ -2173,6 +2248,70 @@ public class Sys_GroupControllerPortTests : IDisposable
             var data58 = doc58.RootElement.GetProperty("Data");
             Assert.Equal(1, data58.GetProperty("ListSysObject").GetArrayLength());
             Assert.Equal("MNU_ARCHIVED", data58.GetProperty("ListSysObject")[0].GetProperty("ObjectCode").GetString());
+
+            // 59. Ca Export body rỗng: POST /api/sys_group/export {} -> 200 OK, Success=true, Title="Đã xuất excel thành công!", CheckSuccess="1", strUrl có đuôi .xlsx
+            var req59 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res59 = await http.PostAsync("/api/sys_group/export", req59);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res59.StatusCode);
+            var body59 = await res59.Content.ReadAsStringAsync();
+            var doc59 = JsonDocument.Parse(body59);
+            Assert.True(doc59.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc59.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc59.RootElement.GetProperty("CheckSuccess").GetString());
+            var url59 = doc59.RootElement.GetProperty("strUrl").GetString();
+            Assert.NotNull(url59);
+            Assert.Contains("/TempFiles/", url59);
+            Assert.EndsWith(".xlsx", url59);
+
+            // 60. Ca Export lọc GroupName="Quản lý" (Bộ lọc A) -> 200 OK, Success=true, Title="Đã xuất excel thành công!"
+            var req60 = new StringContent("{\"GroupName\":\"Quản lý\"}", Encoding.UTF8, "application/json");
+            var res60 = await http.PostAsync("/api/sys_group/export", req60);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res60.StatusCode);
+            var body60 = await res60.Content.ReadAsStringAsync();
+            var doc60 = JsonDocument.Parse(body60);
+            Assert.True(doc60.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc60.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc60.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.NotNull(doc60.RootElement.GetProperty("strUrl").GetString());
+
+            // 61. Ca Export lọc GroupName="Nhóm" (Bộ lọc B, ra kết quả khác ca 60) -> 200 OK, Success=true
+            var req61 = new StringContent("{\"GroupName\":\"Nhóm\"}", Encoding.UTF8, "application/json");
+            var res61 = await http.PostAsync("/api/sys_group/export", req61);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res61.StatusCode);
+            var body61 = await res61.Content.ReadAsStringAsync();
+            var doc61 = JsonDocument.Parse(body61);
+            Assert.True(doc61.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc61.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc61.RootElement.GetProperty("CheckSuccess").GetString());
+
+            // 62. Ca Export lọc không có dữ liệu: GroupName="KHONG_CO_NHOM_NAY" -> 200 OK, Success=true, Title="Không có dữ liệu!", CheckSuccess="1"
+            var req62 = new StringContent("{\"GroupName\":\"KHONG_CO_NHOM_NAY\"}", Encoding.UTF8, "application/json");
+            var res62 = await http.PostAsync("/api/sys_group/export", req62);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res62.StatusCode);
+            var body62 = await res62.Content.ReadAsStringAsync();
+            var doc62 = JsonDocument.Parse(body62);
+            Assert.True(doc62.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Không có dữ liệu!", doc62.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc62.RootElement.GetProperty("CheckSuccess").GetString());
+            Assert.False(doc62.RootElement.TryGetProperty("strUrl", out _));
+
+            // 63. Ca Export qua query string ?groupname=Quản%20trị -> 200 OK, Success=true
+            var req63 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res63 = await http.PostAsync("/api/sys_group/export?groupname=Quản%20trị", req63);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res63.StatusCode);
+            var body63 = await res63.Content.ReadAsStringAsync();
+            var doc63 = JsonDocument.Parse(body63);
+            Assert.True(doc63.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc63.RootElement.GetProperty("Title").GetString());
+
+            // 64. Ca Export qua Model JSON string -> 200 OK, Success=true (lọc "kinh doanh" khớp GRP_STAFF)
+            var req64 = new StringContent("{\"Model\":\"{\\\"GroupName\\\":\\\"kinh doanh\\\"}\"}", Encoding.UTF8, "application/json");
+            var res64 = await http.PostAsync("/api/sys_group/export", req64);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res64.StatusCode);
+            var body64 = await res64.Content.ReadAsStringAsync();
+            var doc64 = JsonDocument.Parse(body64);
+            Assert.True(doc64.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã xuất excel thành công!", doc64.RootElement.GetProperty("Title").GetString());
         }
         finally
         {

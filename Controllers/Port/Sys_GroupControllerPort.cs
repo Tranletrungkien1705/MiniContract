@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,8 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:477-567 (GetSysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:571-621 (SaveUserInGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:626-727 (GetSysObject)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:968-1028 (Export)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1059-1067 (GetImportDicColums)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1093-1104 (strWhereClause_SysGroupName)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1119-1138 (strWhereClause_SysUser)
@@ -49,14 +52,24 @@ public class Sys_GroupControllerPort : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration? _config;
+    private readonly IWebHostEnvironment? _env;
+
+    // Từ điển cột xuất Excel từ gate Sys_GroupController.cs:1059-1067 GetImportDicColums()
+    private static readonly Dictionary<string, string> ExportDicColumns = new()
+    {
+        { "GroupCode", "Mã nhóm người dùng" },
+        { "GroupName", "Tên nhóm người dùng" },
+        { "FlagActive", "Trạng thái" }
+    };
 
     // Hằng số che mật khẩu từ D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Constants\Const.Main.BE.cs:13
     private const string Default_PasswordMask = "*********";
 
-    public Sys_GroupControllerPort(AppDbContext db, IConfiguration? config = null)
+    public Sys_GroupControllerPort(AppDbContext db, IConfiguration? config = null, IWebHostEnvironment? env = null)
     {
         _db = db;
         _config = config;
+        _env = env;
     }
 
     /// <summary>
@@ -1336,6 +1349,135 @@ public class Sys_GroupControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action Export từ gate Sys_GroupController.cs:968-1028.
+    /// Chuỗi gọi:
+    /// 1. Nhận groupname (gate dòng 968).
+    /// 2. Lấy UserState: AddressAPIs, waUserCode, waUserPassword (gate dòng 973-977).
+    /// 3. Dựng strWhereClause_SysGroupName(groupname) (gate dòng 979, 1093-1104):
+    ///    Sys_Group.GroupName like '%groupname%'.
+    /// 4. Đóng gói RQ_Sys_Group với Rt_Cols_Sys_Group = "*", Rt_Cols_Sys_UserInGroup = null (gate dòng 980-1001).
+    /// 5. Gọi Sys_GroupService.Instance.WA_Sys_Group_Get (gate dòng 1003)
+    ///    -> API WA_Sys_Group_Get (SysGroupController.cs:20-91)
+    ///    -> BIZ WAS_Sys_Group_Get (System.cs:2283-2397)
+    ///    -> Sys_Group_Get_New20191102 (System.cs:1966-2281).
+    ///    SQL: select distinct sg.GroupCode into #tbl_Sys_Group_Filter_Draft from Sys_Group sg ... order by sg.GroupCode asc.
+    ///    Lấy dữ liệu Sys_Group: select t.MyIdxSeq, sg.* from #tbl_Sys_Group_Filter t inner join Sys_Group sg on t.GroupCode = sg.GroupCode order by t.MyIdxSeq asc.
+    /// 6. Nếu có dữ liệu (objRT_Sys_GroupCur.Lst_Sys_Group != null && objRT_Sys_GroupCur.Lst_Sys_Group.Count > 0) (gate dòng 1004-1016):
+    ///    - Lấy từ điển cột: GetImportDicColums() (gate dòng 1008, 1059-1067):
+    ///      GroupCode: "Mã nhóm người dùng", GroupName: "Tên nhóm người dùng", FlagActive: "Trạng thái".
+    ///    - Sinh đường dẫn tệp xuất Excel: GenExcelExportFilePath("Sys_Group", ref url) (gate dòng 1011, BaseController.cs:664-682).
+    ///    - Xuất dữ liệu ra Excel bằng ExcelExport.ExportToExcelFromList(list, dicColNames, filePath, "Sys_Group") (gate dòng 1013).
+    ///    - Trả JSON: { Success = true, Title = "Đã xuất excel thành công!", CheckSuccess = "1", strUrl = url } (gate dòng 1015).
+    /// 7. Nếu không có dữ liệu (gate dòng 1017-1020):
+    ///    - Trả JSON: { Success = true, Title = "Không có dữ liệu!", CheckSuccess = "1" } (gate dòng 1019).
+    /// 8. Bắt ngoại lệ nếu có (gate dòng 1022-1027):
+    ///    - PortResult.Fail("Sys_Group_Export", "Exception", ex.Message).
+    /// </summary>
+    [HttpGet("export")]
+    [HttpPost("export")]
+    public async Task<IActionResult> Export([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_ExportReq? req = null)
+    {
+        try
+        {
+            // 1. Chuẩn hoá tham số đầu vào (Sys_GroupController.cs:968, 979, 1093-1104)
+            var groupName = StdStr(req?.GroupName) ?? StdStr(req?.KeyWord);
+            if (string.IsNullOrEmpty(groupName) && HttpContext?.Request?.Query != null && HttpContext.Request.Query.TryGetValue("groupname", out var qGroupName))
+            {
+                groupName = StdStr(qGroupName.ToString());
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON hoặc tên nhóm trong Model
+            if (string.IsNullOrEmpty(groupName) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Sys_Group_ExportReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    groupName = StdStr(modelObj?.GroupName) ?? StdStr(modelObj?.KeyWord);
+                }
+                catch
+                {
+                    groupName = StdStr(req.Model);
+                }
+            }
+
+            var groupCode = StdParam(req?.GroupCode);
+            var flagActive = req?.FlagActive != null ? StdFlag(req.FlagActive) : null;
+            var mst = StdParam(req?.MST);
+
+            // 2. Dựng truy vấn cơ sở từ bảng Sys_Group (System.cs:2081, 2133)
+            var query = _db.Set<Sys_Group>().AsNoTracking();
+
+            // 3. Lọc theo GroupName: strWhereClause_SysGroupName(groupname) (Sys_GroupController.cs:979, 1093-1104)
+            if (!string.IsNullOrEmpty(groupName))
+            {
+                query = query.Where(x => EF.Functions.Like((x.GroupName ?? "").ToLower(), PortQuery.Contains(groupName), PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(groupCode))
+            {
+                query = query.Where(x => EF.Functions.Like((x.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(flagActive))
+            {
+                query = query.Where(x => EF.Functions.Like((x.FlagActive ?? "").ToLower(), PortQuery.Equal(flagActive), PortQuery.Esc));
+            }
+
+            if (!string.IsNullOrEmpty(mst))
+            {
+                query = query.Where(x => EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(mst), PortQuery.Esc));
+            }
+
+            // 4. Sắp xếp: order by sg.GroupCode asc (System.cs:2091)
+            var ordered = query.OrderBy(x => x.GroupCode);
+
+            // 5. Phân trang nếu có truyền
+            long recordStart = req?.Ft_RecordStart ?? 0;
+            long recordCount = req?.Ft_RecordCount ?? 1000000;
+            if (req != null && req.RecordCount != null && req.Ft_RecordCount == null)
+            {
+                recordCount = req.RecordCount.Value;
+                var page = req.Page ?? req.PageIndex ?? 0;
+                recordStart = (long)page * recordCount;
+            }
+
+            var list = (recordCount <= 0 || recordStart < 0)
+                ? new List<Sys_Group>()
+                : await ordered.Skip((int)Math.Min(recordStart, int.MaxValue))
+                               .Take((int)Math.Min(recordCount, int.MaxValue))
+                               .ToListAsync();
+
+            // 6. Kiểm tra danh sách rỗng -> trả thông báo khớp gate (Sys_GroupController.cs:1017-1020)
+            if (list == null || list.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Title = "Không có dữ liệu!",
+                    CheckSuccess = "1"
+                });
+            }
+
+            // 7. Xuất danh sách ra file Excel và trả URL (Sys_GroupController.cs:1008-1015)
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Sys_Group));
+            PortExcel.ExportToExcelFromList(list, ExportDicColumns, filePath, nameof(Sys_Group));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Đã xuất excel thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_Export", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
@@ -1509,4 +1651,24 @@ public class Sys_Group_GetSysObjectData
     public List<Sys_Object> Lst_Sys_Object { get; set; } = new();
     public List<Sys_Access> ListSysAccess { get; set; } = new();
     public List<Sys_Access> Lst_Sys_Access { get; set; } = new();
+}
+
+/// <summary>
+/// DTO yêu cầu cho action Export của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:968 Export(string groupname = "")
+/// </summary>
+public class Sys_Group_ExportReq
+{
+    public string? GroupName { get; set; }
+    public string? KeyWord { get; set; }
+    public string? GroupCode { get; set; }
+    public string? FlagActive { get; set; }
+    public string? MST { get; set; }
+    public string? Model { get; set; }
+
+    public long? Ft_RecordStart { get; set; }
+    public long? Ft_RecordCount { get; set; }
+    public int? RecordCount { get; set; }
+    public int? Page { get; set; }
+    public int? PageIndex { get; set; }
 }
