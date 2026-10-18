@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 5/295 (1.69%)
+**Tiến độ hiện tại**: 6/295 (2.03%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -149,7 +149,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 137 | Mst_ChannelController/ZaloDisconnect | Chưa làm | - |
 | 138 | Mst_ChannelController/Save | Đã làm | 98a5fbd |
 | 139 | Mst_ChannelController/ZaloLoginCallBack | Chưa làm | - |
-| 140 | Mst_ColumnConfigGroupController/Index | Chưa làm | - |
+| 140 | Mst_ColumnConfigGroupController/Index | Đã làm | bee7b7c |
 | 141 | Mst_ColumnConfigGroupController/DoSearch | Chưa làm | - |
 | 142 | Mst_ColumnConfigGroupController/Create | Chưa làm | - |
 | 143 | Mst_ColumnConfigGroupController/Update | Chưa làm | - |
