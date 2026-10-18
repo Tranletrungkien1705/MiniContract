@@ -802,6 +802,240 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_NullBody_ReturnsCheckStrJson()
+    {
+        var result = await _controller.Delete(null);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Delete", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("Check.strJson", out _));
+    }
+
+    [Fact]
+    public async Task Delete_EmptyBody_ReturnsCheckStrJson()
+    {
+        var result = await _controller.Delete(new Mst_ContractType_DeleteReq());
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Delete", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentContractType_ReturnsOrganNotFound()
+    {
+        var req = new Mst_ContractType_DeleteReq
+        {
+            NetworkID = "1001",
+            ContractType = "NOT_EXIST"
+        };
+        var result = await _controller.Delete(req);
+        var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_CheckDB_OrganNotFound", root.GetProperty("ErrorCode").GetString());
+        var p = root.GetProperty("Params");
+        Assert.Equal("1001", p.GetProperty("Check.NetworkID").GetString());
+        Assert.Equal("NOT_EXIST", p.GetProperty("Check.ContractType").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_UsedInTempContract_ReturnsContractTypeUsed()
+    {
+        // Tạo bảng Contract_TempContract tạm trên connection test và chèn dòng mẫu
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS Contract_TempContract (
+                    TContractCode TEXT PRIMARY KEY,
+                    ContractType TEXT
+                );
+                INSERT INTO Contract_TempContract (TContractCode, ContractType) VALUES ('T001', 'HD_KT');
+            ";
+            cmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var req = new Mst_ContractType_DeleteReq
+            {
+                NetworkID = "1001",
+                ContractType = "HD_KT"
+            };
+            var result = await _controller.Delete(req);
+            var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+            var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+            var root = doc.RootElement;
+
+            Assert.False(root.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Delete_ContractTypeUsed", root.GetProperty("ErrorCode").GetString());
+            var p = root.GetProperty("Params");
+            Assert.Equal("T001", p.GetProperty("Check.TContractCode").GetString());
+            Assert.Equal("HD_KT", p.GetProperty("Check.ContractType").GetString());
+            Assert.Equal(1, p.GetProperty("Check.TContractCount").GetInt32());
+        }
+        finally
+        {
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "DROP TABLE IF EXISTS Contract_TempContract;";
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Delete_UsedInContractParty_ReturnsContractTypeUsed()
+    {
+        // Tạo bảng Contract_ContractParty tạm trên connection test và chèn dòng mẫu
+        using (var cmd = _conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS Contract_ContractParty (
+                    ContractCode TEXT PRIMARY KEY,
+                    ContractType TEXT
+                );
+                INSERT INTO Contract_ContractParty (ContractCode, ContractType) VALUES ('C001', 'HD_LD');
+            ";
+            cmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var req = new Mst_ContractType_DeleteReq
+            {
+                NetworkID = "1001",
+                ContractType = "HD_LD"
+            };
+            var result = await _controller.Delete(req);
+            var badResult = Assert.IsType<BadRequestObjectResult>(result);
+
+            var doc = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+            var root = doc.RootElement;
+
+            Assert.False(root.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Delete_ContractTypeUsed", root.GetProperty("ErrorCode").GetString());
+            var p = root.GetProperty("Params");
+            Assert.Equal("C001", p.GetProperty("Check.TContractCode").GetString());
+            Assert.Equal("HD_LD", p.GetProperty("Check.ContractType").GetString());
+            Assert.Equal(1, p.GetProperty("Check.TContractCount").GetInt32());
+        }
+        finally
+        {
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "DROP TABLE IF EXISTS Contract_ContractParty;";
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Delete_Success_RoundTrip()
+    {
+        // 1. Tạo mới bản ghi
+        var createReq = new Mst_ContractType_CreateReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_TO_DEL",
+            ContractTypeName = "Hợp đồng sẽ xóa",
+            Description = "Chuẩn bị xóa"
+        };
+        var crRes = await _controller.Create(createReq);
+        Assert.IsType<OkObjectResult>(crRes);
+
+        var saved = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_TO_DEL");
+        Assert.NotNull(saved);
+
+        // 2. Gọi Delete
+        var delReq = new Mst_ContractType_DeleteReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_TO_DEL"
+        };
+        var delRes = await _controller.Delete(delReq);
+        var okResult = Assert.IsType<OkObjectResult>(delRes);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Mst_ContractType", root.GetProperty("RedirectUrl").GetString());
+        Assert.Equal("Xoá loại hợp đồng thành công!", root.GetProperty("Messages")[0].GetString());
+
+        // 3. Kiểm tra đọc lại trực tiếp từ DB
+        var afterDel = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_TO_DEL");
+        Assert.Null(afterDel);
+
+        // 4. Kiểm tra đọc lại qua Index
+        var indexRes = await _controller.Index(new Mst_ContractType_IndexReq { ContractType = "HD_TO_DEL" });
+        var okIndex = Assert.IsType<OkObjectResult>(indexRes);
+        var docIndex = JsonDocument.Parse(JsonSerializer.Serialize(okIndex.Value));
+        Assert.Equal(0, docIndex.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Delete_WithModelString_Success()
+    {
+        // Tạo mới bản ghi
+        await _controller.Create(new Mst_ContractType_CreateReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_DEL_JSON",
+            ContractTypeName = "Xóa qua JSON"
+        });
+
+        // Xóa qua chuỗi Model
+        var delReq = new Mst_ContractType_DeleteReq
+        {
+            Model = "{\"NetworkID\":\"1001\",\"ContractType\":\"HD_DEL_JSON\"}"
+        };
+        var delRes = await _controller.Delete(delReq);
+        var okResult = Assert.IsType<OkObjectResult>(delRes);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterDel = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_DEL_JSON");
+        Assert.Null(afterDel);
+    }
+
+    [Fact]
+    public async Task Delete_WithLowercaseAlias_Success()
+    {
+        // Tạo mới bản ghi
+        await _controller.Create(new Mst_ContractType_CreateReq
+        {
+            NetworkID = "1001",
+            ContractType = "HD_DEL_ALIAS",
+            ContractTypeName = "Xóa qua Alias"
+        });
+
+        // Xóa qua contracttype viết thường
+        var json = "{\"contracttype\":\"HD_DEL_ALIAS\"}";
+        var delReq = JsonSerializer.Deserialize<Mst_ContractType_DeleteReq>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var delRes = await _controller.Delete(delReq);
+        var okResult = Assert.IsType<OkObjectResult>(delRes);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var afterDel = await _db.Set<Mst_ContractType>().FindAsync("1001", "HD_DEL_ALIAS");
+        Assert.Null(afterDel);
+    }
+
+    [Fact]
     public async Task RealServer_Verification_Port8589()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_ct_{Guid.NewGuid():N}.db");
@@ -1050,6 +1284,44 @@ public class Mst_ContractTypeControllerPortTests : IDisposable
             Assert.True(docDetNetFail.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal(JsonValueKind.Null, docDetNetFail.RootElement.GetProperty("Data").ValueKind);
             _output?.WriteLine($"[Detail NetMismatch] StatusCode={(int)resDetNetFail.StatusCode} Body={bodyDetNetFail}");
+
+            // 6. Delete: 1 ca guard rỗng, 1 ca guard không tồn tại, 1 ca xóa round-trip
+            // Ca 6.1: Guard body rỗng -> 400 Bad Request
+            var reqDelEmpty = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resDelEmpty = await http.PostAsync("/api/mst_contracttype/delete", reqDelEmpty);
+            var bodyDelEmpty = await resDelEmpty.Content.ReadAsStringAsync();
+            var docDelEmpty = JsonDocument.Parse(bodyDelEmpty);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resDelEmpty.StatusCode);
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_Delete", docDelEmpty.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[Delete Guard EmptyBody] StatusCode={(int)resDelEmpty.StatusCode} Body={bodyDelEmpty}");
+
+            // Ca 6.2: Guard không tồn tại -> 400 Bad Request
+            var reqDelNone = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"NOT_EXIST\"}", Encoding.UTF8, "application/json");
+            var resDelNone = await http.PostAsync("/api/mst_contracttype/delete", reqDelNone);
+            var bodyDelNone = await resDelNone.Content.ReadAsStringAsync();
+            var docDelNone = JsonDocument.Parse(bodyDelNone);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resDelNone.StatusCode);
+            Assert.Equal("Erridn.Skycic.QContract.Mst_ContractType_CheckDB_OrganNotFound", docDelNone.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[Delete Guard NonExistent] StatusCode={(int)resDelNone.StatusCode} Body={bodyDelNone}");
+
+            // Ca 6.3: Xóa thành công bản ghi HD_LIVE_TEST đã tạo và sửa ở trên
+            var reqDelOk = new StringContent("{\"NetworkID\":\"1001\",\"ContractType\":\"HD_LIVE_TEST\"}", Encoding.UTF8, "application/json");
+            var resDelOk = await http.PostAsync("/api/mst_contracttype/delete", reqDelOk);
+            var bodyDelOk = await resDelOk.Content.ReadAsStringAsync();
+            var docDelOk = JsonDocument.Parse(bodyDelOk);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDelOk.StatusCode);
+            Assert.True(docDelOk.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Mst_ContractType", docDelOk.RootElement.GetProperty("RedirectUrl").GetString());
+            _output?.WriteLine($"[Delete Success RoundTrip] StatusCode={(int)resDelOk.StatusCode} Body={bodyDelOk}");
+
+            // Đọc lại qua Detail để xác nhận bản ghi đã bị xóa thật sự
+            var reqVerifyDel = new StringContent("{\"ContractType\":\"HD_LIVE_TEST\"}", Encoding.UTF8, "application/json");
+            var resVerifyDel = await http.PostAsync("/api/mst_contracttype/detail", reqVerifyDel);
+            var bodyVerifyDel = await resVerifyDel.Content.ReadAsStringAsync();
+            var docVerifyDel = JsonDocument.Parse(bodyVerifyDel);
+            Assert.Equal(System.Net.HttpStatusCode.OK, resVerifyDel.StatusCode);
+            Assert.Equal(JsonValueKind.Null, docVerifyDel.RootElement.GetProperty("Data").ValueKind);
+            _output?.WriteLine($"[Verify After Delete] StatusCode={(int)resVerifyDel.StatusCode} Body={bodyVerifyDel}");
         }
         finally
         {

@@ -9,9 +9,9 @@ namespace MiniContract.Controllers.Port;
 
 // port 1:1 Mst_ContractTypeController.cs — Mst_ContractType
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update), 44142-44297 (Biz Get/Update), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 45024-45180 (Search/Index/Update GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_ContractTypeController.cs:26-90 (Index), 92-95 (Create GET), 97-146 (Create POST), 148-283 (Update), 287-365 (Edit POST), 367-408 (Detail), 411-460 (Delete)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstContractTypeController.cs:20-88 (Index, Update), 89-140 (Create), 160-228 (WA_Mst_ContractType_Update), 230-298 (WA_Mst_ContractType_Delete)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Master.cs:43978-44048 (CheckDB), 44050-44141 (WAS Get/Update), 44142-44297 (Biz Get/Update), 44299-44548 (WAS/Biz Create), 44549-44633 (WAS Update), 44634-44798 (Biz Update), 44799-44877 (WAS Delete), 44878-45023 (Biz Delete), 45024-45180 (Search/Index/Update GetX), 45181-45278 (CreateX), 45279-45372 (UpdateX), 45373-45483 (DeleteX)
 [ApiController]
 [Route("api/mst_contracttype")]
 public class Mst_ContractTypeControllerPort : ControllerBase
@@ -520,6 +520,172 @@ public class Mst_ContractTypeControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Xóa loại hợp đồng.
+    /// Gate: Mst_ContractTypeController.cs:411-460 Delete(string contracttype)
+    /// API:  MstContractTypeController.cs:230-298 WA_Mst_ContractType_Delete
+    /// BIZ:  Master.cs:44799-44877 WAS_Mst_ContractType_Delete -> Mst_ContractType_Delete:44878-45023 -> Mst_ContractType_DeleteX:45373-45483
+    ///       Master.cs:43978-44048 Mst_ContractType_CheckDB
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_ContractType_DeleteReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoàn toàn (lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Mst_ContractType_Delete", "Check.strJson", null);
+        }
+
+        // Hỗ trợ trường hợp client truyền chuỗi JSON 'model' như gate MVC (Mst_ContractTypeController.cs:411)
+        if (!string.IsNullOrWhiteSpace(req.Model))
+        {
+            try
+            {
+                var modelObj = JsonSerializer.Deserialize<Mst_ContractType_DeleteReq>(req.Model, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (modelObj != null)
+                {
+                    req.ContractType ??= modelObj.ContractType;
+                    req.NetworkID ??= modelObj.NetworkID;
+                    req.OrgID ??= modelObj.OrgID;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(req.ContractType) && string.IsNullOrWhiteSpace(req.Model))
+        {
+            return PortResult.Fail("Mst_ContractType_Delete", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào theo Master.cs:45400-45401
+        var networkId = req.NetworkID != null ? StdParam(req.NetworkID) : (_config?["Biz_NetworkID"] ?? "1001");
+        if (string.IsNullOrEmpty(networkId))
+        {
+            return PortResult.Fail("Mst_ContractType_Delete", "Check.strNetworkID", req.NetworkID);
+        }
+
+        var contractType = StdParam(req.ContractType);
+        if (string.IsNullOrEmpty(contractType))
+        {
+            return PortResult.Fail("Mst_ContractType_Delete", "Check.ContractType", req.ContractType);
+        }
+
+        // 3. Mở transaction (Master.cs:44912)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 4. Kiểm tra tồn tại trong DB qua Mst_ContractType_CheckDB (Master.cs:45406-45413, 43989-44018)
+            var existing = await _db.Set<Mst_ContractType>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.NetworkID ?? "").ToLower(), PortQuery.Equal(networkId), PortQuery.Esc) &&
+                    EF.Functions.Like((x.ContractType ?? "").ToLower(), PortQuery.Equal(contractType), PortQuery.Esc));
+
+            if (existing == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Mst_ContractType_CheckDB_OrganNotFound",
+                    "Check.NetworkID", networkId,
+                    "Check.ContractType", contractType);
+            }
+
+            // 5. Kiểm tra ràng buộc sử dụng trong Contract_TempContract và Contract_ContractParty (Master.cs:45416-45467)
+            bool hasTempContractTable = false;
+            bool hasContractPartyTable = false;
+            try
+            {
+                var conn = _db.Database.GetDbConnection();
+                if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync();
+                using var cmdCheck = conn.CreateCommand();
+                cmdCheck.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('Contract_TempContract', 'Contract_ContractParty');";
+                using var readerCheck = await cmdCheck.ExecuteReaderAsync();
+                while (await readerCheck.ReadAsync())
+                {
+                    var tblName = readerCheck.GetString(0);
+                    if (tblName.Equals("Contract_TempContract", StringComparison.OrdinalIgnoreCase)) hasTempContractTable = true;
+                    if (tblName.Equals("Contract_ContractParty", StringComparison.OrdinalIgnoreCase)) hasContractPartyTable = true;
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi truy vấn sqlite_master nếu chạy trên môi trường khác
+            }
+
+            if (hasTempContractTable)
+            {
+                var conn = _db.Database.GetDbConnection();
+                using var cmdTemp = conn.CreateCommand();
+                cmdTemp.CommandText = "SELECT TContractCode, ContractType FROM Contract_TempContract WHERE ContractType = @ct;";
+                var p = cmdTemp.CreateParameter();
+                p.ParameterName = "@ct";
+                p.Value = contractType;
+                cmdTemp.Parameters.Add(p);
+                using var readerTemp = await cmdTemp.ExecuteReaderAsync();
+                var rowsTemp = new List<(string Code, string Type)>();
+                while (await readerTemp.ReadAsync())
+                {
+                    rowsTemp.Add((readerTemp.GetString(0), readerTemp.GetString(1)));
+                }
+                if (rowsTemp.Count > 0)
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_ContractType_Delete_ContractTypeUsed",
+                        "Check.TContractCode", rowsTemp[0].Code,
+                        "Check.ContractType", rowsTemp[0].Type,
+                        "Check.TContractCount", rowsTemp.Count);
+                }
+            }
+
+            if (hasContractPartyTable)
+            {
+                var conn = _db.Database.GetDbConnection();
+                using var cmdParty = conn.CreateCommand();
+                cmdParty.CommandText = "SELECT ContractCode, ContractType FROM Contract_ContractParty WHERE ContractType = @ct;";
+                var p = cmdParty.CreateParameter();
+                p.ParameterName = "@ct";
+                p.Value = contractType;
+                cmdParty.Parameters.Add(p);
+                using var readerParty = await cmdParty.ExecuteReaderAsync();
+                var rowsParty = new List<(string Code, string Type)>();
+                while (await readerParty.ReadAsync())
+                {
+                    rowsParty.Add((readerParty.GetString(0), readerParty.GetString(1)));
+                }
+                if (rowsParty.Count > 0)
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Mst_ContractType_Delete_ContractTypeUsed",
+                        "Check.TContractCode", rowsParty[0].Code,
+                        "Check.ContractType", rowsParty[0].Type,
+                        "Check.TContractCount", rowsParty.Count);
+                }
+            }
+
+            // 6. Xóa bản ghi trong DB (Master.cs:45474-45480)
+            _db.Set<Mst_ContractType>().Remove(existing);
+            await _db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+
+            // 7. Trả kết quả thành công khớp gate MVC (Mst_ContractTypeController.cs:449-452)
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { "Xoá loại hợp đồng thành công!" },
+                Title = "Xoá loại hợp đồng thành công!",
+                RedirectUrl = "/Mst_ContractType",
+                Data = existing
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Mst_ContractType_Delete", "Exception", ex.Message);
+        }
+    }
+
     private static string? StdParam(object? value)
     {
         var s = value?.ToString()?.Trim();
@@ -638,6 +804,19 @@ public class Mst_ContractType_EditReq
 /// Gate: Mst_ContractTypeController.cs:367 Detail(string contracttype)
 /// </summary>
 public class Mst_ContractType_DetailReq
+{
+    public string? ContractType { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO tham số đầu vào cho action Delete.
+/// Gate: Mst_ContractTypeController.cs:411 Delete(string contracttype)
+/// BIZ:  Master.cs:45373-45483
+/// </summary>
+public class Mst_ContractType_DeleteReq
 {
     public string? ContractType { get; set; }
     public string? NetworkID { get; set; }
