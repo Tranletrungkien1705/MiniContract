@@ -409,6 +409,67 @@ public class AccountControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void LogOffNoLoginOS_NullReq_ReturnsOkAndDefaultRedirectUrl()
+    {
+        var result = _controller.LogOffNoLoginOS(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Account/Login", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOffNoLoginOS_EmptyReq_ReturnsOkAndDefaultRedirectUrl()
+    {
+        var req = new Account_LogOffNoLoginOSReq();
+        var result = _controller.LogOffNoLoginOS(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Account/Login", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOffNoLoginOS_WithCustomReturnUrl_ReturnsOkAndCustomRedirectUrl()
+    {
+        var req = new Account_LogOffNoLoginOSReq { ReturnUrl = "/Account/CustomLogin" };
+        var result = _controller.LogOffNoLoginOS(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Account/CustomLogin", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOffNoLoginOS_ClearsCookies_WhenCookiesPresent()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["Cookie"] = ".ASPXAUTH=dummy_auth; ASP.NET_SessionId=dummy_sess; accesstoken=dummy_token";
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = _controller.LogOffNoLoginOS(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+        Assert.Equal("/Account/Login", doc.RootElement.GetProperty("RedirectUrl").GetString());
+
+        var setCookies = httpContext.Response.Headers["Set-Cookie"].ToString();
+        Assert.Contains(".ASPXAUTH=", setCookies);
+        Assert.Contains("ASP.NET_SessionId=", setCookies);
+        Assert.Contains("accesstoken=", setCookies);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_account_{Guid.NewGuid():N}.db");
@@ -537,6 +598,30 @@ public class AccountControllerPortTests : IDisposable
             Assert.True(res9.IsSuccessStatusCode);
             var doc9 = JsonDocument.Parse(await res9.Content.ReadAsStringAsync());
             Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
+
+            // 10. Ca LogOffNoLoginOS body rỗng -> 200 OK, RedirectUrl mặc định (/Account/Login)
+            var req10 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res10 = await http.PostAsync("/api/account/logoffnologinos", req10);
+            Assert.True(res10.IsSuccessStatusCode);
+            var doc10 = JsonDocument.Parse(await res10.Content.ReadAsStringAsync());
+            Assert.True(doc10.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Account/Login", doc10.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 11. Ca LogOffNoLoginOS có ReturnUrl tùy chọn -> 200 OK, RedirectUrl khớp ReturnUrl
+            var req11 = new StringContent(JsonSerializer.Serialize(new { ReturnUrl = "/Account/CustomLogin" }), Encoding.UTF8, "application/json");
+            var res11 = await http.PostAsync("/api/account/logoffnologinos", req11);
+            Assert.True(res11.IsSuccessStatusCode);
+            var doc11 = JsonDocument.Parse(await res11.Content.ReadAsStringAsync());
+            Assert.True(doc11.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Account/CustomLogin", doc11.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 12. Ca LogOffNoLoginOS không gửi body (chuỗi rỗng) -> 200 OK, RedirectUrl mặc định (/Account/Login)
+            var req12 = new StringContent("", Encoding.UTF8, "application/json");
+            var res12 = await http.PostAsync("/api/account/logoffnologinos", req12);
+            Assert.True(res12.IsSuccessStatusCode);
+            var doc12 = JsonDocument.Parse(await res12.Content.ReadAsStringAsync());
+            Assert.True(doc12.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("/Account/Login", doc12.RootElement.GetProperty("RedirectUrl").GetString());
         }
         finally
         {

@@ -8,11 +8,12 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 AccountController.cs — LoginOS, LogOff, SignOut
+// port 1:1 AccountController.cs — LoginOS, LogOff, SignOut, LogOffNoLoginOS
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:215-549 (LoginOS)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:553-571 (LogOff)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:574-579 (SignOut)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:586-596 (LogOffNoLoginOS)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:808-826 (InitSSO)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:600-611 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:613-624 (strWhereClause_Mst_NNT)
@@ -303,6 +304,70 @@ public class AccountControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action LogOffNoLoginOS từ gate AccountController.cs:586-596.
+    /// Chuỗi nghiệp vụ:
+    /// 1. Xóa session hiện tại: Session.Clear() (AccountController.cs:594).
+    /// 2. Hủy phiên xác thực FormsAuthentication.SignOut() (AccountController.cs:589)
+    ///    và xóa/hết hạn cookie:
+    ///    - Response.Cookies.Clear() (AccountController.cs:588).
+    ///    - Xóa/hết hạn cookie ASP.NET_SessionId (AccountController.cs:591-592).
+    ///    - Xóa cookie .ASPXAUTH và accesstoken nếu có.
+    /// 3. Chuyển hướng về trang đăng nhập Account/Login: RedirectToAction("Login", "Account") (AccountController.cs:595).
+    /// 4. Trả kết quả thành công: { Success = true, RedirectUrl = "/Account/Login" }.
+    /// </summary>
+    [HttpPost("logoffnologinos")]
+    public IActionResult LogOffNoLoginOS([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Account_LogOffNoLoginOSReq? req = null)
+    {
+        try
+        {
+            // 1. Session.Clear() - Xóa session nếu có (AccountController.cs:594)
+            try
+            {
+                HttpContext?.Session?.Clear();
+            }
+            catch
+            {
+                // Bỏ qua nếu session middleware chưa được cấu hình
+            }
+
+            // 2. FormsAuthentication.SignOut() & Xóa cookies (AccountController.cs:588-592)
+            if (Request?.Cookies != null)
+            {
+                if (Request.Cookies.ContainsKey(".ASPXAUTH"))
+                {
+                    Response.Cookies.Delete(".ASPXAUTH");
+                }
+                if (Request.Cookies.ContainsKey("ASP.NET_SessionId"))
+                {
+                    Response.Cookies.Delete("ASP.NET_SessionId");
+                }
+                if (Request.Cookies.ContainsKey("accesstoken"))
+                {
+                    Response.Cookies.Delete("accesstoken");
+                }
+            }
+            Response.Cookies.Delete(".ASPXAUTH");
+            Response.Cookies.Delete("ASP.NET_SessionId");
+            Response.Cookies.Delete("accesstoken");
+
+            // 3. Xác định URL chuyển tiếp: RedirectToAction("Login", "Account") (AccountController.cs:595)
+            var redirectUrl = !string.IsNullOrWhiteSpace(req?.ReturnUrl)
+                ? req.ReturnUrl.Trim()
+                : "/Account/Login";
+
+            return Ok(new
+            {
+                Success = true,
+                RedirectUrl = redirectUrl
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Account_LogOffNoLoginOS", "Exception", ex.Message);
+        }
+    }
+
     #region Helper chuẩn hoá tham số theo quy ước nguồn (PORT_RULES §3)
     private static string? StdParam(string? s)
     {
@@ -336,4 +401,9 @@ public class Account_LogOffReq
 
 public class Account_SignOutReq
 {
+}
+
+public class Account_LogOffNoLoginOSReq
+{
+    public string? ReturnUrl { get; set; }
 }
