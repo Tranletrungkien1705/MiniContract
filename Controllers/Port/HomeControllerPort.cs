@@ -7,10 +7,11 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 HomeController.cs — Index & About
+// port 1:1 HomeController.cs — Index, About & Contact
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\HomeController.cs:27-134 (Index)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\HomeController.cs:136-141 (About)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\HomeController.cs:143-148 (Contact)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:2985-3336 (InitNetworkData)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:747-758 (RedirectActionToLogin)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:808-826 (InitSSO)
@@ -352,6 +353,29 @@ public class HomeControllerPort : ControllerBase
             }
         });
     }
+
+    /// <summary>
+    /// Port 1:1 action Contact từ gate HomeController.cs:143-148.
+    /// Chuỗi nghiệp vụ:
+    /// 1. Gán ViewBag.Message = "Your contact page." (HomeController.cs:145).
+    /// 2. Trả về View() (HomeController.cs:147).
+    /// Ở tầng API port: trả về { Success = true, Title = "Contact", Message = "Your contact page.", Data = new { Title = "Contact", Message = "Your contact page." } }.
+    /// </summary>
+    [HttpPost("contact")]
+    public IActionResult Contact([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Home_ContactReq? req = null)
+    {
+        return Ok(new
+        {
+            Success = true,
+            Title = "Contact",
+            Message = "Your contact page.",
+            Data = new
+            {
+                Title = "Contact",
+                Message = "Your contact page."
+            }
+        });
+    }
 }
 
 public class Home_IndexReq
@@ -367,5 +391,9 @@ public class Home_IndexReq
 }
 
 public class Home_AboutReq
+{
+}
+
+public class Home_ContactReq
 {
 }

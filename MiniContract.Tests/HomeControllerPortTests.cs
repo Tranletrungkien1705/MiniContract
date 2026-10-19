@@ -328,6 +328,39 @@ public class HomeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void Contact_NullReq_ReturnsSuccess()
+    {
+        // Ca kiểm tra: Gọi Contact với null req -> trả về Success = true, Message = "Your contact page.", Title = "Contact"
+        var result = _controller.Contact(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Contact", root.GetProperty("Title").GetString());
+        Assert.Equal("Your contact page.", root.GetProperty("Message").GetString());
+        Assert.Equal("Contact", root.GetProperty("Data").GetProperty("Title").GetString());
+        Assert.Equal("Your contact page.", root.GetProperty("Data").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public void Contact_WithReq_ReturnsSuccess()
+    {
+        // Ca kiểm tra: Gọi Contact với đối tượng req rỗng -> trả về Success = true
+        var req = new Home_ContactReq();
+        var result = _controller.Contact(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Contact", root.GetProperty("Title").GetString());
+        Assert.Equal("Your contact page.", root.GetProperty("Message").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         // Chạy kiểm thử trên server thật với FreePort.Get() và SQLite tạm (PORT_RULES §2.6)
@@ -456,6 +489,25 @@ public class HomeControllerPortTests : IDisposable
             var docAboutNoBody = JsonDocument.Parse(jsonAboutNoBody);
             Assert.True(docAboutNoBody.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Your application description page.", docAboutNoBody.RootElement.GetProperty("Message").GetString());
+
+            // 7. Gọi /api/home/contact với body rỗng {} -> thành công (HomeController.cs:143-148)
+            var contactEmptyContent = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resContactEmpty = await http.PostAsync("/api/home/contact", contactEmptyContent);
+            Assert.True(resContactEmpty.IsSuccessStatusCode);
+            var jsonContactEmpty = await resContactEmpty.Content.ReadAsStringAsync();
+            var docContactEmpty = JsonDocument.Parse(jsonContactEmpty);
+            Assert.True(docContactEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Contact", docContactEmpty.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("Your contact page.", docContactEmpty.RootElement.GetProperty("Message").GetString());
+            Assert.Equal("Your contact page.", docContactEmpty.RootElement.GetProperty("Data").GetProperty("Message").GetString());
+
+            // 8. Gọi /api/home/contact không có body -> thành công
+            var resContactNoBody = await http.PostAsync("/api/home/contact", null);
+            Assert.True(resContactNoBody.IsSuccessStatusCode);
+            var jsonContactNoBody = await resContactNoBody.Content.ReadAsStringAsync();
+            var docContactNoBody = JsonDocument.Parse(jsonContactNoBody);
+            Assert.True(docContactNoBody.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Your contact page.", docContactNoBody.RootElement.GetProperty("Message").GetString());
         }
         finally
         {
