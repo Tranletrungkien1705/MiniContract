@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 152/295 (51.53%)
+**Tiến độ hiện tại**: 153/295 (51.86%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -126,7 +126,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 114 | LoadDataController/Index | Chưa làm | - |
 | 115 | LoadDataController/LoadMst_District | Đã làm | 250703a |
 | 116 | LoadDataController/LoadMst_Ward | Đã làm | 160efcc |
-| 117 | LoadDataController/SearchUser | Chưa làm | - |
+| 117 | LoadDataController/SearchUser | Đã làm | 23cd357 |
 | 118 | LoadDataController/LoadOS_Inos_Org | Chưa làm | - |
 | 119 | LoadDataController/Contract_TempContract_Create | Chưa làm | - |
 | 120 | LoadDataController/Mst_ContractType_Create | Chưa làm | - |
