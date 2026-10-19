@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 144/295 (48.81%)
+**Tiến độ hiện tại**: 145/295 (49.15%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -108,7 +108,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 96 | ESignController/PartySign | Chưa làm | - |
 | 97 | ESignController/Contract_ContractParty_Cancel | Đã làm | 27f0e17 |
 | 98 | ESignController/ShowModalPopupPartySign_QRCode | Đã làm | 2a87e83 |
-| 99 | ESignController/ReturnResultPage | Chưa làm | - |
+| 99 | ESignController/ReturnResultPage | Đã làm | 7def25d |
 | 100 | ESignController/Sign | Chưa làm | - |
 | 101 | ESignController/CustomerSign | Chưa làm | - |
 | 102 | ESignController/GenSigningInfo | Chưa làm | - |
