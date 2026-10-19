@@ -46,6 +46,10 @@ public class Contract_Contract
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
     public string? ContractNo { get; set; }
+
+    // Contract_ContractController.cs:7989-7992 — strWhereClause_Contract_ContractSearch: Contract_Contract.OrgID = OrgID
+    // (gate DoSearch KHÔNG truyền OrgID nên nhánh này không chạy; khai cột để đủ DDL dùng chung)
+    public string? OrgID { get; set; }
 }
 
 public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_Contract>
@@ -71,12 +75,14 @@ public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_
         builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
         builder.Property(x => x.LogLUBy).HasMaxLength(50);
         builder.Property(x => x.ContractNo).HasMaxLength(50);
+        builder.Property(x => x.OrgID).HasMaxLength(50);
     }
 }
 
 /// <summary>
 /// Seeder dữ liệu mẫu Contract_Contract (nghiệp vụ, Order 200-299).
 /// Dữ liệu KHÔNG lấy từ nguồn (nguồn không có seed) — chỉ để chạy thử 2 bộ lọc ra số dòng khác nhau.
+/// #11 DoSearch: 4 dòng — lọc ContractNo="HD0003/2026" ra 1 dòng, lọc OrgID="7200000002" ra 1 dòng (khác dòng).
 /// </summary>
 public class Contract_ContractSeeder : IPortSeeder
 {
@@ -132,6 +138,23 @@ public class Contract_ContractSeeder : IPortSeeder
                 PositionCreate = "Giám đốc",
                 CreateBy = "U01",
                 ContractNo = "HD0003/2026"
+            },
+            // Dòng thêm cho #11 DoSearch: lọc ContractNo (gate :7985-7988) ra 1 dòng khác với lọc OrgID
+            new Contract_Contract
+            {
+                ContractCode = "HD0004",
+                ContractDateUTC = "2026-04-01 11:00:00",
+                CreateDTimeUTC = "2026-04-01 11:00:00",
+                ContractStatus = "PENDING",
+                ContractFilePath = "HD0004.pdf",
+                CurrencyCode = "VND",
+                ContractRefNo = "HD0002",
+                UserCodeCreate = "U02",
+                UserNameCreate = "tester@solution.hn",
+                PositionCreate = "Nhân viên",
+                CreateBy = "U02",
+                ContractNo = "HD0004/2026",
+                OrgID = "7200000002"
             }
         );
 
