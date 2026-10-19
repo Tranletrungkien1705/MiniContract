@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 148/295 (50.17%)
+**Tiến độ hiện tại**: 149/295 (50.51%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -117,7 +117,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 105 | FileController/Index | Đã làm | 6f56bcd |
 | 106 | FileController/UploadImage | Đã làm | 156d4ba |
 | 107 | FileController/UploadFile | Đã làm | 156ef68 |
-| 108 | FileController/SavePdf | Chưa làm | - |
+| 108 | FileController/SavePdf | Đã làm | 5390f65 |
 | 109 | HomeController/Index | Đã làm | c0c4a31 |
 | 110 | HomeController/About | Chưa làm | - |
 | 111 | HomeController/Contact | Chưa làm | - |
