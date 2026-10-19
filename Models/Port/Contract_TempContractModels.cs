@@ -8,6 +8,12 @@ namespace MiniContract.Models.Port
     {
         public string AttributeContractCode { get; set; } = string.Empty;
         public string? TContractCode { get; set; }
+        public string? AttributeValue { get; set; }
+        public string? NetworkID { get; set; }
+        public string? OrgID { get; set; }
+        public string? FlagActive { get; set; }
+        public string? LogLUDTimeUTC { get; set; }
+        public string? LogLUBy { get; set; }
     }
 
     public class Contract_TempChecker
@@ -21,8 +27,18 @@ namespace MiniContract.Models.Port
     {
         public string? TContractCode { get; set; }
         public string? PartyCode { get; set; }
-        public string? Description { get; set; }
+        public string? OrgID { get; set; }
+        public string? MST { get; set; }
+        public string? CustomerCode { get; set; }
         public string? CustomerCodeSys { get; set; }
+        public string? CustomerName { get; set; }
+        public string? CustomerAddress { get; set; }
+        public string? CustomerEmail { get; set; }
+        public string? CustomerPhoneNo { get; set; }
+        public string? Description { get; set; }
+        public string? FlagActive { get; set; }
+        public string? LogLUDTimeUTC { get; set; }
+        public string? LogLUBy { get; set; }
     }
 
     public class Mst_ParamContractElement : IPortSeeder
