@@ -264,6 +264,118 @@ public class Contract_ContractControllerPortTests : IDisposable
         Assert.Equal("0", root.GetProperty("FlagExists").GetString());
     }
 
+    // ===== #13 Delete Tests =====
+
+    [Fact]
+    public async Task Delete_NullReq_ReturnsInvalidContractCode()
+    {
+        var root = Root(await _controller.Delete(null));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hợp đồng không hợp lệ", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("Mã hợp đồng không hợp lệ", root.GetProperty("Title").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_EmptyList_ReturnsInvalidContractCode()
+    {
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            Lst_Contract_Contract = new List<Contract_Contract_DeleteItem>()
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hợp đồng không hợp lệ", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentContract_ReturnsInvalidContractCode()
+    {
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            ContractCode = "HD9999"
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Mã hợp đồng không hợp lệ", root.GetProperty("Messages")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Delete_SingleContract_Success_DefaultRedirect()
+    {
+        // Kiểm tra trước khi xóa: HD0001 có trong DB và các bảng con
+        Assert.NotNull(await _db.Set<Contract_Contract>().FindAsync("HD0001"));
+        Assert.True(await _db.Set<Contract_ContractParty>().AnyAsync(x => x.ContractCode == "HD0001"));
+
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            ContractCode = "HD0001"
+        }));
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa hợp đồng 'Hợp đồng dịch vụ tư vấn CNTT' thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Contract_Contract", root.GetProperty("RedirectUrl").GetString());
+
+        // Kiểm tra sau khi xóa: đã bị xóa khỏi DB và các bảng con
+        Assert.Null(await _db.Set<Contract_Contract>().FindAsync("HD0001"));
+        Assert.False(await _db.Set<Contract_ContractParty>().AnyAsync(x => x.ContractCode == "HD0001"));
+    }
+
+    [Fact]
+    public async Task Delete_SingleContract_FlagRedirect1_RedirectsToUpdate()
+    {
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            ContractCode = "HD0002",
+            FlagRedirect = "1"
+        }));
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa hợp đồng 'Hợp đồng kinh tế thương mại' thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Contract_Contract/Update?contractcode=HD0002", root.GetProperty("RedirectUrl").GetString());
+        Assert.Null(await _db.Set<Contract_Contract>().FindAsync("HD0002"));
+    }
+
+    [Fact]
+    public async Task Delete_MultipleContracts_Success()
+    {
+        Assert.NotNull(await _db.Set<Contract_Contract>().FindAsync("HD0003"));
+        Assert.NotNull(await _db.Set<Contract_Contract>().FindAsync("HD0004"));
+
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            Lst_Contract_Contract = new List<Contract_Contract_DeleteItem>
+            {
+                new Contract_Contract_DeleteItem { ContractCode = "HD0003" },
+                new Contract_Contract_DeleteItem { ContractCode = "HD0004" }
+            }
+        }));
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa hợp đồng thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Contract_Contract", root.GetProperty("RedirectUrl").GetString());
+
+        Assert.Null(await _db.Set<Contract_Contract>().FindAsync("HD0003"));
+        Assert.Null(await _db.Set<Contract_Contract>().FindAsync("HD0004"));
+    }
+
+    [Fact]
+    public async Task Delete_ViaModelJsonString_Success()
+    {
+        var jsonModel = JsonSerializer.Serialize(new Contract_Contract_DeleteReq
+        {
+            ContractCode = "HD0001",
+            ContractName = "Custom Name",
+            FlagRedirect = "1"
+        });
+
+        var root = Root(await _controller.Delete(new Contract_Contract_DeleteReq
+        {
+            Model = jsonModel
+        }));
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xóa hợp đồng 'Custom Name' thành công!", root.GetProperty("Messages")[0].GetString());
+        Assert.Equal("/Contract_Contract/Update?contractcode=HD0001", root.GetProperty("RedirectUrl").GetString());
+    }
+
     [Fact]
     public async Task RealServer_Verification_FreePort()
     {
@@ -415,6 +527,54 @@ public class Contract_ContractControllerPortTests : IDisposable
             var docValOrgDiff = JsonDocument.Parse(bodyValOrgDiff);
             Assert.Equal("0", docValOrgDiff.RootElement.GetProperty("FlagExists").GetString());
             _output?.WriteLine($"[ValidateContractNoExists WithOrg Mismatch] StatusCode={(int)resValOrgDiff.StatusCode} Body={bodyValOrgDiff}");
+
+            // ===== #13 Delete =====
+            // Ca 14: body rỗng -> Success = true, Messages = ["Mã hợp đồng không hợp lệ"]
+            var resDelEmpty = await http.PostAsync("/api/contract_contract/delete", new StringContent("{}", Encoding.UTF8, "application/json"));
+            var bodyDelEmpty = await resDelEmpty.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDelEmpty.StatusCode);
+            var docDelEmpty = JsonDocument.Parse(bodyDelEmpty);
+            Assert.True(docDelEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã hợp đồng không hợp lệ", docDelEmpty.RootElement.GetProperty("Messages")[0].GetString());
+            _output?.WriteLine($"[Delete EmptyBody] StatusCode={(int)resDelEmpty.StatusCode} Body={bodyDelEmpty}");
+
+            // Ca 15: ContractCode không tồn tại -> Success = true, Messages = ["Mã hợp đồng không hợp lệ"]
+            var resDelNotExists = await http.PostAsync("/api/contract_contract/delete", new StringContent("{\"ContractCode\":\"HD9999\"}", Encoding.UTF8, "application/json"));
+            var bodyDelNotExists = await resDelNotExists.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDelNotExists.StatusCode);
+            var docDelNotExists = JsonDocument.Parse(bodyDelNotExists);
+            Assert.True(docDelNotExists.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Mã hợp đồng không hợp lệ", docDelNotExists.RootElement.GetProperty("Messages")[0].GetString());
+            _output?.WriteLine($"[Delete NotExists] StatusCode={(int)resDelNotExists.StatusCode} Body={bodyDelNotExists}");
+
+            // Ca 16: Xóa đơn 1 hợp đồng HD0001 với FlagRedirect = "1" -> Success = true, redirect đến /Contract_Contract/Update?contractcode=HD0001
+            var resDelSingle = await http.PostAsync("/api/contract_contract/delete", new StringContent("{\"ContractCode\":\"HD0001\",\"FlagRedirect\":\"1\"}", Encoding.UTF8, "application/json"));
+            var bodyDelSingle = await resDelSingle.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDelSingle.StatusCode);
+            var docDelSingle = JsonDocument.Parse(bodyDelSingle);
+            Assert.True(docDelSingle.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa hợp đồng 'Hợp đồng dịch vụ tư vấn CNTT' thành công!", docDelSingle.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Contract_Contract/Update?contractcode=HD0001", docDelSingle.RootElement.GetProperty("RedirectUrl").GetString());
+            _output?.WriteLine($"[Delete Single HD0001] StatusCode={(int)resDelSingle.StatusCode} Body={bodyDelSingle}");
+
+            // Ca 17: Xóa nhiều hợp đồng HD0002, HD0003 -> Success = true, Messages = ["Xóa hợp đồng thành công!"], RedirectUrl = "/Contract_Contract"
+            var resDelMulti = await http.PostAsync("/api/contract_contract/delete", new StringContent("{\"Lst_Contract_Contract\":[{\"ContractCode\":\"HD0002\"},{\"ContractCode\":\"HD0003\"}]}", Encoding.UTF8, "application/json"));
+            var bodyDelMulti = await resDelMulti.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resDelMulti.StatusCode);
+            var docDelMulti = JsonDocument.Parse(bodyDelMulti);
+            Assert.True(docDelMulti.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xóa hợp đồng thành công!", docDelMulti.RootElement.GetProperty("Messages")[0].GetString());
+            Assert.Equal("/Contract_Contract", docDelMulti.RootElement.GetProperty("RedirectUrl").GetString());
+            _output?.WriteLine($"[Delete Multi HD0002,HD0003] StatusCode={(int)resDelMulti.StatusCode} Body={bodyDelMulti}");
+
+            // Ca 18: Kiểm tra lại sau xóa: HD0001, HD0002, HD0003 đã biến mất; chỉ còn HD0004 trong DB
+            var resCheckRemain = await http.PostAsync("/api/contract_contract/dosearch", new StringContent("{\"RecordCount\":10}", Encoding.UTF8, "application/json"));
+            var bodyCheckRemain = await resCheckRemain.Content.ReadAsStringAsync();
+            var docCheckRemain = JsonDocument.Parse(bodyCheckRemain);
+            Assert.Equal(1, docCheckRemain.RootElement.GetProperty("Data").GetProperty("ItemCount").GetInt32());
+            Assert.Equal(1, docCheckRemain.RootElement.GetProperty("Data").GetProperty("DataList").GetArrayLength());
+            Assert.Equal("HD0004", docCheckRemain.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("ContractCode").GetString());
+            _output?.WriteLine($"[After Delete Check Remaining] StatusCode={(int)resCheckRemain.StatusCode} Body={bodyCheckRemain}");
         }
         finally
         {

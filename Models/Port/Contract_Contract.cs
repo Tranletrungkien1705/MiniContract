@@ -47,6 +47,9 @@ public class Contract_Contract
     public string? LogLUBy { get; set; }
     public string? ContractNo { get; set; }
 
+    // QContract.cs:19922, 21892 — tên hợp đồng (gate Contract_ContractController.cs:1109)
+    public string? ContractName { get; set; }
+
     // Contract_ContractController.cs:7989-7992 — strWhereClause_Contract_ContractSearch: Contract_Contract.OrgID = OrgID
     // (gate DoSearch KHÔNG truyền OrgID nên nhánh này không chạy; khai cột để đủ DDL dùng chung)
     public string? OrgID { get; set; }
@@ -75,6 +78,7 @@ public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_
         builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
         builder.Property(x => x.LogLUBy).HasMaxLength(50);
         builder.Property(x => x.ContractNo).HasMaxLength(50);
+        builder.Property(x => x.ContractName).HasMaxLength(250);
         builder.Property(x => x.OrgID).HasMaxLength(50);
     }
 }
@@ -98,6 +102,7 @@ public class Contract_ContractSeeder : IPortSeeder
             new Contract_Contract
             {
                 ContractCode = "HD0001",
+                ContractName = "Hợp đồng dịch vụ tư vấn CNTT",
                 ContractDateUTC = "2026-01-10 08:00:00",
                 CreateDTimeUTC = "2026-01-10 08:00:00",
                 ContractStatus = "PENDING",
@@ -113,6 +118,7 @@ public class Contract_ContractSeeder : IPortSeeder
             new Contract_Contract
             {
                 ContractCode = "HD0002",
+                ContractName = "Hợp đồng kinh tế thương mại",
                 ContractDateUTC = "2026-02-15 09:30:00",
                 CreateDTimeUTC = "2026-02-15 09:30:00",
                 ContractStatus = "SIGNED",
@@ -127,6 +133,7 @@ public class Contract_ContractSeeder : IPortSeeder
             new Contract_Contract
             {
                 ContractCode = "HD0003",
+                ContractName = "Hợp đồng lao động xác định thời hạn",
                 ContractDateUTC = "2026-03-20 10:00:00",
                 CreateDTimeUTC = "2026-03-20 10:00:00",
                 ContractStatus = "ONPROCESS",
@@ -143,6 +150,7 @@ public class Contract_ContractSeeder : IPortSeeder
             new Contract_Contract
             {
                 ContractCode = "HD0004",
+                ContractName = "Hợp đồng mua bán thiết bị",
                 ContractDateUTC = "2026-04-01 11:00:00",
                 CreateDTimeUTC = "2026-04-01 11:00:00",
                 ContractStatus = "PENDING",

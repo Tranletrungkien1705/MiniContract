@@ -321,6 +321,209 @@ public class Contract_ContractControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Xóa hợp đồng (Delete).
+    /// Gate: Contract_ContractController.cs:923-1141
+    ///       + 8364-8540 (strWhereClause_Contract_ContractSearch_ContractCode_In)
+    ///       + BaseController.cs:6138-6144 (RT_Contract_Contract_Get)
+    /// API:  ContractContractController.cs:20-88 (WA_Contract_Contract_Save)
+    ///       ContractContractController.cs:375-443 (WA_Contract_Contract_Get)
+    /// BIZ:  QContract.cs:31734-31954 (WAS_Contract_Contract_Save), 31319-31548 (Contract_Contract_Save),
+    ///       19808-23558 (Contract_Contract_SaveX_New20240312),
+    ///       34323-34428 (Contract_Contract_GetInfoPartyX),
+    ///       10526-10787 (WAS_Contract_Contract_Get), 9380-9575 (Contract_Contract_Get),
+    ///       9747-10524 (Contract_Contract_GetX)
+    /// </summary>
+    [HttpPost("delete")]
+    public async Task<IActionResult> Delete([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Contract_Contract_DeleteReq? req)
+    {
+        try
+        {
+            // Gate :926 — if (!CUtils.IsNullOrEmpty(model))
+            // Nếu body rỗng hoặc req null -> gate trả về JsonResultEntry: "Mã hợp đồng không hợp lệ" (:1136-1137)
+            if (req == null)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã hợp đồng không hợp lệ" },
+                    Title = "Mã hợp đồng không hợp lệ"
+                });
+            }
+
+            // Hỗ trợ trường hợp client truyền chuỗi JSON thô trong Model như gate MVC (Contract_ContractController.cs:923, 928)
+            var flagRedirect = req.FlagRedirect;
+            var listContracts = req.Lst_Contract_Contract;
+            var contractCodeSingle = req.ContractCode;
+            var contractNameSingle = req.ContractName;
+
+            if (!string.IsNullOrWhiteSpace(req.Model))
+            {
+                try
+                {
+                    var modelObj = System.Text.Json.JsonSerializer.Deserialize<Contract_Contract_DeleteReq>(req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (modelObj != null)
+                    {
+                        flagRedirect ??= modelObj.FlagRedirect;
+                        listContracts ??= modelObj.Lst_Contract_Contract;
+                        contractCodeSingle ??= modelObj.ContractCode;
+                        contractNameSingle ??= modelObj.ContractName;
+                    }
+                }
+                catch
+                {
+                    // Nếu Model là mã đơn thuần
+                    contractCodeSingle ??= req.Model;
+                }
+            }
+
+            if ((listContracts == null || listContracts.Count == 0) && !string.IsNullOrWhiteSpace(contractCodeSingle))
+            {
+                listContracts = new List<Contract_Contract_DeleteItem>
+                {
+                    new Contract_Contract_DeleteItem
+                    {
+                        ContractCode = contractCodeSingle,
+                        ContractName = contractNameSingle
+                    }
+                };
+            }
+
+            // Gate :929-932, 1128-1132 — objContract_ContractInput.Lst_Contract_Contract rỗng
+            if (listContracts == null || listContracts.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã hợp đồng không hợp lệ" },
+                    Title = "Mã hợp đồng không hợp lệ"
+                });
+            }
+
+            // Gate :934-936 — danh sách mã hợp đồng cần xóa
+            var listContractCode = listContracts
+                .Where(it => !string.IsNullOrWhiteSpace(it.ContractCode))
+                .Select(item => StdParam(item.ContractCode)!)
+                .Distinct()
+                .ToList();
+
+            if (listContractCode.Count == 0)
+            {
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã hợp đồng không hợp lệ" },
+                    Title = "Mã hợp đồng không hợp lệ"
+                });
+            }
+
+            // Gate :977, :978-980 — RT_Contract_Contract_Get tìm kiếm theo danh sách ContractCode
+            var existingContracts = await _db.Set<Contract_Contract>()
+                .Where(x => listContractCode.Contains(x.ContractCode))
+                .ToListAsync();
+
+            if (existingContracts.Count == 0)
+            {
+                // Gate :1122-1126 — Không tìm thấy hợp đồng nào
+                return Ok(new
+                {
+                    Success = true,
+                    Messages = new[] { "Mã hợp đồng không hợp lệ" },
+                    Title = "Mã hợp đồng không hợp lệ"
+                });
+            }
+
+            // Mở transaction xóa (BIZ Contract_Contract_Save: QContract.cs:31366, 31503, 31511)
+            var matchedCodes = existingContracts.Select(x => x.ContractCode).ToList();
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                // BIZ QContract.cs:21768-21860 (Clear All): xóa các bảng con liên quan đến hợp đồng
+                // 1. Contract_ContractVerifyOtp
+                var otps = await _db.Set<Contract_ContractVerifyOtp>()
+                    .Where(x => matchedCodes.Contains(x.ContractCode))
+                    .ToListAsync();
+                if (otps.Count > 0)
+                {
+                    _db.Set<Contract_ContractVerifyOtp>().RemoveRange(otps);
+                }
+
+                // 2. Contract_ContractElement
+                var elements = await _db.Set<Contract_ContractElement>()
+                    .Where(x => matchedCodes.Contains(x.ContractCode))
+                    .ToListAsync();
+                if (elements.Count > 0)
+                {
+                    _db.Set<Contract_ContractElement>().RemoveRange(elements);
+                }
+
+                // 3. Contract_ContractTBody
+                var tbodies = await _db.Set<Contract_ContractTBody>()
+                    .Where(x => matchedCodes.Contains(x.ContractCode))
+                    .ToListAsync();
+                if (tbodies.Count > 0)
+                {
+                    _db.Set<Contract_ContractTBody>().RemoveRange(tbodies);
+                }
+
+                // 4. Contract_ContractParty
+                var parties = await _db.Set<Contract_ContractParty>()
+                    .Where(x => matchedCodes.Contains(x.ContractCode))
+                    .ToListAsync();
+                if (parties.Count > 0)
+                {
+                    _db.Set<Contract_ContractParty>().RemoveRange(parties);
+                }
+
+                // 5. Contract_Contract
+                _db.Set<Contract_Contract>().RemoveRange(existingContracts);
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_Contract_Save", "Exception", ex.Message);
+            }
+
+            // Gate :1103-1120 — tạo thông báo kết quả
+            var flagRedirectVal = StrValue(flagRedirect);
+            string message;
+            string redirectUrl = "/Contract_Contract"; // Url.Action("Index", "Contract_Contract")
+
+            if (listContractCode.Count == 1)
+            {
+                var inputItem = listContracts.FirstOrDefault(x => StdParam(x.ContractCode) == listContractCode[0]);
+                var contractName = !string.IsNullOrEmpty(inputItem?.ContractName)
+                    ? inputItem.ContractName
+                    : (existingContracts.FirstOrDefault()?.ContractName ?? "");
+
+                message = $"Xóa hợp đồng '{contractName}' thành công!";
+                if (flagRedirectVal == "1") // Client_Flag.Active = "1"
+                {
+                    redirectUrl = $"/Contract_Contract/Update?contractcode={listContractCode[0]}";
+                }
+            }
+            else
+            {
+                message = "Xóa hợp đồng thành công!";
+            }
+
+            return Ok(new
+            {
+                Success = true,
+                Messages = new[] { message },
+                Title = message,
+                RedirectUrl = redirectUrl
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Contract_Contract_Save", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Gate :695 — CurrentUserSigningInfo lấy từ UserState.Mst_NNT (NNT của phiên đăng nhập).
     /// Ở đích không có phiên: nhận OrgID tuỳ chọn trong body, không truyền thì không có thông tin (null).
     /// </summary>
@@ -430,3 +633,27 @@ public class Contract_Contract_ValidateContractNoExistsReq
     public string? ContractNo { get; set; }
     public string? OrgID { get; set; }
 }
+
+/// <summary>
+/// Tham số của gate Contract_ContractController.cs:923 (Delete).
+/// model: chuỗi JSON chứa thông tin xóa hoặc nhận trực tiếp qua DTO.
+/// flagredirect: cờ chuyển hướng ("1": đến trang Update hợp đồng, ngược lại về Index).
+/// </summary>
+public class Contract_Contract_DeleteReq
+{
+    public string? Model { get; set; }
+    public string? FlagRedirect { get; set; }
+    public List<Contract_Contract_DeleteItem>? Lst_Contract_Contract { get; set; }
+    public string? ContractCode { get; set; }
+    public string? ContractName { get; set; }
+}
+
+/// <summary>
+/// Mục phần tử hợp đồng cần xóa (gate Contract_ContractController.cs:928, 934, 1109).
+/// </summary>
+public class Contract_Contract_DeleteItem
+{
+    public string? ContractCode { get; set; }
+    public string? ContractName { get; set; }
+}
+
