@@ -306,6 +306,65 @@ public class AccountControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void LogOff_NullReq_ReturnsOkAndDefaultRedirectUrl()
+    {
+        var result = _controller.LogOff(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("https://account.inos.vn/Account/LogOff", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOff_EmptyReq_ReturnsOkAndDefaultRedirectUrl()
+    {
+        var req = new Account_LogOffReq();
+        var result = _controller.LogOff(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("https://account.inos.vn/Account/LogOff", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOff_WithCustomReturnUrl_ReturnsOkAndCustomRedirectUrl()
+    {
+        var req = new Account_LogOffReq { ReturnUrl = "https://custom.inos.vn/auth/logout" };
+        var result = _controller.LogOff(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("https://custom.inos.vn/auth/logout", root.GetProperty("RedirectUrl").GetString());
+    }
+
+    [Fact]
+    public void LogOff_ClearsCookies_WhenCookiesPresent()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["Cookie"] = "accesstoken=dummy_token_123; ASP.NET_SessionId=sess_456";
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = _controller.LogOff(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var setCookies = httpContext.Response.Headers["Set-Cookie"].ToString();
+        Assert.Contains("accesstoken=", setCookies);
+        Assert.Contains("ASP.NET_SessionId=", setCookies);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_account_{Guid.NewGuid():N}.db");
@@ -404,6 +463,22 @@ public class AccountControllerPortTests : IDisposable
             Assert.True(doc5.RootElement.GetProperty("Success").GetBoolean());
             var data5 = doc5.RootElement.GetProperty("Data");
             Assert.Equal(0, data5.GetProperty("OrgSignConfigs").GetArrayLength());
+
+            // 6. Ca LogOff body rỗng -> 200 OK, RedirectUrl mặc định (https://account.inos.vn/Account/LogOff)
+            var req6 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res6 = await http.PostAsync("/api/account/logoff", req6);
+            Assert.True(res6.IsSuccessStatusCode);
+            var doc6 = JsonDocument.Parse(await res6.Content.ReadAsStringAsync());
+            Assert.True(doc6.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("https://account.inos.vn/Account/LogOff", doc6.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 7. Ca LogOff với ReturnUrl -> 200 OK, RedirectUrl khớp ReturnUrl
+            var req7 = new StringContent(JsonSerializer.Serialize(new { ReturnUrl = "https://myredirect.test/home" }), Encoding.UTF8, "application/json");
+            var res7 = await http.PostAsync("/api/account/logoff", req7);
+            Assert.True(res7.IsSuccessStatusCode);
+            var doc7 = JsonDocument.Parse(await res7.Content.ReadAsStringAsync());
+            Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("https://myredirect.test/home", doc7.RootElement.GetProperty("RedirectUrl").GetString());
         }
         finally
         {

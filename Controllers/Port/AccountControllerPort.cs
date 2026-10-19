@@ -8,9 +8,10 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 AccountController.cs — LoginOS
+// port 1:1 AccountController.cs — LoginOS, LogOff
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:215-549 (LoginOS)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:553-571 (LogOff)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:808-826 (InitSSO)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:600-611 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:613-624 (strWhereClause_Mst_NNT)
@@ -198,6 +199,55 @@ public class AccountControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action LogOff từ gate AccountController.cs:553-571.
+    /// Chuỗi nghiệp vụ:
+    /// 1. Khởi tạo SSO InitSSO() (BaseController.cs:808-826) - dịch vụ ngoài iNOS -> GAP.
+    /// 2. Hủy các cookie và session phiên làm việc hiện tại:
+    ///    - Xóa/hết hạn cookie accesstoken nếu có (AccountController.cs:559-563).
+    ///    - Xóa/hết hạn cookie ASP.NET_SessionId (AccountController.cs:564-565).
+    /// 3. Xác định đường dẫn đăng xuất SSO GetLogoffUrl() từ cấu hình InosBaseUrl (AccountController.cs:567-568).
+    ///    Mặc định trỏ về URL SSO đăng xuất tập trung hoặc ReturnUrl tùy chọn.
+    /// 4. Trả kết quả thành công khớp gate (AccountController.cs:568):
+    ///    { Success = true, RedirectUrl = "<url>" }
+    /// </summary>
+    [HttpPost("logoff")]
+    public IActionResult LogOff([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Account_LogOffReq? req)
+    {
+        try
+        {
+            // 1. Hủy cookie accesstoken và ASP.NET_SessionId theo AccountController.cs:556-566
+            if (Request?.Cookies != null && Request.Cookies.ContainsKey("accesstoken"))
+            {
+                Response.Cookies.Delete("accesstoken");
+            }
+            Response.Cookies.Delete("ASP.NET_SessionId");
+
+            // 2. Xác định URL LogOff chuyển tiếp (AccountController.cs:567)
+            // Lấy từ req.ReturnUrl nếu client chỉ định, hoặc từ cấu hình InosBaseUrl
+            string logoffUrl;
+            if (!string.IsNullOrWhiteSpace(req?.ReturnUrl))
+            {
+                logoffUrl = req.ReturnUrl.Trim();
+            }
+            else
+            {
+                var inosBaseUrl = (_config?["InosBaseUrl"] ?? "https://account.inos.vn").TrimEnd('/');
+                logoffUrl = $"{inosBaseUrl}/Account/LogOff";
+            }
+
+            return Ok(new
+            {
+                Success = true,
+                RedirectUrl = logoffUrl
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Account_LogOff", "Exception", ex.Message);
+        }
+    }
+
     #region Helper chuẩn hoá tham số theo quy ước nguồn (PORT_RULES §3)
     private static string? StdParam(string? s)
     {
@@ -222,4 +272,9 @@ public class Account_LoginOSReq
     public string? ParentId { get; set; }
     public string? UserCode { get; set; }
     public string? AccessToken { get; set; }
+}
+
+public class Account_LogOffReq
+{
+    public string? ReturnUrl { get; set; }
 }
