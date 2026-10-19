@@ -365,6 +365,50 @@ public class AccountControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void SignOut_NullReq_ReturnsOkSuccess()
+    {
+        var result = _controller.SignOut(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+    }
+
+    [Fact]
+    public void SignOut_EmptyReq_ReturnsOkSuccess()
+    {
+        var req = new Account_SignOutReq();
+        var result = _controller.SignOut(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+    }
+
+    [Fact]
+    public void SignOut_ClearsCookies_WhenCookiesPresent()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["Cookie"] = ".ASPXAUTH=dummy_auth; ASP.NET_SessionId=dummy_sess; accesstoken=dummy_token";
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = _controller.SignOut(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("Success").GetBoolean());
+
+        var setCookies = httpContext.Response.Headers["Set-Cookie"].ToString();
+        Assert.Contains(".ASPXAUTH=", setCookies);
+        Assert.Contains("ASP.NET_SessionId=", setCookies);
+        Assert.Contains("accesstoken=", setCookies);
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_account_{Guid.NewGuid():N}.db");
@@ -479,6 +523,20 @@ public class AccountControllerPortTests : IDisposable
             var doc7 = JsonDocument.Parse(await res7.Content.ReadAsStringAsync());
             Assert.True(doc7.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("https://myredirect.test/home", doc7.RootElement.GetProperty("RedirectUrl").GetString());
+
+            // 8. Ca SignOut body rỗng -> 200 OK, Success = true
+            var req8 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res8 = await http.PostAsync("/api/account/signout", req8);
+            Assert.True(res8.IsSuccessStatusCode);
+            var doc8 = JsonDocument.Parse(await res8.Content.ReadAsStringAsync());
+            Assert.True(doc8.RootElement.GetProperty("Success").GetBoolean());
+
+            // 9. Ca SignOut không gửi body (chuỗi rỗng) -> 200 OK, Success = true
+            var req9 = new StringContent("", Encoding.UTF8, "application/json");
+            var res9 = await http.PostAsync("/api/account/signout", req9);
+            Assert.True(res9.IsSuccessStatusCode);
+            var doc9 = JsonDocument.Parse(await res9.Content.ReadAsStringAsync());
+            Assert.True(doc9.RootElement.GetProperty("Success").GetBoolean());
         }
         finally
         {

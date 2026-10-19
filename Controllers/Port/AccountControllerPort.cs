@@ -8,10 +8,11 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 AccountController.cs — LoginOS, LogOff
+// port 1:1 AccountController.cs — LoginOS, LogOff, SignOut
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:215-549 (LoginOS)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:553-571 (LogOff)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:574-579 (SignOut)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:808-826 (InitSSO)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:600-611 (strWhereClause_SysUser)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:613-624 (strWhereClause_Mst_NNT)
@@ -248,6 +249,60 @@ public class AccountControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Port 1:1 action SignOut từ gate AccountController.cs:574-579.
+    /// Chuỗi nghiệp vụ:
+    /// 1. Xóa toàn bộ biến phiên làm việc hiện tại: Session.Clear() (AccountController.cs:576).
+    /// 2. Hủy phiên xác thực người dùng FormsAuthentication.SignOut() (AccountController.cs:577):
+    ///    - Xóa các cookie xác thực và phiên làm việc (.ASPXAUTH, ASP.NET_SessionId, accesstoken).
+    /// 3. Trả kết quả thành công: { Success = true } (AccountController.cs:578 return null).
+    /// </summary>
+    [HttpPost("signout")]
+    public IActionResult SignOut([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Account_SignOutReq? req = null)
+    {
+        try
+        {
+            // 1. Session.Clear() - Xóa session nếu có (AccountController.cs:576)
+            try
+            {
+                HttpContext?.Session?.Clear();
+            }
+            catch
+            {
+                // Bỏ qua nếu session middleware chưa được cấu hình
+            }
+
+            // 2. FormsAuthentication.SignOut() - Hủy cookie xác thực và phiên làm việc (AccountController.cs:577)
+            if (Request?.Cookies != null)
+            {
+                if (Request.Cookies.ContainsKey(".ASPXAUTH"))
+                {
+                    Response.Cookies.Delete(".ASPXAUTH");
+                }
+                if (Request.Cookies.ContainsKey("ASP.NET_SessionId"))
+                {
+                    Response.Cookies.Delete("ASP.NET_SessionId");
+                }
+                if (Request.Cookies.ContainsKey("accesstoken"))
+                {
+                    Response.Cookies.Delete("accesstoken");
+                }
+            }
+            Response.Cookies.Delete(".ASPXAUTH");
+            Response.Cookies.Delete("ASP.NET_SessionId");
+
+            // 3. Trả về kết quả thành công khớp gate (AccountController.cs:578 return null)
+            return Ok(new
+            {
+                Success = true
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Account_SignOut", "Exception", ex.Message);
+        }
+    }
+
     #region Helper chuẩn hoá tham số theo quy ước nguồn (PORT_RULES §3)
     private static string? StdParam(string? s)
     {
@@ -277,4 +332,8 @@ public class Account_LoginOSReq
 public class Account_LogOffReq
 {
     public string? ReturnUrl { get; set; }
+}
+
+public class Account_SignOutReq
+{
 }
