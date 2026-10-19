@@ -74,6 +74,37 @@ namespace MiniContract.Controllers.Port
                 return PortResult.Fail("LoadData_LoadMst_Ward", "Exception", ex.Message);
             }
         }
+
+        [HttpPost("searchuser")]
+        public async Task<IActionResult> SearchUser([FromBody] SearchUserReq? req)
+        {
+            try
+            {
+                var keyword = req?.Keyword?.Trim();
+                var listSys_User = new List<Sys_User>();
+
+                if (!string.IsNullOrEmpty(keyword))
+                {
+                    var query = _db.Set<Sys_User>().AsQueryable();
+                    var pat = "%" + keyword.ToLower() + "%";
+                    query = query.Where(x =>
+                        (x.UserCode != null && EF.Functions.Like(x.UserCode.ToLower(), pat, PortQuery.Esc)) ||
+                        (x.UserName != null && EF.Functions.Like(x.UserName.ToLower(), pat, PortQuery.Esc)) ||
+                        (x.EMail != null && EF.Functions.Like(x.EMail.ToLower(), pat, PortQuery.Esc))
+                    );
+                    query = query.Where(x => x.FlagActive != null && EF.Functions.Like(x.FlagActive.ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+                    query = query.Take(10);
+
+                    listSys_User = await query.ToListAsync();
+                }
+
+                return Ok(new { Success = true, ListSys_User = listSys_User });
+            }
+            catch (Exception ex)
+            {
+                return PortResult.Fail("LoadData_SearchUser", "Exception", ex.Message);
+            }
+        }
     }
 
     public class LoadMst_DistrictReq
@@ -85,5 +116,10 @@ namespace MiniContract.Controllers.Port
     {
         public string? ProvinceCode { get; set; }
         public string? DistrictCode { get; set; }
+    }
+
+    public class SearchUserReq
+    {
+        public string? Keyword { get; set; }
     }
 }
