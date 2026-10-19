@@ -7,16 +7,19 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 ESignController.cs — Contract_ContractParty_Cancel
+// port 1:1 ESignController.cs — Contract_ContractParty_Cancel & ShowModalPopupPartySign_QRCode
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2058-2096 (Contract_ContractParty_Cancel)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2100-2236 (ShowModalPopupPartySign_QRCode)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\ContractContractPartyController.cs:20-88 (WA_Contract_ContractParty_Cancel)
+//       ClientService: Contract_ContractVerifyOtpService.cs (WA_Contract_ContractVerifyOtp_Save)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:3056-3129 (WAS_Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:2675-2862 (Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:1911-2674 (Contract_ContractParty_CancelX)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:9313-9378 (Contract_Contract_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:39692-39762 (Contract_ContractParty_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:40201-40360 (Contract_Contract_HistActionX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:42095-42310 (Contract_ContractVerifyOtp_SaveX)
 [ApiController]
 [Route("api/esign")]
 public class ESignControllerPort : ControllerBase
@@ -196,6 +199,176 @@ public class ESignControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Hiển thị popup và sinh mã OTP gửi qua email cho khách hàng ký số (ShowModalPopupPartySign_QRCode).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2100-2236
+    /// API:  ClientService gọi WA_Contract_ContractVerifyOtp_Save
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:42095-42310 (Contract_ContractVerifyOtp_SaveX)
+    /// </summary>
+    [HttpPost("showmodalpopuppartysign_qrcode")]
+    public async Task<IActionResult> ShowModalPopupPartySign_QRCode(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ESign_ShowModalPopupPartySign_QRCodeReq? req)
+    {
+        // 1. Kiểm tra body rỗng hoặc null (lesson A.15, A.21)
+        if (req == null)
+        {
+            return PortResult.Fail("Contract_ContractVerifyOtp_Save", "Check.strJson", null);
+        }
+
+        // Hỗ trợ client gửi chuỗi JSON 'objContractParty' và 'objUserTemp' như gate MVC (ESignController.cs:2112, 2115)
+        var strContractCode = req.ContractCode;
+        var strCustomerCodeSys = req.CustomerCodeSys;
+        var strCustomerEmail = req.CustomerEmail;
+        var strCustomerName = req.CustomerName;
+        var strNetworkID = req.NetworkID;
+        var strOrgID = req.OrgID;
+        var strTimeOTP = req.TimeOTP;
+
+        if (!string.IsNullOrWhiteSpace(req.ObjContractParty))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(req.ObjContractParty);
+                if (doc.RootElement.TryGetProperty("CustomerCodeSys", out var ccsProp))
+                    strCustomerCodeSys ??= ccsProp.GetString();
+                if (doc.RootElement.TryGetProperty("CustomerEmail", out var ceProp))
+                    strCustomerEmail ??= ceProp.GetString();
+                if (doc.RootElement.TryGetProperty("CustomerName", out var cnProp))
+                    strCustomerName ??= cnProp.GetString();
+                if (doc.RootElement.TryGetProperty("ContractCode", out var ccProp))
+                    strContractCode ??= ccProp.GetString();
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.ObjUserTemp))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(req.ObjUserTemp);
+                if (doc.RootElement.TryGetProperty("NetworkID", out var netProp))
+                    strNetworkID ??= netProp.GetString();
+                if (doc.RootElement.TryGetProperty("OrgID", out var orgProp))
+                    strOrgID ??= orgProp.GetString();
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse JSON thô
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(strContractCode) &&
+            string.IsNullOrWhiteSpace(strCustomerCodeSys) &&
+            string.IsNullOrWhiteSpace(req.ObjContractParty) &&
+            string.IsNullOrWhiteSpace(req.ObjUserTemp) &&
+            string.IsNullOrWhiteSpace(req.TimeOTP))
+        {
+            return PortResult.Fail("Contract_ContractVerifyOtp_Save", "Check.strJson", null);
+        }
+
+        // 2. Chuẩn hoá tham số đầu vào bằng StdParam theo nguồn QContract.cs:42136-42138
+        var normContractCode = StdParam(strContractCode);
+        var normUserCodeSign = StdParam(strCustomerCodeSys);
+        var strWAUserCode = StdParam(req.WAUserCode ?? req.Email ?? Request?.Headers["WAUserCode"].FirstOrDefault() ?? Request?.Headers["Email"].FirstOrDefault() ?? "port") ?? "port";
+
+        // Gate ESignController.cs:2120:
+        // if (contractcode != "" && objContractParty != "" && objUserTemp != "" && (timeOTP == "" || timeOTP == "0"))
+        // Nếu timeOTP khác rỗng và khác "0", client đang đếm ngược OTP cũ -> không sinh OTP mới, trả thành công luôn
+        var isTimeOtpZeroOrEmpty = string.IsNullOrEmpty(strTimeOTP) || strTimeOTP == "0";
+        if (!isTimeOtpZeroOrEmpty)
+        {
+            return Ok(new
+            {
+                Success = true,
+                Messages = "Ký thành công"
+            });
+        }
+
+        // Guard 1: Contract_ContractVerifyOtp_SaveX_InvalidTContractCode (QContract.cs:42147-42157)
+        if (string.IsNullOrEmpty(normContractCode))
+        {
+            return PortResult.Fail("Contract_ContractVerifyOtp_SaveX_InvalidTContractCode", "Check.strContractCode", normContractCode);
+        }
+
+        // Sinh mã OTP (6 ký tự hex ngẫu nhiên như CUtils.GetRandomHexNumber(6) tại ESignController.cs:2122 hoặc lấy từ req nếu truyền trực tiếp)
+        var strOtpCode = StdParam(req.OtpCode) ?? GenerateRandomHex(6);
+
+        var dtimeSys = DateTime.UtcNow;
+        var strCreateDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+        var strEndDate = dtimeSys.AddMinutes(2).ToString("yyyy-MM-dd HH:mm:ss");
+
+        // Guard 2: Kiểm tra timeout (QContract.cs:42163-42193)
+        // select t.* from Contract_ContractVerifyOtp where ContractCode = @strContractCode and OtpCode = @strOtpCode and EndDate >= @strCreateDTimeUTC
+        var existingOtp = await _db.Set<Contract_ContractVerifyOtp>()
+            .FirstOrDefaultAsync(x =>
+                EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc) &&
+                EF.Functions.Like((x.OtpCode ?? "").ToLower(), PortQuery.Equal(strOtpCode), PortQuery.Esc) &&
+                x.EndDate != null && string.Compare(x.EndDate, strCreateDTimeUTC) >= 0);
+
+        if (existingOtp != null)
+        {
+            return PortResult.Fail("Contract_ContractVerifyOtp_SaveX_NotTimeOut", "Check.strContractCode", normContractCode);
+        }
+
+        // 3. Mở Transaction lưu DB: Xoá OTP cũ cùng (ContractCode, UserCodeSign) rồi chèn OTP mới (QContract.cs:42231-42294)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var oldOtps = await _db.Set<Contract_ContractVerifyOtp>()
+                .Where(x =>
+                    EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc) &&
+                    (string.IsNullOrEmpty(normUserCodeSign) || EF.Functions.Like((x.UserCodeSign ?? "").ToLower(), PortQuery.Equal(normUserCodeSign), PortQuery.Esc)))
+                .ToListAsync();
+
+            if (oldOtps.Count > 0)
+            {
+                _db.Set<Contract_ContractVerifyOtp>().RemoveRange(oldOtps);
+            }
+
+            var newOtp = new Contract_ContractVerifyOtp
+            {
+                OtpCode = strOtpCode,
+                ContractCode = normContractCode,
+                UserCodeSign = normUserCodeSign ?? "",
+                CreateDate = strCreateDTimeUTC,
+                EndDate = strEndDate,
+                FlagActive = "1",
+                LogLUDTimeUTC = strCreateDTimeUTC,
+                LogLUBy = strWAUserCode
+            };
+            _db.Set<Contract_ContractVerifyOtp>().Add(newOtp);
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // GAP: Bỏ qua dịch vụ ngoài gọi RptSv_Contract_ContractService lấy mẫu email và MailGun gửi email (ESignController.cs:2177-2221)
+
+            // 4. Trả kết quả thành công khớp gate MVC ESignController.cs:2226
+            return Ok(new
+            {
+                Success = true,
+                Messages = "Ký thành công"
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Contract_ContractVerifyOtp_Save", "Exception", ex.Message);
+        }
+    }
+
+    private static readonly Random _rnd = new();
+    private static string GenerateRandomHex(int digits)
+    {
+        byte[] buffer = new byte[(digits + 1) / 2];
+        _rnd.NextBytes(buffer);
+        var hex = Convert.ToHexString(buffer);
+        return hex.Substring(0, digits);
+    }
+
     private static string? StdParam(object? v)
     {
         if (v == null) return null;
@@ -221,4 +394,27 @@ public class ESign_Contract_ContractParty_CancelReq
     public string? Model { get; set; }
     public string? User { get; set; }
     public string? Guid { get; set; }
+}
+
+/// <summary>
+/// DTO nhận tham số yêu cầu sinh OTP ký số qua mã QR / popup.
+/// </summary>
+public class ESign_ShowModalPopupPartySign_QRCodeReq
+{
+    // Tham số phẳng
+    public string? ContractCode { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? CustomerName { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? TimeOTP { get; set; }
+    public string? Guid { get; set; }
+    public string? OtpCode { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? Email { get; set; }
+
+    // Hỗ trợ tham số chuỗi JSON như gate MVC ESignController.cs:2100
+    public string? ObjContractParty { get; set; }
+    public string? ObjUserTemp { get; set; }
 }

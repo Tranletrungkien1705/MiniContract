@@ -33,6 +33,7 @@ public class ESignControllerPortTests : IDisposable
         new Contract_ContractSeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Contract_ContractPartySeeder().SeedAsync(_db).GetAwaiter().GetResult();
         new Contract_Contract_HistActionSeeder().SeedAsync(_db).GetAwaiter().GetResult();
+        new Contract_ContractVerifyOtpSeeder().SeedAsync(_db).GetAwaiter().GetResult();
 
         _controller = new ESignControllerPort(_db);
     }
@@ -220,6 +221,159 @@ public class ESignControllerPortTests : IDisposable
         Assert.Equal("CANCELED", contract.ContractStatus);
     }
 
+    // =========================================================================================
+    // Các ca kiểm thử cho ShowModalPopupPartySign_QRCode (#98)
+    // =========================================================================================
+
+    [Fact]
+    public async Task QRCode_EmptyBody_ReturnsFailCheckJson()
+    {
+        // 1. Body null -> Fail Check.strJson
+        var resultNull = await _controller.ShowModalPopupPartySign_QRCode(null);
+        var badNull = Assert.IsType<BadRequestObjectResult>(resultNull);
+        var rootNull = Root(badNull);
+        Assert.False(rootNull.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_Save", rootNull.GetProperty("ErrorCode").GetString());
+
+        // 2. Body rỗng -> Fail Check.strJson
+        var resultEmpty = await _controller.ShowModalPopupPartySign_QRCode(new ESign_ShowModalPopupPartySign_QRCodeReq());
+        var badEmpty = Assert.IsType<BadRequestObjectResult>(resultEmpty);
+        var rootEmpty = Root(badEmpty);
+        Assert.False(rootEmpty.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_Save", rootEmpty.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task QRCode_InvalidContractCode_ReturnsFailInvalidContractCode()
+    {
+        // Guard 1: Contract_ContractVerifyOtp_SaveX_InvalidTContractCode
+        var req = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "",
+            CustomerCodeSys = "CUST001",
+            CustomerEmail = "abc@solution.hn",
+            TimeOTP = "0"
+        };
+        var result = await _controller.ShowModalPopupPartySign_QRCode(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var root = Root(bad);
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_SaveX_InvalidTContractCode", root.GetProperty("ErrorCode").GetString());
+    }
+
+    [Fact]
+    public async Task QRCode_NotTimeOut_ReturnsFailNotTimeOut()
+    {
+        // Guard 2: Dòng seed HD0002 có OTP "ACTIVE" với EndDate 2099 -> chưa hết hạn -> Fail NotTimeOut
+        var req = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "HD0002",
+            CustomerCodeSys = "CUST002",
+            OtpCode = "ACTIVE",
+            TimeOTP = "0"
+        };
+        var result = await _controller.ShowModalPopupPartySign_QRCode(req);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var root = Root(bad);
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_SaveX_NotTimeOut", root.GetProperty("ErrorCode").GetString());
+        Assert.Equal("HD0002", root.GetProperty("Params").GetProperty("Check.strContractCode").GetString());
+    }
+
+    [Fact]
+    public async Task QRCode_TimeOtpNotZero_ReturnsSuccessWithoutRegenerating()
+    {
+        // Nhánh rẽ: TimeOTP = "60" -> client đang đếm ngược OTP cũ, gate trả về thành công ngay mà không sinh OTP mới
+        var req = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "HD0001",
+            CustomerCodeSys = "CUST001",
+            TimeOTP = "60"
+        };
+        var result = await _controller.ShowModalPopupPartySign_QRCode(req);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Ký thành công", root.GetProperty("Messages").GetString());
+    }
+
+    [Fact]
+    public async Task QRCode_Success_RoundTrip()
+    {
+        // Round-trip: Sinh mã OTP mới cho hợp đồng HD0003
+        var req = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "HD0003",
+            CustomerCodeSys = "CUST003",
+            CustomerEmail = "def@solution.hn",
+            CustomerName = "Công ty CP DEF",
+            OtpCode = "998877",
+            WAUserCode = "signer@test.com",
+            TimeOTP = "0"
+        };
+        var result = await _controller.ShowModalPopupPartySign_QRCode(req);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Ký thành công", root.GetProperty("Messages").GetString());
+
+        // Đọc lại DB kiểm tra bản ghi Contract_ContractVerifyOtp được tạo đúng
+        var otpRecord = await _db.Set<Contract_ContractVerifyOtp>()
+            .FirstOrDefaultAsync(x => x.ContractCode == "HD0003" && x.UserCodeSign == "CUST003");
+        Assert.NotNull(otpRecord);
+        Assert.Equal("998877", otpRecord.OtpCode);
+        Assert.Equal("1", otpRecord.FlagActive);
+        Assert.Equal("SIGNER@TEST.COM", otpRecord.LogLUBy);
+        Assert.NotNull(otpRecord.CreateDate);
+        Assert.NotNull(otpRecord.EndDate);
+
+        // Sinh lại lần nữa cho HD0003 với OTP khác -> bản ghi cũ bị xoá và thay thế bằng bản ghi mới
+        var reqSecond = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "HD0003",
+            CustomerCodeSys = "CUST003",
+            OtpCode = "554433",
+            WAUserCode = "signer@test.com",
+            TimeOTP = ""
+        };
+        var resultSecond = await _controller.ShowModalPopupPartySign_QRCode(reqSecond);
+        var okSecond = Assert.IsType<OkObjectResult>(resultSecond);
+        var rootSecond = Root(okSecond);
+        Assert.True(rootSecond.GetProperty("Success").GetBoolean());
+
+        var updatedOtp = await _db.Set<Contract_ContractVerifyOtp>()
+            .Where(x => x.ContractCode == "HD0003" && x.UserCodeSign == "CUST003")
+            .ToListAsync();
+        Assert.Single(updatedOtp);
+        Assert.Equal("554433", updatedOtp[0].OtpCode);
+    }
+
+    [Fact]
+    public async Task QRCode_JsonStrings_Success()
+    {
+        // Kiểm thử gọi theo định dạng chuỗi JSON của gate MVC (objContractParty, objUserTemp)
+        var req = new ESign_ShowModalPopupPartySign_QRCodeReq
+        {
+            ContractCode = "HD0001",
+            ObjContractParty = "{\"CustomerCodeSys\":\"CUST001\",\"CustomerEmail\":\"abc@solution.hn\",\"CustomerName\":\"Công ty CP ABC\"}",
+            ObjUserTemp = "{\"NetworkID\":\"1001\",\"OrgID\":\"7200000001\"}",
+            OtpCode = "123456",
+            WAUserCode = "admin@solution.hn",
+            TimeOTP = "0"
+        };
+
+        var result = await _controller.ShowModalPopupPartySign_QRCode(req);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Ký thành công", root.GetProperty("Messages").GetString());
+
+        var otpRecord = await _db.Set<Contract_ContractVerifyOtp>()
+            .FirstOrDefaultAsync(x => x.ContractCode == "HD0001" && x.UserCodeSign == "CUST001");
+        Assert.NotNull(otpRecord);
+        Assert.Equal("123456", otpRecord.OtpCode);
+    }
+
     [Fact]
     public async Task RealServer_Verification_FreePort()
     {
@@ -320,6 +474,58 @@ public class ESignControllerPortTests : IDisposable
             var docSecond = JsonDocument.Parse(bodySecond);
             Assert.Equal("Erridn.Skycic.QContract.Contract_Contract_CheckDB_CheckDB_ContractStatusNotMatched", docSecond.RootElement.GetProperty("ErrorCode").GetString());
             _output?.WriteLine($"[RealServer SecondCancel] StatusCode={(int)resSecond.StatusCode} Body={bodySecond}");
+
+            // =====================================================================================
+            // RealServer kiểm thử cho ShowModalPopupPartySign_QRCode (#98)
+            // =====================================================================================
+
+            // Ca 7: Body rỗng -> HTTP 400
+            var resQrEmpty = await http.PostAsync("/api/esign/showmodalpopuppartysign_qrcode",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            var bodyQrEmpty = await resQrEmpty.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resQrEmpty.StatusCode);
+            var docQrEmpty = JsonDocument.Parse(bodyQrEmpty);
+            Assert.False(docQrEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_Save", docQrEmpty.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[RealServer QrEmpty] StatusCode={(int)resQrEmpty.StatusCode} Body={bodyQrEmpty}");
+
+            // Ca 8: Guard InvalidTContractCode (ContractCode rỗng) -> HTTP 400
+            var resQrInvalidCc = await http.PostAsync("/api/esign/showmodalpopuppartysign_qrcode",
+                new StringContent("{\"ContractCode\":\"\",\"CustomerCodeSys\":\"CUST001\",\"TimeOTP\":\"0\"}", Encoding.UTF8, "application/json"));
+            var bodyQrInvalidCc = await resQrInvalidCc.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resQrInvalidCc.StatusCode);
+            var docQrInvalidCc = JsonDocument.Parse(bodyQrInvalidCc);
+            Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_SaveX_InvalidTContractCode", docQrInvalidCc.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[RealServer QrInvalidContractCode] StatusCode={(int)resQrInvalidCc.StatusCode} Body={bodyQrInvalidCc}");
+
+            // Ca 9: Guard NotTimeOut (HD0002 có OTP ACTIVE với EndDate 2099) -> HTTP 400
+            var resQrNotTimeout = await http.PostAsync("/api/esign/showmodalpopuppartysign_qrcode",
+                new StringContent("{\"ContractCode\":\"HD0002\",\"CustomerCodeSys\":\"CUST002\",\"OtpCode\":\"ACTIVE\",\"TimeOTP\":\"0\"}", Encoding.UTF8, "application/json"));
+            var bodyQrNotTimeout = await resQrNotTimeout.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resQrNotTimeout.StatusCode);
+            var docQrNotTimeout = JsonDocument.Parse(bodyQrNotTimeout);
+            Assert.Equal("Erridn.Skycic.QContract.Contract_ContractVerifyOtp_SaveX_NotTimeOut", docQrNotTimeout.RootElement.GetProperty("ErrorCode").GetString());
+            _output?.WriteLine($"[RealServer QrNotTimeout] StatusCode={(int)resQrNotTimeout.StatusCode} Body={bodyQrNotTimeout}");
+
+            // Ca 10: TimeOTP khác 0 -> HTTP 200 (không sinh OTP mới, trả về thành công ngay)
+            var resQrTimeOtp = await http.PostAsync("/api/esign/showmodalpopuppartysign_qrcode",
+                new StringContent("{\"ContractCode\":\"HD0001\",\"CustomerCodeSys\":\"CUST001\",\"TimeOTP\":\"60\"}", Encoding.UTF8, "application/json"));
+            var bodyQrTimeOtp = await resQrTimeOtp.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resQrTimeOtp.StatusCode);
+            var docQrTimeOtp = JsonDocument.Parse(bodyQrTimeOtp);
+            Assert.True(docQrTimeOtp.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Ký thành công", docQrTimeOtp.RootElement.GetProperty("Messages").GetString());
+            _output?.WriteLine($"[RealServer QrTimeOtpNotZero] StatusCode={(int)resQrTimeOtp.StatusCode} Body={bodyQrTimeOtp}");
+
+            // Ca 11: Sinh OTP thành công round-trip -> HTTP 200
+            var resQrSuccess = await http.PostAsync("/api/esign/showmodalpopuppartysign_qrcode",
+                new StringContent("{\"ContractCode\":\"HD0001\",\"CustomerCodeSys\":\"CUST001\",\"OtpCode\":\"AABBCC\",\"WAUserCode\":\"admin@solution.hn\",\"TimeOTP\":\"0\"}", Encoding.UTF8, "application/json"));
+            var bodyQrSuccess = await resQrSuccess.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resQrSuccess.StatusCode);
+            var docQrSuccess = JsonDocument.Parse(bodyQrSuccess);
+            Assert.True(docQrSuccess.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Ký thành công", docQrSuccess.RootElement.GetProperty("Messages").GetString());
+            _output?.WriteLine($"[RealServer QrSuccessRoundTrip] StatusCode={(int)resQrSuccess.StatusCode} Body={bodyQrSuccess}");
         }
         finally
         {
