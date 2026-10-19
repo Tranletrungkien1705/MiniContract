@@ -7,12 +7,14 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 ESignController.cs — Contract_ContractParty_Cancel & ShowModalPopupPartySign_QRCode
+// port 1:1 ESignController.cs — Contract_ContractParty_Cancel & ShowModalPopupPartySign_QRCode & ReturnResultPage
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2058-2096 (Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2100-2236 (ShowModalPopupPartySign_QRCode)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2239-2303 (ReturnResultPage)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\ContractContractPartyController.cs:20-88 (WA_Contract_ContractParty_Cancel)
 //       ClientService: Contract_ContractVerifyOtpService.cs (WA_Contract_ContractVerifyOtp_Save)
+//       ClientService: Contract_ContractService.cs (WA_Contract_Contract_Get)
 // BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:3056-3129 (WAS_Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:2675-2862 (Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\zTemp.cs:1911-2674 (Contract_ContractParty_CancelX)
@@ -20,6 +22,8 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:39692-39762 (Contract_ContractParty_CheckDB)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:40201-40360 (Contract_Contract_HistActionX)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:42095-42310 (Contract_ContractVerifyOtp_SaveX)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:10526-10787 (WAS_Contract_Contract_Get),
+//       9380-9575 (Contract_Contract_Get), 9747-10524 (Contract_Contract_GetX)
 [ApiController]
 [Route("api/esign")]
 public class ESignControllerPort : ControllerBase
@@ -360,6 +364,145 @@ public class ESignControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Trang kết quả trả về sau khi ký số (ReturnResultPage).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2239-2303
+    /// API/ClientService: WA_Contract_Contract_Get
+    /// BIZ: QContract.cs:9747-10524 Contract_Contract_GetX
+    /// </summary>
+    [HttpPost("returnresultpage")]
+    [HttpGet("returnresultpage")]
+    public async Task<IActionResult> ReturnResultPage(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ESign_ReturnResultPageReq? req)
+    {
+        try
+        {
+            var message = req?.Message ?? Request?.Query["message"].FirstOrDefault();
+            var contractCode = req?.ContractCode ?? Request?.Query["contractCode"].FirstOrDefault() ?? Request?.Query["contractcode"].FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(req.Model);
+                    if (doc.RootElement.TryGetProperty("Message", out var msgProp) || doc.RootElement.TryGetProperty("message", out msgProp))
+                        message ??= msgProp.GetString();
+                    if (doc.RootElement.TryGetProperty("ContractCode", out var ccProp) || doc.RootElement.TryGetProperty("contractCode", out ccProp))
+                        contractCode ??= ccProp.GetString();
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            // Nhánh 1: Ký thành công (ESignController.cs:2243)
+            if (string.Equals(message, "success", StringComparison.OrdinalIgnoreCase))
+            {
+                var domain = "";
+                var urlFile = "";
+
+                var normContractCode = StdParam(contractCode);
+                if (!string.IsNullOrEmpty(normContractCode))
+                {
+                    var contract = await _db.Set<Contract_Contract>()
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc));
+
+                    if (contract != null && !string.IsNullOrEmpty(contract.ContractFilePath))
+                    {
+                        urlFile = contract.ContractFilePath.Replace("\\", "/");
+                    }
+                }
+
+                var messageText = "Tài liệu đã được ký thành công";
+                var subMessageText = "Bạn sẽ nhận được bản sao cuối cùng của tài liệu";
+
+                var data = new ESign_ReturnResultPageData
+                {
+                    View = "Success",
+                    ViewName = "Success",
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = urlFile,
+                    Domain = domain
+                };
+
+                return Ok(new
+                {
+                    Success = true,
+                    Data = data,
+                    Messages = new[] { messageText },
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = urlFile,
+                    View = "Success",
+                    ViewName = "Success"
+                });
+            }
+            // Nhánh 2: Không tìm thấy đối tác ký (ESignController.cs:2291)
+            else if (string.Equals(message, "error-signer-not-valid", StringComparison.OrdinalIgnoreCase))
+            {
+                var messageText = "Không tìm thấy thông tin đối tác ký";
+                var subMessageText = "";
+
+                var data = new ESign_ReturnResultPageData
+                {
+                    View = "Notification",
+                    ViewName = "Notification",
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = "",
+                    Domain = ""
+                };
+
+                return Ok(new
+                {
+                    Success = true,
+                    Data = data,
+                    Messages = new[] { messageText },
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = "",
+                    View = "Notification",
+                    ViewName = "Notification"
+                });
+            }
+            // Nhánh 3: Phiên ký hết hạn hoặc các trường hợp khác / mặc định (ESignController.cs:2297)
+            else
+            {
+                var messageText = "Phiên ký đã hết hạn";
+                var subMessageText = "";
+
+                var data = new ESign_ReturnResultPageData
+                {
+                    View = "Notification",
+                    ViewName = "Notification",
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = "",
+                    Domain = ""
+                };
+
+                return Ok(new
+                {
+                    Success = true,
+                    Data = data,
+                    Messages = new[] { messageText },
+                    MessageText = messageText,
+                    SubMessageText = subMessageText,
+                    UrlFile = "",
+                    View = "Notification",
+                    ViewName = "Notification"
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Contract_Contract_Get", "Exception", ex.Message);
+        }
+    }
+
     private static readonly Random _rnd = new();
     private static string GenerateRandomHex(int digits)
     {
@@ -417,4 +560,32 @@ public class ESign_ShowModalPopupPartySign_QRCodeReq
     // Hỗ trợ tham số chuỗi JSON như gate MVC ESignController.cs:2100
     public string? ObjContractParty { get; set; }
     public string? ObjUserTemp { get; set; }
+}
+
+/// <summary>
+/// DTO nhận tham số cho trang kết quả ký ReturnResultPage.
+/// Gate: ESignController.cs:2239 ReturnResultPage(string message, string contractCode, string networkId, string accessToken, string guid)
+/// </summary>
+public class ESign_ReturnResultPageReq
+{
+    public string? Message { get; set; }
+    public string? ContractCode { get; set; }
+    public string? NetworkId { get; set; }
+    public string? AccessToken { get; set; }
+    public string? Guid { get; set; }
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// DTO trả về kết quả cho action ReturnResultPage.
+/// Tương ứng ViewBag (MessageText, SubMessageText, UrlFile) và View (Success hoặc Notification).
+/// </summary>
+public class ESign_ReturnResultPageData
+{
+    public string? View { get; set; }
+    public string? ViewName { get; set; }
+    public string? MessageText { get; set; }
+    public string? SubMessageText { get; set; }
+    public string? UrlFile { get; set; }
+    public string? Domain { get; set; }
 }

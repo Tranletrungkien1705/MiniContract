@@ -374,6 +374,171 @@ public class ESignControllerPortTests : IDisposable
         Assert.Equal("123456", otpRecord.OtpCode);
     }
 
+    // =========================================================================================
+    // Các ca kiểm thử cho ReturnResultPage (#99)
+    // =========================================================================================
+
+    [Fact]
+    public async Task ReturnResultPage_EmptyBodyOrNull_ReturnsNotificationExpired()
+    {
+        // 1. Body null -> Nhánh else: Notification "Phiên ký đã hết hạn"
+        var resNull = await _controller.ReturnResultPage(null);
+        var okNull = Assert.IsType<OkObjectResult>(resNull);
+        var rootNull = Root(okNull);
+        Assert.True(rootNull.GetProperty("Success").GetBoolean());
+        var dataNull = rootNull.GetProperty("Data");
+        Assert.Equal("Notification", dataNull.GetProperty("View").GetString());
+        Assert.Equal("Phiên ký đã hết hạn", dataNull.GetProperty("MessageText").GetString());
+        Assert.Equal("", dataNull.GetProperty("SubMessageText").GetString());
+        Assert.Equal("", dataNull.GetProperty("UrlFile").GetString());
+
+        // 2. Body rỗng -> Nhánh else: Notification "Phiên ký đã hết hạn"
+        var resEmpty = await _controller.ReturnResultPage(new ESign_ReturnResultPageReq());
+        var okEmpty = Assert.IsType<OkObjectResult>(resEmpty);
+        var rootEmpty = Root(okEmpty);
+        Assert.True(rootEmpty.GetProperty("Success").GetBoolean());
+        var dataEmpty = rootEmpty.GetProperty("Data");
+        Assert.Equal("Notification", dataEmpty.GetProperty("View").GetString());
+        Assert.Equal("Phiên ký đã hết hạn", dataEmpty.GetProperty("MessageText").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_SignerNotValid_ReturnsNotificationSignerNotValid()
+    {
+        // Nhánh error-signer-not-valid -> Notification "Không tìm thấy thông tin đối tác ký"
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "error-signer-not-valid",
+            ContractCode = "HD0001"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Notification", data.GetProperty("View").GetString());
+        Assert.Equal("Không tìm thấy thông tin đối tác ký", data.GetProperty("MessageText").GetString());
+        Assert.Equal("", data.GetProperty("SubMessageText").GetString());
+        Assert.Equal("", data.GetProperty("UrlFile").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_OtherMessage_ReturnsNotificationExpired()
+    {
+        // Nhánh message bất kỳ khác (session-timeout) -> Notification "Phiên ký đã hết hạn"
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "session-timeout",
+            ContractCode = "HD0001"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Notification", data.GetProperty("View").GetString());
+        Assert.Equal("Phiên ký đã hết hạn", data.GetProperty("MessageText").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_Success_ContractFound_ReturnsSuccessWithUrlFile()
+    {
+        // Nhánh success + hợp đồng tồn tại HD0001 -> View Success, UrlFile = "HD0001.pdf"
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "success",
+            ContractCode = "HD0001"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Success", data.GetProperty("View").GetString());
+        Assert.Equal("Tài liệu đã được ký thành công", data.GetProperty("MessageText").GetString());
+        Assert.Equal("Bạn sẽ nhận được bản sao cuối cùng của tài liệu", data.GetProperty("SubMessageText").GetString());
+        Assert.Equal("HD0001.pdf", data.GetProperty("UrlFile").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_Success_Contract2Found_ReturnsSuccessWithDifferentUrlFile()
+    {
+        // Nhánh success + hợp đồng tồn tại HD0002 -> View Success, UrlFile = "HD0002.pdf" (2 bộ lọc ra kết quả khác nhau)
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "success",
+            ContractCode = "HD0002"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Success", data.GetProperty("View").GetString());
+        Assert.Equal("HD0002.pdf", data.GetProperty("UrlFile").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_Success_ContractNotFound_ReturnsSuccessWithEmptyUrlFile()
+    {
+        // Nhánh success + hợp đồng không tồn tại HD9999 -> View Success, UrlFile = ""
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "success",
+            ContractCode = "HD9999"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Success", data.GetProperty("View").GetString());
+        Assert.Equal("Tài liệu đã được ký thành công", data.GetProperty("MessageText").GetString());
+        Assert.Equal("", data.GetProperty("UrlFile").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_Success_BackslashReplacedWithSlash()
+    {
+        // Hợp đồng có đường dẫn chứa dấu gạch chéo ngược '\' -> chuyển thành '/'
+        _db.Set<Contract_Contract>().Add(new Contract_Contract
+        {
+            ContractCode = "HD_BACKSLASH",
+            ContractFilePath = @"upload\contracts\2026\HD_BS.pdf",
+            ContractStatus = "SIGNED"
+        });
+        await _db.SaveChangesAsync();
+
+        var req = new ESign_ReturnResultPageReq
+        {
+            Message = "success",
+            ContractCode = "HD_BACKSLASH"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("upload/contracts/2026/HD_BS.pdf", data.GetProperty("UrlFile").GetString());
+    }
+
+    [Fact]
+    public async Task ReturnResultPage_ModelJsonString_Success()
+    {
+        // Gọi bằng chuỗi JSON bên trong thuộc tính Model
+        var req = new ESign_ReturnResultPageReq
+        {
+            Model = "{\"Message\":\"success\",\"ContractCode\":\"HD0001\"}"
+        };
+        var res = await _controller.ReturnResultPage(req);
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var root = Root(ok);
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal("Success", data.GetProperty("View").GetString());
+        Assert.Equal("HD0001.pdf", data.GetProperty("UrlFile").GetString());
+    }
+
     [Fact]
     public async Task RealServer_Verification_FreePort()
     {
@@ -526,6 +691,66 @@ public class ESignControllerPortTests : IDisposable
             Assert.True(docQrSuccess.RootElement.GetProperty("Success").GetBoolean());
             Assert.Equal("Ký thành công", docQrSuccess.RootElement.GetProperty("Messages").GetString());
             _output?.WriteLine($"[RealServer QrSuccessRoundTrip] StatusCode={(int)resQrSuccess.StatusCode} Body={bodyQrSuccess}");
+
+            // =====================================================================================
+            // RealServer kiểm thử cho ReturnResultPage (#99)
+            // =====================================================================================
+
+            // Ca 12: Body rỗng -> HTTP 200 (Nhánh else: Notification "Phiên ký đã hết hạn")
+            var resRrEmpty = await http.PostAsync("/api/esign/returnresultpage",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            var bodyRrEmpty = await resRrEmpty.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resRrEmpty.StatusCode);
+            var docRrEmpty = JsonDocument.Parse(bodyRrEmpty);
+            Assert.True(docRrEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Notification", docRrEmpty.RootElement.GetProperty("Data").GetProperty("View").GetString());
+            Assert.Equal("Phiên ký đã hết hạn", docRrEmpty.RootElement.GetProperty("Data").GetProperty("MessageText").GetString());
+            _output?.WriteLine($"[RealServer RrEmpty] StatusCode={(int)resRrEmpty.StatusCode} Body={bodyRrEmpty}");
+
+            // Ca 13: error-signer-not-valid -> HTTP 200 (Notification "Không tìm thấy thông tin đối tác ký")
+            var resRrNotValid = await http.PostAsync("/api/esign/returnresultpage",
+                new StringContent("{\"message\":\"error-signer-not-valid\"}", Encoding.UTF8, "application/json"));
+            var bodyRrNotValid = await resRrNotValid.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resRrNotValid.StatusCode);
+            var docRrNotValid = JsonDocument.Parse(bodyRrNotValid);
+            Assert.True(docRrNotValid.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Notification", docRrNotValid.RootElement.GetProperty("Data").GetProperty("View").GetString());
+            Assert.Equal("Không tìm thấy thông tin đối tác ký", docRrNotValid.RootElement.GetProperty("Data").GetProperty("MessageText").GetString());
+            _output?.WriteLine($"[RealServer RrNotValid] StatusCode={(int)resRrNotValid.StatusCode} Body={bodyRrNotValid}");
+
+            // Ca 14: success + contractCode HD0001 -> HTTP 200 (Success "Tài liệu đã được ký thành công", UrlFile = "HD0001.pdf")
+            var resRrSuccess1 = await http.PostAsync("/api/esign/returnresultpage",
+                new StringContent("{\"message\":\"success\",\"contractCode\":\"HD0001\"}", Encoding.UTF8, "application/json"));
+            var bodyRrSuccess1 = await resRrSuccess1.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resRrSuccess1.StatusCode);
+            var docRrSuccess1 = JsonDocument.Parse(bodyRrSuccess1);
+            Assert.True(docRrSuccess1.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Success", docRrSuccess1.RootElement.GetProperty("Data").GetProperty("View").GetString());
+            Assert.Equal("Tài liệu đã được ký thành công", docRrSuccess1.RootElement.GetProperty("Data").GetProperty("MessageText").GetString());
+            Assert.Equal("HD0001.pdf", docRrSuccess1.RootElement.GetProperty("Data").GetProperty("UrlFile").GetString());
+            _output?.WriteLine($"[RealServer RrSuccessHD0001] StatusCode={(int)resRrSuccess1.StatusCode} Body={bodyRrSuccess1}");
+
+            // Ca 15: success + contractCode HD0002 -> HTTP 200 (Success, UrlFile = "HD0002.pdf" - bộ lọc khác HD0001)
+            var resRrSuccess2 = await http.PostAsync("/api/esign/returnresultpage",
+                new StringContent("{\"message\":\"success\",\"contractCode\":\"HD0002\"}", Encoding.UTF8, "application/json"));
+            var bodyRrSuccess2 = await resRrSuccess2.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resRrSuccess2.StatusCode);
+            var docRrSuccess2 = JsonDocument.Parse(bodyRrSuccess2);
+            Assert.True(docRrSuccess2.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Success", docRrSuccess2.RootElement.GetProperty("Data").GetProperty("View").GetString());
+            Assert.Equal("HD0002.pdf", docRrSuccess2.RootElement.GetProperty("Data").GetProperty("UrlFile").GetString());
+            _output?.WriteLine($"[RealServer RrSuccessHD0002] StatusCode={(int)resRrSuccess2.StatusCode} Body={bodyRrSuccess2}");
+
+            // Ca 16: success + contractCode HD_NONE -> HTTP 200 (Success, UrlFile = "")
+            var resRrNone = await http.PostAsync("/api/esign/returnresultpage",
+                new StringContent("{\"message\":\"success\",\"contractCode\":\"HD_NONE\"}", Encoding.UTF8, "application/json"));
+            var bodyRrNone = await resRrNone.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resRrNone.StatusCode);
+            var docRrNone = JsonDocument.Parse(bodyRrNone);
+            Assert.True(docRrNone.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Success", docRrNone.RootElement.GetProperty("Data").GetProperty("View").GetString());
+            Assert.Equal("", docRrNone.RootElement.GetProperty("Data").GetProperty("UrlFile").GetString());
+            _output?.WriteLine($"[RealServer RrSuccessHD_NONE] StatusCode={(int)resRrNone.StatusCode} Body={bodyRrNone}");
         }
         finally
         {
