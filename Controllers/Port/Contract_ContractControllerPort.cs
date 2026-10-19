@@ -9,6 +9,7 @@ namespace MiniContract.Controllers.Port;
 // port 1:1 Contract_ContractController.cs — Contract_Contract
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Contract_ContractController.cs:415-698 (Index)
+//       + 700-853 (DoSearch), 860-916 (ValidateContractNoExists)
 //       + 7958-7978 (strWhereClause_Mst_ContractType), 7980-7995 (strWhereClause_Contract_ContractSearch)
 //       + BaseController.cs:6012-6046 (List_Mst_ContractType_Async), 6138-6144 (RT_Contract_Contract_Get), 145-149 (GetDateTimeServerClient)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\ContractContractController.cs:375-443 (WA_Contract_Contract_Get)
@@ -277,6 +278,49 @@ public class Contract_ContractControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Kiểm tra số hợp đồng đã tồn tại chưa (ValidateContractNoExists).
+    /// Gate: Contract_ContractController.cs:860-916
+    ///       + 7980-7995 (strWhereClause_Contract_ContractSearch)
+    ///       + BaseController.cs:6138-6144 (RT_Contract_Contract_Get)
+    /// API:  ContractContractController.cs:375-443 (WA_Contract_Contract_Get)
+    /// BIZ:  QContract.cs:10526-10787 (WAS_Contract_Contract_Get),
+    ///       9380-9575 (Contract_Contract_Get), 9747-10524 (Contract_Contract_GetX)
+    /// </summary>
+    [HttpPost("validatecontractnoexists")]
+    public async Task<IActionResult> ValidateContractNoExists([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Contract_Contract_ValidateContractNoExistsReq? req)
+    {
+        try
+        {
+            var query = _db.Set<Contract_Contract>().AsNoTracking();
+
+            var contractNo = StrValue(req?.ContractNo);
+            if (!string.IsNullOrEmpty(contractNo))
+            {
+                query = query.Where(x => EF.Functions.Like((x.ContractNo ?? "").ToLower(), PortQuery.Equal(contractNo), PortQuery.Esc));
+            }
+
+            var orgId = StrValue(req?.OrgID);
+            if (!string.IsNullOrEmpty(orgId))
+            {
+                query = query.Where(x => EF.Functions.Like((x.OrgID ?? "").ToLower(), PortQuery.Equal(orgId), PortQuery.Esc));
+            }
+
+            var exists = await query.AnyAsync();
+            var flagExists = exists ? "1" : "0";
+
+            return Ok(new
+            {
+                Success = true,
+                FlagExists = flagExists
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Contract_Contract_ValidateContractNoExists", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Gate :695 — CurrentUserSigningInfo lấy từ UserState.Mst_NNT (NNT của phiên đăng nhập).
     /// Ở đích không có phiên: nhận OrgID tuỳ chọn trong body, không truyền thì không có thông tin (null).
     /// </summary>
@@ -374,4 +418,15 @@ public class Contract_Contract_DoSearchReq
     public string? Init { get; set; }
     public int Page { get; set; }
     public int RecordCount { get; set; }
+}
+
+/// <summary>
+/// Tham số của gate Contract_ContractController.cs:860 (ValidateContractNoExists).
+/// contractno: số hợp đồng cần kiểm tra.
+/// OrgID: mã đơn vị (nguồn lấy từ UserState.Mst_NNT.OrgID, ở đích truyền qua body tuỳ chọn theo bài học A.14).
+/// </summary>
+public class Contract_Contract_ValidateContractNoExistsReq
+{
+    public string? ContractNo { get; set; }
+    public string? OrgID { get; set; }
 }

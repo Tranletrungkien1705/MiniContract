@@ -203,6 +203,67 @@ public class Contract_ContractControllerPortTests : IDisposable
         Assert.Equal("HD0001", list[1].GetProperty("ContractCode").GetString());
     }
 
+    // ================= #12 ValidateContractNoExists =================
+
+    [Fact]
+    public async Task ValidateContractNoExists_EmptyBody_ReturnsFlagExists1()
+    {
+        // Khi không truyền ContractNo và OrgID -> where (1=1), đếm toàn bảng (4 dòng > 0) -> FlagExists = "1"
+        var root = Root(await _controller.ValidateContractNoExists(null));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("FlagExists").GetString());
+    }
+
+    [Fact]
+    public async Task ValidateContractNoExists_ExistingContractNo_ReturnsFlagExists1()
+    {
+        // HD0003/2026 có trong seed -> FlagExists = "1"
+        var root = Root(await _controller.ValidateContractNoExists(new Contract_Contract_ValidateContractNoExistsReq
+        {
+            ContractNo = "HD0003/2026"
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("FlagExists").GetString());
+    }
+
+    [Fact]
+    public async Task ValidateContractNoExists_NonExistingContractNo_ReturnsFlagExists0()
+    {
+        // NONEXISTENT/2026 không có trong seed -> FlagExists = "0"
+        var root = Root(await _controller.ValidateContractNoExists(new Contract_Contract_ValidateContractNoExistsReq
+        {
+            ContractNo = "NONEXISTENT/2026"
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0", root.GetProperty("FlagExists").GetString());
+    }
+
+    [Fact]
+    public async Task ValidateContractNoExists_ExistingContractNoAndMatchingOrgID_ReturnsFlagExists1()
+    {
+        // HD0004/2026 với OrgID = 7200000002 có trong seed -> FlagExists = "1"
+        var root = Root(await _controller.ValidateContractNoExists(new Contract_Contract_ValidateContractNoExistsReq
+        {
+            ContractNo = "HD0004/2026",
+            OrgID = "7200000002"
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("1", root.GetProperty("FlagExists").GetString());
+    }
+
+    [Fact]
+    public async Task ValidateContractNoExists_ExistingContractNoAndDifferentOrgID_ReturnsFlagExists0()
+    {
+        // HD0004/2026 nhưng với OrgID = 7200000001 không khớp -> FlagExists = "0"
+        var root = Root(await _controller.ValidateContractNoExists(new Contract_Contract_ValidateContractNoExistsReq
+        {
+            ContractNo = "HD0004/2026",
+            OrgID = "7200000001"
+        }));
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0", root.GetProperty("FlagExists").GetString());
+    }
+
     [Fact]
     public async Task RealServer_Verification_FreePort()
     {
@@ -312,6 +373,48 @@ public class Contract_ContractControllerPortTests : IDisposable
             Assert.Equal(4, docDs3.RootElement.GetProperty("Data").GetProperty("DataList").GetArrayLength());
             Assert.Equal("HD0004", docDs3.RootElement.GetProperty("Data").GetProperty("DataList")[0].GetProperty("ContractCode").GetString());
             _output?.WriteLine($"[DoSearch NoFilter] StatusCode={(int)resDs3.StatusCode} Body={bodyDs3}");
+
+            // ===== #12 ValidateContractNoExists =====
+            // Ca 9: body rỗng -> where (1=1), có dòng trong DB -> FlagExists = "1"
+            var resValEmpty = await http.PostAsync("/api/contract_contract/validatecontractnoexists", new StringContent("{}", Encoding.UTF8, "application/json"));
+            var bodyValEmpty = await resValEmpty.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValEmpty.StatusCode);
+            var docValEmpty = JsonDocument.Parse(bodyValEmpty);
+            Assert.True(docValEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("1", docValEmpty.RootElement.GetProperty("FlagExists").GetString());
+            _output?.WriteLine($"[ValidateContractNoExists EmptyBody] StatusCode={(int)resValEmpty.StatusCode} Body={bodyValEmpty}");
+
+            // Ca 10: ContractNo tồn tại ("HD0003/2026") -> FlagExists = "1"
+            var resValExists = await http.PostAsync("/api/contract_contract/validatecontractnoexists", new StringContent("{\"ContractNo\":\"HD0003/2026\"}", Encoding.UTF8, "application/json"));
+            var bodyValExists = await resValExists.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValExists.StatusCode);
+            var docValExists = JsonDocument.Parse(bodyValExists);
+            Assert.True(docValExists.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("1", docValExists.RootElement.GetProperty("FlagExists").GetString());
+            _output?.WriteLine($"[ValidateContractNoExists Exists] StatusCode={(int)resValExists.StatusCode} Body={bodyValExists}");
+
+            // Ca 11: ContractNo không tồn tại ("HD9999/9999") -> FlagExists = "0" (2 bộ lọc ra số kết quả/cờ khác nhau)
+            var resValNotExists = await http.PostAsync("/api/contract_contract/validatecontractnoexists", new StringContent("{\"ContractNo\":\"HD9999/9999\"}", Encoding.UTF8, "application/json"));
+            var bodyValNotExists = await resValNotExists.Content.ReadAsStringAsync();
+            Assert.Equal(System.Net.HttpStatusCode.OK, resValNotExists.StatusCode);
+            var docValNotExists = JsonDocument.Parse(bodyValNotExists);
+            Assert.True(docValNotExists.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0", docValNotExists.RootElement.GetProperty("FlagExists").GetString());
+            _output?.WriteLine($"[ValidateContractNoExists NotExists] StatusCode={(int)resValNotExists.StatusCode} Body={bodyValNotExists}");
+
+            // Ca 12: ContractNo="HD0004/2026" + OrgID="7200000002" khớp -> FlagExists = "1"
+            var resValOrg = await http.PostAsync("/api/contract_contract/validatecontractnoexists", new StringContent("{\"ContractNo\":\"HD0004/2026\",\"OrgID\":\"7200000002\"}", Encoding.UTF8, "application/json"));
+            var bodyValOrg = await resValOrg.Content.ReadAsStringAsync();
+            var docValOrg = JsonDocument.Parse(bodyValOrg);
+            Assert.Equal("1", docValOrg.RootElement.GetProperty("FlagExists").GetString());
+            _output?.WriteLine($"[ValidateContractNoExists WithOrg Match] StatusCode={(int)resValOrg.StatusCode} Body={bodyValOrg}");
+
+            // Ca 13: ContractNo="HD0004/2026" + OrgID="KHAC" không khớp -> FlagExists = "0"
+            var resValOrgDiff = await http.PostAsync("/api/contract_contract/validatecontractnoexists", new StringContent("{\"ContractNo\":\"HD0004/2026\",\"OrgID\":\"KHAC\"}", Encoding.UTF8, "application/json"));
+            var bodyValOrgDiff = await resValOrgDiff.Content.ReadAsStringAsync();
+            var docValOrgDiff = JsonDocument.Parse(bodyValOrgDiff);
+            Assert.Equal("0", docValOrgDiff.RootElement.GetProperty("FlagExists").GetString());
+            _output?.WriteLine($"[ValidateContractNoExists WithOrg Mismatch] StatusCode={(int)resValOrgDiff.StatusCode} Body={bodyValOrgDiff}");
         }
         finally
         {
