@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 137/295 (46.44%)
+**Tiến độ hiện tại**: 138/295 (46.78%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -13,7 +13,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 1 | AccessDenyController/Index | Chưa làm | - |
 | 2 | AccountController/Login | Chưa làm | - |
 | 3 | AccountController/LoginCallback | Chưa làm | - |
-| 4 | AccountController/LoginOS | Chưa làm | - |
+| 4 | AccountController/LoginOS | Đã làm | aaad868 |
 | 5 | AccountController/LogOff | Chưa làm | - |
 | 6 | AccountController/SignOut | Chưa làm | - |
 | 7 | AccountController/LogOffNoLoginOS | Chưa làm | - |
