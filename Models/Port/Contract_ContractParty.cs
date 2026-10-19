@@ -19,6 +19,18 @@ public class Contract_ContractParty
 
     // Contract_ContractController.cs:621 (gate: Contract_ContractParty.CustomerCode)
     public string? CustomerCode { get; set; }
+
+    // zTemp.cs:1983-1985, 2073-2081, 2128-2133 — ESign/Contract_ContractParty_Cancel
+    public string? OrgID { get; set; }
+    public string? CustomerCodeSys { get; set; }
+    public string? MST { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? ContractPartyStatus { get; set; }
+    public string? CancelDTimeUTC { get; set; }
+    public string? CancelBy { get; set; }
+    public string? LogLUDTimeUTC { get; set; }
+    public string? LogLUBy { get; set; }
 }
 
 public class Contract_ContractPartyConfiguration : IEntityTypeConfiguration<Contract_ContractParty>
@@ -31,6 +43,16 @@ public class Contract_ContractPartyConfiguration : IEntityTypeConfiguration<Cont
         builder.Property(x => x.ContractCode).HasMaxLength(50);
         builder.Property(x => x.ContractType).HasMaxLength(50);
         builder.Property(x => x.CustomerCode).HasMaxLength(50);
+        builder.Property(x => x.OrgID).HasMaxLength(50);
+        builder.Property(x => x.CustomerCodeSys).HasMaxLength(50);
+        builder.Property(x => x.MST).HasMaxLength(50);
+        builder.Property(x => x.CustomerName).HasMaxLength(250);
+        builder.Property(x => x.CustomerEmail).HasMaxLength(250);
+        builder.Property(x => x.ContractPartyStatus).HasMaxLength(50);
+        builder.Property(x => x.CancelDTimeUTC).HasMaxLength(50);
+        builder.Property(x => x.CancelBy).HasMaxLength(50);
+        builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
+        builder.Property(x => x.LogLUBy).HasMaxLength(50);
     }
 }
 
@@ -49,9 +71,42 @@ public class Contract_ContractPartySeeder : IPortSeeder
         if (await set.AnyAsync()) return;
 
         set.AddRange(
-            new Contract_ContractParty { ContractCode = "HD0001", ContractType = "HD_KT", CustomerCode = "KH001" },
-            new Contract_ContractParty { ContractCode = "HD0002", ContractType = "HD_LD", CustomerCode = "KH002" },
-            new Contract_ContractParty { ContractCode = "HD0003", ContractType = "HD_KT", CustomerCode = "KH003" }
+            new Contract_ContractParty
+            {
+                ContractCode = "HD0001",
+                ContractType = "HD_KT",
+                CustomerCode = "KH001",
+                MST = "0100109106",
+                OrgID = "7200000001",
+                CustomerCodeSys = "CUST001",
+                CustomerName = "Công ty CP ABC",
+                CustomerEmail = "abc@solution.hn",
+                ContractPartyStatus = "PENDING"
+            },
+            new Contract_ContractParty
+            {
+                ContractCode = "HD0002",
+                ContractType = "HD_LD",
+                CustomerCode = "KH002",
+                MST = "0100109107",
+                OrgID = "7200000001",
+                CustomerCodeSys = "CUST002",
+                CustomerName = "Công ty CP XYZ",
+                CustomerEmail = "xyz@solution.hn",
+                ContractPartyStatus = "APPROVED"
+            },
+            new Contract_ContractParty
+            {
+                ContractCode = "HD0003",
+                ContractType = "HD_KT",
+                CustomerCode = "KH003",
+                MST = "0100109108",
+                OrgID = "7200000001",
+                CustomerCodeSys = "CUST003",
+                CustomerName = "Công ty CP DEF",
+                CustomerEmail = "def@solution.hn",
+                ContractPartyStatus = "ONPROCESS"
+            }
         );
 
         await db.SaveChangesAsync();

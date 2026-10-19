@@ -40,6 +40,12 @@ public class Contract_Contract
     public string? UserNameCreate { get; set; }
     public string? PositionCreate { get; set; }
     public string? CreateBy { get; set; }
+
+    // zTemp.cs:2045-2048, 2103-2106 — ESign/Contract_ContractParty_Cancel
+    public string? CancelDTimeUTC { get; set; }
+    public string? LogLUDTimeUTC { get; set; }
+    public string? LogLUBy { get; set; }
+    public string? ContractNo { get; set; }
 }
 
 public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_Contract>
@@ -61,6 +67,10 @@ public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_
         builder.Property(x => x.UserNameCreate).HasMaxLength(250);
         builder.Property(x => x.PositionCreate).HasMaxLength(100);
         builder.Property(x => x.CreateBy).HasMaxLength(50);
+        builder.Property(x => x.CancelDTimeUTC).HasMaxLength(50);
+        builder.Property(x => x.LogLUDTimeUTC).HasMaxLength(50);
+        builder.Property(x => x.LogLUBy).HasMaxLength(50);
+        builder.Property(x => x.ContractNo).HasMaxLength(50);
     }
 }
 
@@ -113,14 +123,15 @@ public class Contract_ContractSeeder : IPortSeeder
                 ContractCode = "HD0003",
                 ContractDateUTC = "2026-03-20 10:00:00",
                 CreateDTimeUTC = "2026-03-20 10:00:00",
-                ContractStatus = "PENDING",
+                ContractStatus = "ONPROCESS",
                 ContractFilePath = "HD0003.pdf",
                 CurrencyCode = "USD",
                 ContractRefNo = "HD0001",
                 UserCodeCreate = "U01",
                 UserNameCreate = "admin@solution.hn",
                 PositionCreate = "Giám đốc",
-                CreateBy = "U01"
+                CreateBy = "U01",
+                ContractNo = "HD0003/2026"
             }
         );
 
