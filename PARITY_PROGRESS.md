@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 139/295 (47.12%)
+**Tiến độ hiện tại**: 140/295 (47.46%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -114,7 +114,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 102 | ESignController/GenSigningInfo | Chưa làm | - |
 | 103 | ESignController/SendOTP | Chưa làm | - |
 | 104 | ESignController/RT_Mst_SubmissionForm_Async | Chưa làm | - |
-| 105 | FileController/Index | Chưa làm | - |
+| 105 | FileController/Index | Đã làm | 6f56bcd |
 | 106 | FileController/UploadImage | Chưa làm | - |
 | 107 | FileController/UploadFile | Chưa làm | - |
 | 108 | FileController/SavePdf | Chưa làm | - |
