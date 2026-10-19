@@ -7,9 +7,10 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 HomeController.cs — Index
+// port 1:1 HomeController.cs — Index & About
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\HomeController.cs:27-134 (Index)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\HomeController.cs:136-141 (About)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:2985-3336 (InitNetworkData)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:747-758 (RedirectActionToLogin)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\BaseController.cs:808-826 (InitSSO)
@@ -328,6 +329,29 @@ public class HomeControllerPort : ControllerBase
         return s?.Trim() == "1" ? "1" : "0";
     }
     #endregion
+
+    /// <summary>
+    /// Port 1:1 action About từ gate HomeController.cs:136-141.
+    /// Chuỗi nghiệp vụ:
+    /// 1. Gán ViewBag.Message = "Your application description page." (HomeController.cs:138).
+    /// 2. Trả về View() (HomeController.cs:140).
+    /// Ở tầng API port: trả về { Success = true, Title = "About", Message = "Your application description page.", Data = new { Title = "About", Message = "Your application description page." } }.
+    /// </summary>
+    [HttpPost("about")]
+    public IActionResult About([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Home_AboutReq? req = null)
+    {
+        return Ok(new
+        {
+            Success = true,
+            Title = "About",
+            Message = "Your application description page.",
+            Data = new
+            {
+                Title = "About",
+                Message = "Your application description page."
+            }
+        });
+    }
 }
 
 public class Home_IndexReq
@@ -340,4 +364,8 @@ public class Home_IndexReq
     public bool? IsAuthenticated { get; set; }
     public string? RawUrl { get; set; }
     public string? NetworkIdFilter { get; set; }
+}
+
+public class Home_AboutReq
+{
 }

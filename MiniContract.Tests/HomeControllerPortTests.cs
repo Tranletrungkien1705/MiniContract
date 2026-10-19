@@ -295,6 +295,39 @@ public class HomeControllerPortTests : IDisposable
     }
 
     [Fact]
+    public void About_NullReq_ReturnsSuccess()
+    {
+        // Ca kiểm tra: Gọi About với null req -> trả về Success = true, Message = "Your application description page.", Title = "About"
+        var result = _controller.About(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("About", root.GetProperty("Title").GetString());
+        Assert.Equal("Your application description page.", root.GetProperty("Message").GetString());
+        Assert.Equal("About", root.GetProperty("Data").GetProperty("Title").GetString());
+        Assert.Equal("Your application description page.", root.GetProperty("Data").GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public void About_WithReq_ReturnsSuccess()
+    {
+        // Ca kiểm tra: Gọi About với đối tượng req rỗng -> trả về Success = true
+        var req = new Home_AboutReq();
+        var result = _controller.About(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("About", root.GetProperty("Title").GetString());
+        Assert.Equal("Your application description page.", root.GetProperty("Message").GetString());
+    }
+
+    [Fact]
     public async Task RealServer_VerifyAllEndpointsAsync()
     {
         // Chạy kiểm thử trên server thật với FreePort.Get() và SQLite tạm (PORT_RULES §2.6)
@@ -404,6 +437,25 @@ public class HomeControllerPortTests : IDisposable
             Assert.Equal(0, count2);
 
             Assert.NotEqual(count1, count2);
+
+            // 5. Gọi /api/home/about với body rỗng {} -> thành công (HomeController.cs:136-141)
+            var aboutEmptyContent = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resAboutEmpty = await http.PostAsync("/api/home/about", aboutEmptyContent);
+            Assert.True(resAboutEmpty.IsSuccessStatusCode);
+            var jsonAboutEmpty = await resAboutEmpty.Content.ReadAsStringAsync();
+            var docAboutEmpty = JsonDocument.Parse(jsonAboutEmpty);
+            Assert.True(docAboutEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("About", docAboutEmpty.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("Your application description page.", docAboutEmpty.RootElement.GetProperty("Message").GetString());
+            Assert.Equal("Your application description page.", docAboutEmpty.RootElement.GetProperty("Data").GetProperty("Message").GetString());
+
+            // 6. Gọi /api/home/about không có body -> thành công
+            var resAboutNoBody = await http.PostAsync("/api/home/about", null);
+            Assert.True(resAboutNoBody.IsSuccessStatusCode);
+            var jsonAboutNoBody = await resAboutNoBody.Content.ReadAsStringAsync();
+            var docAboutNoBody = JsonDocument.Parse(jsonAboutNoBody);
+            Assert.True(docAboutNoBody.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Your application description page.", docAboutNoBody.RootElement.GetProperty("Message").GetString());
         }
         finally
         {
