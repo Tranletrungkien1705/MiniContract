@@ -10,7 +10,7 @@ using MiniContract.Data;
 namespace MiniContract.Controllers.Port
 {
     [ApiController]
-    [Route("api/loaddata/loadmst_district")]
+    [Route("api/loaddata")]
     public class LoadDataControllerPort : ControllerBase
     {
         private readonly AppDbContext _db;
@@ -20,7 +20,7 @@ namespace MiniContract.Controllers.Port
             _db = db;
         }
 
-        [HttpPost]
+        [HttpPost("loadmst_district")]
         public async Task<IActionResult> LoadMst_District([FromBody] LoadMst_DistrictReq? req)
         {
             try
@@ -44,10 +44,46 @@ namespace MiniContract.Controllers.Port
                 return PortResult.Fail("LoadData_LoadMst_District", "Exception", ex.Message);
             }
         }
+
+        [HttpPost("loadmst_ward")]
+        public async Task<IActionResult> LoadMst_Ward([FromBody] LoadMst_WardReq? req)
+        {
+            try
+            {
+                var provincecode = req?.ProvinceCode?.Trim();
+                var districtcode = req?.DistrictCode?.Trim();
+                var listMst_Ward = new List<Mst_Ward>();
+
+                if (!string.IsNullOrEmpty(provincecode))
+                {
+                    var query = _db.Set<Mst_Ward>().AsQueryable();
+                    query = query.Where(x => EF.Functions.Like(x.ProvinceCode.ToLower(), PortQuery.Equal(provincecode), PortQuery.Esc));
+                    if (!string.IsNullOrEmpty(districtcode))
+                    {
+                        query = query.Where(x => EF.Functions.Like(x.DistrictCode.ToLower(), PortQuery.Equal(districtcode), PortQuery.Esc));
+                    }
+                    query = query.Where(x => EF.Functions.Like(x.FlagActive.ToLower(), PortQuery.Equal("1"), PortQuery.Esc));
+
+                    listMst_Ward = await query.ToListAsync();
+                }
+
+                return Ok(listMst_Ward);
+            }
+            catch (Exception ex)
+            {
+                return PortResult.Fail("LoadData_LoadMst_Ward", "Exception", ex.Message);
+            }
+        }
     }
 
     public class LoadMst_DistrictReq
     {
         public string? ProvinceCode { get; set; }
+    }
+
+    public class LoadMst_WardReq
+    {
+        public string? ProvinceCode { get; set; }
+        public string? DistrictCode { get; set; }
     }
 }
