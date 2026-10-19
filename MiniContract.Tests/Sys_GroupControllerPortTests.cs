@@ -1446,6 +1446,102 @@ public class Sys_GroupControllerPortTests : IDisposable
         Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
     }
 
+    [Fact]
+    public void ExportTemplate_NullReq_SuccessWithTemplateExcel()
+    {
+        var result = _controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xuất file excel template thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        var strUrl = root.GetProperty("strUrl").GetString();
+        Assert.NotNull(strUrl);
+        Assert.Contains("/TempFiles/", strUrl);
+        Assert.EndsWith(".xlsx", strUrl);
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath), $"File should exist at {physicalPath}");
+
+        using var wb = new XLWorkbook(physicalPath);
+        var ws = wb.Worksheet("Sys_Group");
+        Assert.NotNull(ws);
+        Assert.Equal("Mã nhóm người dùng", ws.Cell(1, 1).GetString());
+        Assert.Equal("Tên nhóm người dùng", ws.Cell(1, 2).GetString());
+        Assert.True(ws.Cell(1, 3).IsEmpty());
+        Assert.True(ws.Cell(2, 1).IsEmpty());
+    }
+
+    [Fact]
+    public void ExportTemplate_WithModelReq_Success()
+    {
+        var req = new Sys_Group_ExportTemplateReq { Model = "{}" };
+        var result = _controller.ExportTemplate(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Xuất file excel template thành công!", root.GetProperty("Title").GetString());
+        Assert.Equal("1", root.GetProperty("CheckSuccess").GetString());
+        Assert.NotNull(root.GetProperty("strUrl").GetString());
+    }
+
+    [Fact]
+    public async Task ExportTemplate_RoundTrip_TemplateUsedForImport()
+    {
+        // 1. Xuất template
+        var exportResult = _controller.ExportTemplate(null);
+        var okResult = Assert.IsType<OkObjectResult>(exportResult);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var strUrl = doc.RootElement.GetProperty("strUrl").GetString();
+        Assert.NotNull(strUrl);
+
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var physicalPath = Path.Combine(webRoot, strUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(physicalPath));
+
+        // 2. Import file template trắng (0 dòng) -> phải báo "File excel import không có dữ liệu!"
+        using (var fs = File.OpenRead(physicalPath))
+        {
+            var emptyFormFile = new FormFile(fs, 0, fs.Length, "file", Path.GetFileName(physicalPath));
+            var importEmptyRes = await _controller.Import(emptyFormFile);
+            var badResult = Assert.IsType<BadRequestObjectResult>(importEmptyRes);
+            var docEmpty = JsonDocument.Parse(JsonSerializer.Serialize(badResult.Value));
+            Assert.False(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("File excel import không có dữ liệu!", docEmpty.RootElement.GetProperty("Params").GetProperty("Message").GetString());
+        }
+
+        // 3. Mở file template, điền 1 dòng dữ liệu hợp lệ rồi lưu lại
+        using (var wb = new XLWorkbook(physicalPath))
+        {
+            var ws = wb.Worksheet("Sys_Group");
+            ws.Cell(2, 1).Value = "GRP_FROM_TEMPLATE";
+            ws.Cell(2, 2).Value = "Nhóm từ Template";
+            wb.Save();
+        }
+
+        // 4. Import lại file template đã có dữ liệu -> phải thành công!
+        using (var fs = File.OpenRead(physicalPath))
+        {
+            var populatedFormFile = new FormFile(fs, 0, fs.Length, "file", Path.GetFileName(physicalPath));
+            var importPopulatedRes = await _controller.Import(populatedFormFile);
+            var okImportResult = Assert.IsType<OkObjectResult>(importPopulatedRes);
+            var docPopulated = JsonDocument.Parse(JsonSerializer.Serialize(okImportResult.Value));
+            Assert.True(docPopulated.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Đã nhập dữ liệu excel thành công!", docPopulated.RootElement.GetProperty("Title").GetString());
+        }
+
+        // 5. Xác minh round-trip: Đọc lại từ DB xem bản ghi GRP_FROM_TEMPLATE đã được lưu chính xác chưa
+        var savedGroup = await _db.Set<Sys_Group>().FirstOrDefaultAsync(x => x.GroupCode == "GRP_FROM_TEMPLATE");
+        Assert.NotNull(savedGroup);
+        Assert.Equal("Nhóm từ Template", savedGroup.GroupName);
+        Assert.Equal("1", savedGroup.FlagActive);
+    }
+
     private static IFormFile CreateExcelFormFile(string fileName, string[] headers, List<string?[]> dataRows)
     {
         using var wb = new XLWorkbook();
@@ -2711,6 +2807,43 @@ public class Sys_GroupControllerPortTests : IDisposable
             Assert.Equal("GRP_REAL_IMP_OK", itemImported.GetProperty("GroupCode").GetString());
             Assert.Equal("Nhóm Import Server Thật", itemImported.GetProperty("GroupName").GetString());
             Assert.Equal("1", itemImported.GetProperty("FlagActive").GetString());
+
+            // 71. Ca ExportTemplate POST body rỗng: POST /api/sys_group/exporttemplate {} -> 200 OK, Success=true, Title="Xuất file excel template thành công!", CheckSuccess="1", strUrl có đuôi .xlsx
+            var req71 = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res71 = await http.PostAsync("/api/sys_group/exporttemplate", req71);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res71.StatusCode);
+            var body71 = await res71.Content.ReadAsStringAsync();
+            var doc71 = JsonDocument.Parse(body71);
+            Assert.True(doc71.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xuất file excel template thành công!", doc71.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc71.RootElement.GetProperty("CheckSuccess").GetString());
+            var url71 = doc71.RootElement.GetProperty("strUrl").GetString();
+            Assert.NotNull(url71);
+            Assert.Contains("/TempFiles/", url71);
+            Assert.EndsWith(".xlsx", url71);
+
+            // 72. Ca ExportTemplate GET: GET /api/sys_group/exporttemplate -> 200 OK, Success=true, Title="Xuất file excel template thành công!", CheckSuccess="1", strUrl có đuôi .xlsx
+            var res72 = await http.GetAsync("/api/sys_group/exporttemplate");
+            Assert.Equal(System.Net.HttpStatusCode.OK, res72.StatusCode);
+            var body72 = await res72.Content.ReadAsStringAsync();
+            var doc72 = JsonDocument.Parse(body72);
+            Assert.True(doc72.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xuất file excel template thành công!", doc72.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc72.RootElement.GetProperty("CheckSuccess").GetString());
+            var url72 = doc72.RootElement.GetProperty("strUrl").GetString();
+            Assert.NotNull(url72);
+            Assert.Contains("/TempFiles/", url72);
+            Assert.EndsWith(".xlsx", url72);
+
+            // 73. Ca ExportTemplate POST route phụ /api/sys_group/export-template với Model JSON string -> 200 OK, Success=true
+            var req73 = new StringContent("{\"Model\":\"{}\"}", Encoding.UTF8, "application/json");
+            var res73 = await http.PostAsync("/api/sys_group/export-template", req73);
+            Assert.Equal(System.Net.HttpStatusCode.OK, res73.StatusCode);
+            var body73 = await res73.Content.ReadAsStringAsync();
+            var doc73 = JsonDocument.Parse(body73);
+            Assert.True(doc73.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Xuất file excel template thành công!", doc73.RootElement.GetProperty("Title").GetString());
+            Assert.Equal("1", doc73.RootElement.GetProperty("CheckSuccess").GetString());
         }
         finally
         {

@@ -24,6 +24,7 @@ namespace MiniContract.Controllers.Port;
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:626-727 (GetSysObject)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:833-962 (Import)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:968-1028 (Export)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1032-1055 (ExportTemplate)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1059-1067 (GetImportDicColums)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1068-1075 (GetImportDicColumsTemplate)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Sys_GroupController.cs:1080-1091 (strWhereClause_SysGroup)
@@ -1509,6 +1510,48 @@ public class Sys_GroupControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action ExportTemplate từ gate Sys_GroupController.cs:1032-1055.
+    /// Chuỗi gọi:
+    /// 1. Lấy UserState: waUserCode, waUserPassword (gate dòng 1034-1037).
+    /// 2. Khởi tạo danh sách rỗng var list = new List<Sys_Group>() (gate dòng 1039).
+    /// 3. Lấy từ điển cột mẫu: GetImportDicColumsTemplate() gồm 2 cột:
+    ///    - GroupCode: "Mã nhóm người dùng"
+    ///    - GroupName: "Tên nhóm người dùng" (gate dòng 1042, 1068-1075).
+    /// 4. Sinh đường dẫn file vật lý và URL ảo qua GenExcelExportFilePath (gate dòng 1044, BaseController.cs:664-682).
+    /// 5. Xuất file Excel template qua ExcelExport.ExportToExcelFromList(list, dicColNames, filePath, "Sys_Group") (gate dòng 1045).
+    /// 6. Trả về kết quả thành công khớp gate MVC:
+    ///    return Json(new { Success = true, Title = "Xuất file excel template thành công!", CheckSuccess = "1", strUrl = url }) (gate dòng 1047).
+    /// 7. Bắt ngoại lệ nếu có và trả về PortResult.Fail("Sys_Group_ExportTemplate", "Exception", ex.Message) (gate dòng 1049-1054).
+    /// </summary>
+    [HttpGet("exporttemplate")]
+    [HttpPost("exporttemplate")]
+    [HttpPost("export-template")]
+    public IActionResult ExportTemplate([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Sys_Group_ExportTemplateReq? req = null)
+    {
+        try
+        {
+            var list = new List<Sys_Group>();
+            var dicColNames = ImportTemplateDicColumns;
+
+            var webRoot = _env?.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var (filePath, virtualPath) = PortExcel.GenExcelExportFilePath(webRoot, nameof(Sys_Group));
+            PortExcel.ExportToExcelFromList(list, dicColNames, filePath, nameof(Sys_Group));
+
+            return Ok(new
+            {
+                Success = true,
+                Title = "Xuất file excel template thành công!",
+                CheckSuccess = "1",
+                strUrl = virtualPath
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Sys_Group_ExportTemplate", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Port 1:1 action Import từ gate Sys_GroupController.cs:833-962.
     /// Chuỗi gọi:
     /// 1. Nhận file upload HttpPostedFileWrapper file (gate dòng 833).
@@ -1878,4 +1921,13 @@ public class Sys_Group_ExportReq
     public int? RecordCount { get; set; }
     public int? Page { get; set; }
     public int? PageIndex { get; set; }
+}
+
+/// <summary>
+/// DTO yêu cầu cho action ExportTemplate của Sys_GroupController.
+/// Nguồn: Sys_GroupController.cs:1032 ExportTemplate()
+/// </summary>
+public class Sys_Group_ExportTemplateReq
+{
+    public string? Model { get; set; }
 }
