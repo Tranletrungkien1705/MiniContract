@@ -1489,7 +1489,8 @@ public class Mst_OrganizationControllerPortTests : IDisposable
             var templateVirtualPath = doc35.RootElement.GetProperty("strUrl").GetString();
             Assert.False(string.IsNullOrWhiteSpace(templateVirtualPath));
 
-            var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            // Server chay tu dllPath (co the la bin/Release) nen wwwroot phai lay theo thu muc do, khong theo thu muc test
+            var webRoot = Path.Combine(Path.GetDirectoryName(dllPath)!, "wwwroot");
             var templatePhysicalPath = Path.Combine(webRoot, templateVirtualPath!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(templatePhysicalPath), $"Template file not found at {templatePhysicalPath}");
             using (var templateWb = new XLWorkbook(templatePhysicalPath))
