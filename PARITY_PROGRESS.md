@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 164/295 (55.59%)
+**Tiến độ hiện tại**: 165/295 (55.93%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -143,7 +143,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 131 | Mst_AreaController/Delete | Chưa làm | - |
 | 132 | Mst_ChannelController/Index | Đã làm | 5862215 |
 | 133 | Mst_ChannelController/Save1 | Đã làm | 56a568f |
-| 134 | Mst_ChannelController/RedirectToMsgSystem | Chưa làm | - |
+| 134 | Mst_ChannelController/RedirectToMsgSystem | Đã làm | a055a0f |
 | 135 | Mst_ChannelController/ZaloConnect_BK | Chưa làm | - |
 | 136 | Mst_ChannelController/ZaloConnect | Chưa làm | - |
 | 137 | Mst_ChannelController/ZaloDisconnect | Đã làm | 4220810 |
