@@ -222,6 +222,152 @@ public class Sys_AccessControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Port 1:1 action SaveFuncObjectInMenu từ gate Sys_AccessController.cs:267-464.
+    /// Chuỗi gọi:
+    /// 1. Gate nhận model (JSON) chứa MenuCode (mã menu) và Lst_FuncCode (danh sách mã hàm).
+    ///    Nếu Lst_FuncCode null/rỗng -> xóa hàm khỏi menu.
+    /// 2. UpdateSysObjectFunctions(MenuCode, Lst_FuncCode) -> lưu vào file ~/App_Data/SysObjectSetting.config
+    ///    (gate BaseController.cs:3809-3842).
+    /// 3. Lấy danh sách Sys_Access có ObjectCode = MenuCode (gate dòng 340-371, Sys_Access_Get).
+    /// 4. Với mỗi GroupCode, lấy danh sách Sys_Access của GroupCode (gate dòng 379-389).
+    ///    Lọc rows với so_ObjectType = "MENU" (từ left join Sys_Object).
+    /// 5. Resolve thêm function từ file SysObjectSetting.config (gate dòng 321-394, ResolveObjects).
+    ///    Kết hợp các hàm từ menu + các hàm hiện tại của nhóm để tính danh sách hàm mới.
+    /// 6. Lưu danh sách Sys_Access mới (delete + insert) thông qua Sys_Access_Save (System.cs:803-1006).
+    /// 7. Trả về Success/Error.
+    /// </summary>
+    [HttpPost("save_func_object_in_menu")]
+    public async Task<IActionResult> SaveFuncObjectInMenu([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] SaveFuncObjectInMenuReq? req)
+    {
+        var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 1. Chuẩn hoá tham số (PORT_RULES §3, Lesson A.21)
+            if (req == null || string.IsNullOrWhiteSpace(req.MenuCode))
+            {
+                return PortResult.Fail("Sys_Access_SaveFuncObjectInMenu", "Check.MenuCode", null);
+            }
+
+            var menuCode = StdParam(req.MenuCode) ?? "";
+            var lstFuncCode = req.Lst_FuncCode ?? new List<string>();
+
+            // 2. Lưu cấu hình hàm vào file SysObjectSetting.config (gate dòng 294)
+            var funcCodesTrimmed = lstFuncCode.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
+            UpdateSysObjectSettingInFile(menuCode, funcCodesTrimmed);
+
+            // 3. Lấy danh sách Sys_Access có ObjectCode = menuCode (gate dòng 301-331)
+            var listSysAccessByMenu = await _db.Set<Sys_Access>()
+                .AsNoTracking()
+                .Where(x => EF.Functions.Like((x.ObjectCode ?? "").ToLower(), PortQuery.Equal(menuCode), PortQuery.Esc))
+                .ToListAsync();
+
+            if (listSysAccessByMenu.Count > 0)
+            {
+                // 4. Với mỗi GroupCode tìm được, lấy danh sách quyền và resolve function (gate dòng 336-415)
+                var distinctGroups = listSysAccessByMenu.Select(x => x.GroupCode).Distinct().ToList();
+
+                foreach (var groupCode in distinctGroups)
+                {
+                    // 4a. Lấy danh sách Sys_Access của GroupCode kèm thông tin Sys_Object (gate dòng 345-350)
+                    var listSysAccessByGroup = await _db.Set<Sys_Access>()
+                        .AsNoTracking()
+                        .Join(
+                            _db.Set<Sys_Object>().AsNoTracking(),
+                            sa => sa.ObjectCode,
+                            so => so.ObjectCode,
+                            (sa, so) => new { sa, so }
+                        )
+                        .Where(x => EF.Functions.Like((x.sa.GroupCode ?? "").ToLower(), PortQuery.Equal(groupCode), PortQuery.Esc))
+                        .ToListAsync();
+
+                    // 4b. Lọc lấy các menu (so_ObjectType = "MENU") (gate dòng 351)
+                    var menuRows = listSysAccessByGroup
+                        .Where(x => x.so != null && (x.so.ObjectType ?? "").Equals("MENU", StringComparison.OrdinalIgnoreCase))
+                        .Select(x => x.sa.ObjectCode)
+                        .Distinct()
+                        .ToList();
+
+                    if (menuRows.Count > 0)
+                    {
+                        // 4c. Resolve function từ file (gate dòng 321-394)
+                        var resolvedFunctions = ResolveObjectsForMenu(menuRows);
+
+                        // 4d. Lấy danh sách button hiện tại của nhóm (gate dòng 384-392)
+                        var buttonRows = listSysAccessByGroup
+                            .Where(x => x.so != null && (x.so.ObjectType ?? "").Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+                            .Select(x => x.sa.ObjectCode)
+                            .ToList();
+
+                        // Kết hợp function + button, loại trùng (gate dòng 390-393)
+                        var combinedFunctions = new List<string>(resolvedFunctions);
+                        if (buttonRows.Count > 0)
+                        {
+                            combinedFunctions.AddRange(buttonRows);
+                        }
+                        combinedFunctions = combinedFunctions.Distinct().ToList();
+
+                        // 4e. Chuẩn bị danh sách Sys_Access mới (gate dòng 395-407)
+                        var newAccessList = new List<Sys_Access>();
+                        foreach (var funcCode in combinedFunctions)
+                        {
+                            if (!string.IsNullOrWhiteSpace(funcCode))
+                            {
+                                newAccessList.Add(new Sys_Access
+                                {
+                                    GroupCode = groupCode.Trim(),
+                                    ObjectCode = funcCode.Trim(),
+                                    LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                                    LogLUBy = "port"
+                                });
+                            }
+                        }
+
+                        // 4f. Lưu vào DB (xóa quyền cũ của GroupCode, insert lại danh sách mới)
+                        // Tương ứng Sys_Access_Save (System.cs:932-963)
+                        var oldAccess = _db.Set<Sys_Access>()
+                            .Where(x => x.GroupCode == groupCode)
+                            .ToList();
+
+                        if (oldAccess.Count > 0)
+                        {
+                            _db.Set<Sys_Access>().RemoveRange(oldAccess);
+                        }
+
+                        // Thêm những quyền mới (từ ResolveObjects + button)
+                        if (newAccessList.Count > 0)
+                        {
+                            await _db.Set<Sys_Access>().AddRangeAsync(newAccessList);
+                        }
+
+                        await _db.SaveChangesAsync();
+                    }
+                }
+            }
+
+            await tx.CommitAsync();
+
+            var title = lstFuncCode == null || lstFuncCode.Count == 0
+                ? "Xóa FUNC khỏi Menu thành công!"
+                : "Gán FUNC vào Menu thành công!";
+
+            return Ok(new
+            {
+                Success = true,
+                Title = title
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("Sys_Access_SaveFuncObjectInMenu", "Exception", ex.Message);
+        }
+        finally
+        {
+            await tx.DisposeAsync();
+        }
+    }
+
+    /// <summary>
     /// Hàm dùng chung truy vấn phân quyền Sys_Access kết hợp thông tin Sys_Object
     /// theo System.cs:445-560 / 221-443 (Sys_Access_Get).
     /// </summary>
@@ -321,9 +467,189 @@ public class Sys_AccessControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Lưu danh sách hàm cho 1 đối tượng vào file SysObjectSetting.config (gate BaseController.cs:3809-3842).
+    /// Nếu đối tượng đã có → cập nhật danh sách hàm; nếu chưa → thêm mới.
+    /// </summary>
+    private void UpdateSysObjectSettingInFile(string objectCode, List<string> functionCodes)
+    {
+        try
+        {
+            var filePath = System.IO.Path.Combine(
+                _env?.ContentRootPath ?? AppContext.BaseDirectory,
+                "App_Data",
+                "SysObjectSetting.config"
+            );
+
+            var setting = new SysObjectSetting { List = new List<SysObjectSettingItem>() };
+
+            // Đọc cấu hình hiện tại (nếu file tồn tại)
+            if (System.IO.File.Exists(filePath))
+            {
+                try
+                {
+                    var json = System.IO.File.ReadAllText(filePath);
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("List", out var listProp) && listProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var item in listProp.EnumerateArray())
+                        {
+                            var settingItem = new SysObjectSettingItem
+                            {
+                                ObjectCode = item.TryGetProperty("ObjectCode", out var oc) ? oc.GetString() ?? "" : "",
+                                FunctionCodes = new List<string>()
+                            };
+
+                            if (item.TryGetProperty("FunctionCodes", out var fcProp))
+                            {
+                                if (fcProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                {
+                                    foreach (var fc in fcProp.EnumerateArray())
+                                    {
+                                        if (fc.ValueKind == System.Text.Json.JsonValueKind.String)
+                                            settingItem.FunctionCodes.Add(fc.GetString() ?? "");
+                                    }
+                                }
+                            }
+
+                            setting.List.Add(settingItem);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Nếu parse lỗi, dùng cấu hình trắng
+                }
+            }
+
+            // Tìm và cập nhật hoặc thêm mới objectCode
+            var idx = setting.List.FindIndex(x =>
+                x.ObjectCode.Equals(objectCode, StringComparison.InvariantCultureIgnoreCase));
+
+            if (idx >= 0)
+            {
+                setting.List[idx].FunctionCodes = functionCodes;
+            }
+            else
+            {
+                setting.List.Add(new SysObjectSettingItem
+                {
+                    ObjectCode = objectCode.ToUpper().Trim(),
+                    FunctionCodes = functionCodes
+                });
+            }
+
+            // Tạo thư mục nếu chưa có
+            var dirPath = System.IO.Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dirPath) && !System.IO.Directory.Exists(dirPath))
+            {
+                System.IO.Directory.CreateDirectory(dirPath);
+            }
+
+            // Lưu vào file (JSON format)
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonOutput = System.Text.Json.JsonSerializer.Serialize(setting, options);
+            System.IO.File.WriteAllText(filePath, jsonOutput);
+        }
+        catch (Exception ex)
+        {
+            // Log hoặc báo lỗi, nhưng không dừng quá trình (giống nguồn)
+            System.Diagnostics.Debug.WriteLine($"UpdateSysObjectSettingInFile error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Resolve danh sách hàm từ file cấu hình cho một danh sách menu.
+    /// Từ gate BaseController.cs:3843-3894 (ResolveObjects).
+    /// Tương tự: với mỗi menu trong listObjectCodes, tra file để lấy danh sách hàm liên kết,
+    /// cộng thêm các button hiện tại của nhóm, loại bỏ trùng lặp.
+    /// </summary>
+    private List<string> ResolveObjectsForMenu(List<string> objectCodes)
+    {
+        var result = new List<string>();
+        var dic = new Dictionary<string, bool>();
+
+        // Thêm chính các menu trước (gate dòng 277-280)
+        foreach (var code in objectCodes)
+        {
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                var trimmed = code.Trim();
+                if (!dic.ContainsKey(trimmed))
+                {
+                    dic.Add(trimmed, true);
+                    result.Add(trimmed);
+                }
+            }
+        }
+
+        // Tra file cấu hình để tìm thêm các hàm/button liên kết với menu (gate dòng 283-307)
+        var setting = GetSysObjectSettingFromFile();
+        if (setting != null && setting.List != null)
+        {
+            foreach (var code in objectCodes)
+            {
+                if (string.IsNullOrWhiteSpace(code)) continue;
+
+                foreach (var scode in setting.List)
+                {
+                    if (scode.ObjectCode.Equals(code, StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        // Tìm được menu này trong cấu hình -> lấy danh sách hàm
+                        if (scode.FunctionCodes != null)
+                        {
+                            foreach (var f in scode.FunctionCodes)
+                            {
+                                if (!string.IsNullOrWhiteSpace(f))
+                                {
+                                    var trimmedF = f.Trim();
+                                    if (!dic.ContainsKey(trimmedF))
+                                    {
+                                        dic.Add(trimmedF, true);
+
+                                        // Split nếu có dấu ',' (gate dòng 272-281)
+                                        var arrCode = trimmedF.Split(',');
+                                        foreach (var strCode in arrCode)
+                                        {
+                                            if (!string.IsNullOrWhiteSpace(strCode))
+                                            {
+                                                result.Add(strCode.Trim());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Nếu file không có hoặc lỗi, trả lại danh sách đầu vào (gate dòng 313)
+            result = objectCodes.Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .ToList();
+        }
+
+        return result;
+    }
+
     private static string? StdParam(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim().ToUpperInvariant();
     private static string? StdStr(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     private static string StdFlag(string? v) => (v?.Trim() == "1") ? "1" : "0";
+}
+
+/// <summary>
+/// DTO yêu cầu cho action SaveFuncObjectInMenu (port gate dòng 277, 267).
+/// </summary>
+public class SaveFuncObjectInMenuReq
+{
+    public string? MenuCode { get; set; }
+    public List<string>? Lst_FuncCode { get; set; }
 }
 
 /// <summary>

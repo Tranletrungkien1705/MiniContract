@@ -30,6 +30,7 @@ public class Sys_AccessControllerPortTests : IDisposable
     private readonly SqliteConnection _conn;
     private readonly AppDbContext _db;
     private readonly Sys_AccessControllerPort _controller;
+    private readonly string _appDataPath;
 
     public Sys_AccessControllerPortTests()
     {
@@ -51,12 +52,27 @@ public class Sys_AccessControllerPortTests : IDisposable
         // Khởi tạo controller với mock IWebHostEnvironment
         var mockEnv = new MockWebHostEnvironment();
         _controller = new Sys_AccessControllerPort(_db, null, mockEnv);
+
+        // Xóa file config nếu tồn tại (để tránh ảnh hưởng từ test trước)
+        _appDataPath = System.IO.Path.Combine(AppContext.BaseDirectory, "App_Data");
+        var configPath = System.IO.Path.Combine(_appDataPath, "SysObjectSetting.config");
+        if (File.Exists(configPath))
+        {
+            try { File.Delete(configPath); } catch { }
+        }
     }
 
     public void Dispose()
     {
         _conn.Dispose();
         _db.Dispose();
+
+        // Cleanup: xóa file config sau test
+        var configPath = System.IO.Path.Combine(_appDataPath, "SysObjectSetting.config");
+        if (File.Exists(configPath))
+        {
+            try { File.Delete(configPath); } catch { }
+        }
     }
 
     [Fact]
@@ -360,6 +376,23 @@ public class Sys_AccessControllerPortTests : IDisposable
     [Fact]
     public async Task GetFunction_WithObjectCode_ReturnsListOfFunctionsAndSelectedList()
     {
+        // Arrange: Tạo file config với dữ liệu cho MNU_CONTRACT
+        var configPath = System.IO.Path.Combine(_appDataPath, "SysObjectSetting.config");
+        var configData = new
+        {
+            List = new[]
+            {
+                new {
+                    ObjectCode = "MNU_CONTRACT",
+                    FunctionCodes = new[] { "FUNC_CONTRACT_CREATE", "FUNC_CONTRACT_EDIT", "FUNC_CONTRACT_VIEW" }
+                }
+            }
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(configData, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        System.IO.Directory.CreateDirectory(_appDataPath);
+        System.IO.File.WriteAllText(configPath, json);
+
+        // Act
         var req = new Sys_AccessController_GetFunctionReq { ObjectCode = "MNU_CONTRACT" };
         var result = await _controller.GetFunction(req);
         var okResult = Assert.IsType<OkObjectResult>(result);
@@ -370,13 +403,14 @@ public class Sys_AccessControllerPortTests : IDisposable
         Assert.True(root.GetProperty("Success").GetBoolean());
         var data = root.GetProperty("Data");
 
-        // ListSysObject có 3 hàm
+        // ListSysObject có 3 hàm từ seeder
         var listObj = data.GetProperty("ListSysObject");
         Assert.Equal(3, listObj.GetArrayLength());
 
         // SelectedList có 3 mã hàm từ SysObjectSetting.config
         var selectedList = data.GetProperty("SelectedList");
         Assert.Equal(3, selectedList.GetArrayLength());
+        Assert.Contains("FUNC_CONTRACT_CREATE", selectedList.EnumerateArray().Select(x => x.GetString()));
 
         // ObjectCode được ghi lại
         Assert.Equal("MNU_CONTRACT", data.GetProperty("ObjectCode").GetString());
@@ -572,5 +606,120 @@ public class Sys_AccessControllerPortTests : IDisposable
             }
             catch { }
         }
+    }
+
+    [Fact]
+    public async Task SaveFuncObjectInMenu_ValidRequest_UpdatesAccessSuccessfully()
+    {
+        // Arrange: Chuẩn bị dữ liệu test
+        // Thêm một số object loại BUTTON vào DB
+        var btnObj1 = new Sys_Object
+        {
+            ObjectCode = "BTN_CREATE",
+            ObjectName = "Create button",
+            ServiceCode = "QContract",
+            ObjectType = "BUTTON",
+            FlagActive = "1",
+            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = "port"
+        };
+        var btnObj2 = new Sys_Object
+        {
+            ObjectCode = "BTN_EDIT",
+            ObjectName = "Edit button",
+            ServiceCode = "QContract",
+            ObjectType = "BUTTON",
+            FlagActive = "1",
+            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = "port"
+        };
+        _db.Set<Sys_Object>().AddRange(btnObj1, btnObj2);
+        await _db.SaveChangesAsync();
+
+        // Request: gán BTN_CREATE, BTN_EDIT vào MNU_CONTRACT
+        var req = new SaveFuncObjectInMenuReq
+        {
+            MenuCode = "MNU_CONTRACT",
+            Lst_FuncCode = new List<string> { "BTN_CREATE", "BTN_EDIT" }
+        };
+
+        // Act
+        var result = await _controller.SaveFuncObjectInMenu(req);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var title = root.GetProperty("Title").GetString();
+        Assert.Contains("Gán FUNC vào Menu thành công", title);
+
+        // Kiểm tra dữ liệu đã lưu vào DB
+        var adminAccess = await _db.Set<Sys_Access>()
+            .Where(x => x.GroupCode == "ADMIN")
+            .OrderBy(x => x.ObjectCode)
+            .ToListAsync();
+
+        // Admin nên có quyền: MNU_CONTRACT, MNU_CUSTOMER, MNU_SYSTEM, BTN_CREATE, BTN_EDIT
+        Assert.Contains("MNU_CONTRACT", adminAccess.Select(x => x.ObjectCode));
+        Assert.Contains("BTN_CREATE", adminAccess.Select(x => x.ObjectCode));
+        Assert.Contains("BTN_EDIT", adminAccess.Select(x => x.ObjectCode));
+    }
+
+    [Fact]
+    public async Task SaveFuncObjectInMenu_EmptyFuncCodeList_ClearsFuncListInFile()
+    {
+        // Arrange: Thêm một button vào DB
+        var btnObj1 = new Sys_Object
+        {
+            ObjectCode = "BTN_DELETE",
+            ObjectName = "Delete button",
+            ServiceCode = "QContract",
+            ObjectType = "BUTTON",
+            FlagActive = "1",
+            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+            LogLUBy = "port"
+        };
+        _db.Set<Sys_Object>().Add(btnObj1);
+        await _db.SaveChangesAsync();
+
+        // Request 1: gán BTN_DELETE vào MNU_CONTRACT (lưu vào file)
+        var req1 = new SaveFuncObjectInMenuReq
+        {
+            MenuCode = "MNU_CONTRACT",
+            Lst_FuncCode = new List<string> { "BTN_DELETE" }
+        };
+        await _controller.SaveFuncObjectInMenu(req1);
+
+        // Request 2: xóa toàn bộ function khỏi MNU_CONTRACT (lưu file rỗng)
+        var req2 = new SaveFuncObjectInMenuReq
+        {
+            MenuCode = "MNU_CONTRACT",
+            Lst_FuncCode = new List<string>() // Rỗng
+        };
+
+        // Act
+        var result = await _controller.SaveFuncObjectInMenu(req2);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var title = root.GetProperty("Title").GetString();
+        Assert.Contains("Xóa FUNC khỏi Menu thành công", title);
+
+        // Kiểm tra: Sau khi clear, chỉ còn các menu (không còn button từ ResolveObjects)
+        // Lưu ý: ADMIN group có MNU_CONTRACT, MNU_CUSTOMER, MNU_SYSTEM, BTN_DELETE (button hiện tại)
+        // Khi resolve MNU_CONTRACT với file rỗng, chỉ trả MNU_CONTRACT (menu)
+        // Cộng với BTN_DELETE (button), kết quả là: MNU_CONTRACT, BTN_DELETE (+ các menu/button khác của ADMIN)
+        var adminAccess = await _db.Set<Sys_Access>()
+            .Where(x => x.GroupCode == "ADMIN")
+            .ToListAsync();
+
+        // Vẫn còn BTN_DELETE (vì nó là button hiện tại của nhóm, không liên kết với MNU_CONTRACT)
+        Assert.Contains("BTN_DELETE", adminAccess.Select(x => x.ObjectCode));
     }
 }
