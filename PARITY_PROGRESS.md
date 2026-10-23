@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 167/295 (56.61%)
+**Tiến độ hiện tại**: 168/295 (56.95%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -283,7 +283,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 271 | Sys_GroupController/GetSysUser | Đã làm | 8e9ad7e |
 | 272 | Sys_GroupController/SaveUserInGroup | Đã làm | 77376c9 |
 | 273 | Sys_GroupController/GetSysObject | Đã làm | 83dcb70 |
-| 274 | Sys_GroupController/SaveObjectInGroup | Chưa làm | - |
+| 274 | Sys_GroupController/SaveObjectInGroup | Đã làm | b64f12e |
 | 275 | Sys_GroupController/Import | Đã làm | d69b48b |
 | 276 | Sys_GroupController/Export | Đã làm | 738b57a |
 | 277 | Sys_GroupController/ExportTemplate | Đã làm | 18f6a50 |
