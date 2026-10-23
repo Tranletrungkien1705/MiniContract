@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 172/295 (58.31%)
+**Tiến độ hiện tại**: 173/295 (58.64%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -96,7 +96,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 84 | Contract_TempContractController/Save | Đã làm | 99fcc24 |
 | 85 | Contract_TempContractController/SearchUser | Đã làm | 795415b |
 | 86 | Contract_TempContractController/Detail | Đã làm | 655f6ce |
-| 87 | DashboardController/Index | Chưa làm | - |
+| 87 | DashboardController/Index | Đã làm | 97405e1 |
 | 88 | DashboardController/DashboardSummary | Chưa làm | - |
 | 89 | DashboardController/DashboardLicense | Đã làm | 0cdb45a |
 | 90 | DashboardRptController/DashboardSummary | Chưa làm | - |
