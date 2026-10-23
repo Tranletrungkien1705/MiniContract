@@ -119,6 +119,40 @@ public class Sys_ObjectSeeder : IPortSeeder
                 FlagActive = "1",
                 LogLUDTimeUTC = now,
                 LogLUBy = "port"
+            },
+            // Thêm các hàm (FUNC) cho Port #262
+            new Sys_Object
+            {
+                ObjectCode = "FUNC_CONTRACT_VIEW",
+                ObjectName = "Xem hợp đồng",
+                ServiceCode = "QContract",
+                ObjectType = "FUNC",
+                FlagExecModal = "0",
+                FlagActive = "1",
+                LogLUDTimeUTC = now,
+                LogLUBy = "port"
+            },
+            new Sys_Object
+            {
+                ObjectCode = "FUNC_CONTRACT_EDIT",
+                ObjectName = "Sửa hợp đồng",
+                ServiceCode = "QContract",
+                ObjectType = "FUNC",
+                FlagExecModal = "0",
+                FlagActive = "1",
+                LogLUDTimeUTC = now,
+                LogLUBy = "port"
+            },
+            new Sys_Object
+            {
+                ObjectCode = "FUNC_CONTRACT_DELETE",
+                ObjectName = "Xoá hợp đồng",
+                ServiceCode = "QContract",
+                ObjectType = "FUNC",
+                FlagExecModal = "0",
+                FlagActive = "1",
+                LogLUDTimeUTC = now,
+                LogLUBy = "port"
             }
         );
 

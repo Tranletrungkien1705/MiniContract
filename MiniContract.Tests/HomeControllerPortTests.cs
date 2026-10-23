@@ -160,9 +160,9 @@ public class HomeControllerPortTests : IDisposable
         var ctsSuppliers = data.GetProperty("CTSRemoteSuppliers");
         Assert.Equal(2, ctsSuppliers.GetArrayLength());
 
-        // Kiểm tra AccessObjects: Admin có toàn bộ 4 Sys_Object đang hoạt động
+        // Kiểm tra AccessObjects: Admin có toàn bộ 7 Sys_Object đang hoạt động (3 MENU + 1 BUTTON + 3 FUNC)
         var accessObjects = data.GetProperty("AccessObjects");
-        Assert.Equal(4, accessObjects.GetArrayLength());
+        Assert.Equal(7, accessObjects.GetArrayLength());
     }
 
     [Fact]

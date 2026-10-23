@@ -197,9 +197,9 @@ public class AccountControllerPortTests : IDisposable
         var ctsSuppliers = data.GetProperty("CTSRemoteSuppliers");
         Assert.Equal(2, ctsSuppliers.GetArrayLength());
 
-        // Kiểm tra AccessObjects: Admin có toàn bộ 4 Sys_Object đang hoạt động (FlagActive="1")
+        // Kiểm tra AccessObjects: Admin có toàn bộ 7 Sys_Object đang hoạt động (3 MENU + 1 BUTTON + 3 FUNC)
         var accessObjects = data.GetProperty("AccessObjects");
-        Assert.Equal(4, accessObjects.GetArrayLength());
+        Assert.Equal(7, accessObjects.GetArrayLength());
     }
 
     [Fact]
@@ -558,7 +558,7 @@ public class AccountControllerPortTests : IDisposable
             Assert.Equal("0100000001", data4.GetProperty("NNT").GetProperty("MST").GetString());
             Assert.Equal(2, data4.GetProperty("OrgSignConfigs").GetArrayLength());
             Assert.Equal(2, data4.GetProperty("CTSRemoteSuppliers").GetArrayLength());
-            Assert.Equal(4, data4.GetProperty("AccessObjects").GetArrayLength());
+            Assert.Equal(7, data4.GetProperty("AccessObjects").GetArrayLength());
 
             // 5. Ca thành công 2: Lọc OrgID khác (OrgID 7200000002) -> 200 OK, 0 bản ghi OrgSignConfigs (khác 2 bản ghi ca 4)
             var req5 = new StringContent(JsonSerializer.Serialize(new { OrgId = "7200000002", ParentId = "1001", UserCode = "U03" }), Encoding.UTF8, "application/json");

@@ -3,15 +3,27 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using MiniContract.Controllers.Port;
 using MiniContract.Data;
 using MiniContract.Models.Port;
 using Xunit;
 
 namespace MiniContract.Tests;
+
+public class MockWebHostEnvironment : IWebHostEnvironment
+{
+    public string WebRootPath { get; set; } = AppContext.BaseDirectory;
+    public IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(AppContext.BaseDirectory);
+    public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+    public IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(AppContext.BaseDirectory);
+    public string EnvironmentName { get; set; } = "Test";
+    public string ApplicationName { get; set; } = "MiniContract.Tests";
+}
 
 public class Sys_AccessControllerPortTests : IDisposable
 {
@@ -36,7 +48,9 @@ public class Sys_AccessControllerPortTests : IDisposable
         var accessSeeder = new Sys_AccessSeeder();
         accessSeeder.SeedAsync(_db).GetAwaiter().GetResult();
 
-        _controller = new Sys_AccessControllerPort(_db);
+        // Khởi tạo controller với mock IWebHostEnvironment
+        var mockEnv = new MockWebHostEnvironment();
+        _controller = new Sys_AccessControllerPort(_db, null, mockEnv);
     }
 
     public void Dispose()
@@ -314,6 +328,83 @@ public class Sys_AccessControllerPortTests : IDisposable
         Assert.Equal(1, data.GetArrayLength());
         Assert.Equal("SALE_MGR", data[0].GetProperty("GroupCode").GetString());
         Assert.Equal("MNU_CONTRACT", data[0].GetProperty("ObjectCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetFunction_NullReq_ReturnsListOfFunctionsAndEmptySelectedList()
+    {
+        var result = await _controller.GetFunction(null);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        // Seeder có 3 FUNC (FUNC_CONTRACT_VIEW, FUNC_CONTRACT_EDIT, FUNC_CONTRACT_DELETE)
+        var listObj = data.GetProperty("ListSysObject");
+        Assert.Equal(3, listObj.GetArrayLength());
+        Assert.Equal("FUNC_CONTRACT_DELETE", listObj[0].GetProperty("ObjectCode").GetString());
+        Assert.Equal("FUNC_CONTRACT_EDIT", listObj[1].GetProperty("ObjectCode").GetString());
+        Assert.Equal("FUNC_CONTRACT_VIEW", listObj[2].GetProperty("ObjectCode").GetString());
+
+        // SelectedList rỗng vì objectCode rỗng, không tra SysObjectSetting
+        var selectedList = data.GetProperty("SelectedList");
+        Assert.Equal(0, selectedList.GetArrayLength());
+
+        // ObjectCode rỗng
+        Assert.Equal("", data.GetProperty("ObjectCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetFunction_WithObjectCode_ReturnsListOfFunctionsAndSelectedList()
+    {
+        var req = new Sys_AccessController_GetFunctionReq { ObjectCode = "MNU_CONTRACT" };
+        var result = await _controller.GetFunction(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        // ListSysObject có 3 hàm
+        var listObj = data.GetProperty("ListSysObject");
+        Assert.Equal(3, listObj.GetArrayLength());
+
+        // SelectedList có 3 mã hàm từ SysObjectSetting.config
+        var selectedList = data.GetProperty("SelectedList");
+        Assert.Equal(3, selectedList.GetArrayLength());
+
+        // ObjectCode được ghi lại
+        Assert.Equal("MNU_CONTRACT", data.GetProperty("ObjectCode").GetString());
+    }
+
+    [Fact]
+    public async Task GetFunction_NonExistentObjectCode_ReturnsListOfFunctionsAndEmptySelectedList()
+    {
+        var req = new Sys_AccessController_GetFunctionReq { ObjectCode = "NON_EXISTENT" };
+        var result = await _controller.GetFunction(req);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+
+        var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        // ListSysObject vẫn có 3 hàm
+        var listObj = data.GetProperty("ListSysObject");
+        Assert.Equal(3, listObj.GetArrayLength());
+
+        // SelectedList rỗng vì objectCode không có trong cấu hình
+        var selectedList = data.GetProperty("SelectedList");
+        Assert.Equal(0, selectedList.GetArrayLength());
+
+        // ObjectCode được ghi lại
+        Assert.Equal("NON_EXISTENT", data.GetProperty("ObjectCode").GetString());
     }
 
     [Fact]
