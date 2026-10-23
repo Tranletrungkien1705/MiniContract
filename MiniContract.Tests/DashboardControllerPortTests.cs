@@ -64,6 +64,224 @@ public class DashboardControllerPortTests : IDisposable
     }
 
     [Fact]
+    public async Task Index_NullReq_ReturnsSuccessWithDefaultCounts()
+    {
+        // Ca 1: Body rỗng (null) -> waUserCode rỗng:
+        // ContractCreatePending = 1 (HD0003 có ContractStatus="ONPROCESS")
+        // PendingForUser = 0
+        // PendingForOther = 3 (HD0001, HD0003, HD0004 có UserSignSatus="PENDING")
+        var result = await _controller.Index(null);
+        var root = ExtractJson(result);
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+        Assert.Equal(3, data.GetArrayLength());
+
+        var item0 = data[0];
+        Assert.Equal("ContractCreatePending", item0.GetProperty("ReportType").GetString());
+        Assert.Equal(1, item0.GetProperty("TotalQty").GetDouble());
+
+        var item1 = data[1];
+        Assert.Equal("PendingForUser", item1.GetProperty("ReportType").GetString());
+        Assert.Equal(0, item1.GetProperty("TotalQty").GetDouble());
+
+        var item2 = data[2];
+        Assert.Equal("PendingForOther", item2.GetProperty("ReportType").GetString());
+        Assert.Equal(3, item2.GetProperty("TotalQty").GetDouble());
+
+        var listInv = root.GetProperty("ListInvoice_License");
+        Assert.Equal(0, listInv.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Index_UserU01_ReturnsExpectedCountsAndMST()
+    {
+        // Ca 2: Người dùng U01 (admin@solution.hn)
+        // ContractCreatePending = 1 (HD0003)
+        // PendingForUser = 2 (HD0001, HD0003 có U01 ký PENDING)
+        // PendingForOther = 2 (HD0003, HD0004 có U02 ký PENDING)
+        // MST tự động tra từ Sys_User của U01 là "0100000001"
+        var req = new Dashboard_IndexReq
+        {
+            WAUserCode = "U01"
+        };
+        var result = await _controller.Index(req);
+        var root = ExtractJson(result);
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("0100000001", root.GetProperty("MST").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal(3, data.GetArrayLength());
+
+        Assert.Equal("ContractCreatePending", data[0].GetProperty("ReportType").GetString());
+        Assert.Equal(1, data[0].GetProperty("TotalQty").GetDouble());
+
+        Assert.Equal("PendingForUser", data[1].GetProperty("ReportType").GetString());
+        Assert.Equal(2, data[1].GetProperty("TotalQty").GetDouble());
+
+        Assert.Equal("PendingForOther", data[2].GetProperty("ReportType").GetString());
+        Assert.Equal(2, data[2].GetProperty("TotalQty").GetDouble());
+    }
+
+    [Fact]
+    public async Task Index_UserU02_ReturnsDifferentCounts()
+    {
+        // Ca 3: Người dùng U02 (tester@solution.hn) - bộ lọc khác ra số lượng khác
+        // ContractCreatePending = 1 (HD0003)
+        // PendingForUser = 2 (HD0003, HD0004 có U02 ký PENDING)
+        // PendingForOther = 2 (HD0001, HD0003 có U01 ký PENDING)
+        var req = new Dashboard_IndexReq
+        {
+            UserCode = "U02",
+            MST = "CUSTOM_MST"
+        };
+        var result = await _controller.Index(req);
+        var root = ExtractJson(result);
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("CUSTOM_MST", root.GetProperty("MST").GetString());
+
+        var data = root.GetProperty("Data");
+        Assert.Equal("PendingForUser", data[1].GetProperty("ReportType").GetString());
+        Assert.Equal(2, data[1].GetProperty("TotalQty").GetDouble());
+
+        Assert.Equal("PendingForOther", data[2].GetProperty("ReportType").GetString());
+        Assert.Equal(2, data[2].GetProperty("TotalQty").GetDouble());
+    }
+
+    [Fact]
+    public async Task Index_HeaderUserCode_ReadsFromHeaders()
+    {
+        // Ca 5: Truyền user code qua HTTP Header thay vì body
+        _controller.ControllerContext.HttpContext.Request.Headers["WAUserCode"] = "U01";
+
+        var result = await _controller.Index(new Dashboard_IndexReq());
+        var root = ExtractJson(result);
+
+        Assert.True(root.GetProperty("Success").GetBoolean());
+        var data = root.GetProperty("Data");
+
+        Assert.Equal("PendingForUser", data[1].GetProperty("ReportType").GetString());
+        Assert.Equal(2, data[1].GetProperty("TotalQty").GetDouble());
+    }
+
+    [Fact]
+    public async Task RealServer_VerifyIndexAsync()
+    {
+        // Chạy kiểm thử trên server thật với FreePort.Get() và SQLite tạm (PORT_RULES §2.6)
+        var tempDb = Path.Combine(AppContext.BaseDirectory, $"verify_dashboard_index_{Guid.NewGuid():N}.db");
+        var dllPath = typeof(DashboardControllerPort).Assembly.Location;
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../bin/Release/net8.0/MiniContract.dll"));
+        }
+        if (!File.Exists(dllPath))
+        {
+            dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "MiniContract.dll"));
+        }
+        Assert.True(File.Exists(dllPath), $"Cannot find MiniContract.dll at {dllPath}");
+
+        var psi = new ProcessStartInfo("dotnet", $"\"{dllPath}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(dllPath),
+        };
+        var freePort = FreePort.Get();
+        psi.Environment["PORT"] = freePort.ToString();
+        psi.Environment["CONNECTION_STRING"] = $"Data Source={tempDb}";
+        psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+
+        using var proc = Process.Start(psi);
+        Assert.NotNull(proc);
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{freePort}"), Timeout = TimeSpan.FromSeconds(5) };
+            bool started = false;
+            for (int i = 0; i < 30; i++)
+            {
+                try
+                {
+                    var res = await http.GetAsync("/healthz");
+                    if (res.IsSuccessStatusCode)
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                catch
+                {
+                    await Task.Delay(500);
+                }
+            }
+            Assert.True(started, "Real server did not start within 15 seconds.");
+
+            // 1. Gọi /api/dashboard/index với body rỗng {}
+            var emptyContent = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resEmpty = await http.PostAsync("/api/dashboard/index", emptyContent);
+            Assert.True(resEmpty.IsSuccessStatusCode);
+            var jsonEmpty = await resEmpty.Content.ReadAsStringAsync();
+            var docEmpty = JsonDocument.Parse(jsonEmpty);
+            Assert.True(docEmpty.RootElement.GetProperty("Success").GetBoolean());
+            var dataEmpty = docEmpty.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataEmpty[0].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(0, dataEmpty[1].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(3, dataEmpty[2].GetProperty("TotalQty").GetDouble());
+
+            // 2. Gọi /api/dashboard/index với user U01
+            var u01Payload = JsonSerializer.Serialize(new { WAUserCode = "U01" });
+            var u01Content = new StringContent(u01Payload, Encoding.UTF8, "application/json");
+            var resU01 = await http.PostAsync("/api/dashboard/index", u01Content);
+            Assert.True(resU01.IsSuccessStatusCode);
+            var jsonU01 = await resU01.Content.ReadAsStringAsync();
+            var docU01 = JsonDocument.Parse(jsonU01);
+            Assert.True(docU01.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("0100000001", docU01.RootElement.GetProperty("MST").GetString());
+            var dataU01 = docU01.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataU01[0].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(2, dataU01[1].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(2, dataU01[2].GetProperty("TotalQty").GetDouble());
+
+            // 3. Gọi /api/dashboard/index với user U02 (bộ lọc khác)
+            var u02Payload = JsonSerializer.Serialize(new { UserCode = "U02", MST = "CUSTOM_MST" });
+            var u02Content = new StringContent(u02Payload, Encoding.UTF8, "application/json");
+            var resU02 = await http.PostAsync("/api/dashboard/index", u02Content);
+            Assert.True(resU02.IsSuccessStatusCode);
+            var jsonU02 = await resU02.Content.ReadAsStringAsync();
+            var docU02 = JsonDocument.Parse(jsonU02);
+            Assert.True(docU02.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("CUSTOM_MST", docU02.RootElement.GetProperty("MST").GetString());
+            var dataU02 = docU02.RootElement.GetProperty("Data");
+            Assert.Equal(1, dataU02[0].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(2, dataU02[1].GetProperty("TotalQty").GetDouble());
+            Assert.Equal(2, dataU02[2].GetProperty("TotalQty").GetDouble());
+        }
+        finally
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    proc.Kill(true);
+                    proc.WaitForExit(3000);
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (File.Exists(tempDb))
+                {
+                    File.Delete(tempDb);
+                }
+            }
+            catch { }
+        }
+    }
+
+    [Fact]
     public async Task DashboardLicense_NullReq_ReturnsSuccessWithDefaultCounts()
     {
         // Ca 1: Body rỗng (null) -> waUserCode rỗng:
