@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 163/295 (55.25%)
+**Tiến độ hiện tại**: 164/295 (55.59%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -28,7 +28,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 16 | Contract_ContractController/Contract_Checker_Accept | Chưa làm | - |
 | 17 | Contract_ContractController/Contract_Checker_Accept_Server | Chưa làm | - |
 | 18 | Contract_ContractController/Contract_Checker_Accept_Remote | Đã làm | b74fb68 |
-| 19 | Contract_ContractController/Contract_ContractParty_Cancel | Chưa làm | - |
+| 19 | Contract_ContractController/Contract_ContractParty_Cancel | Đã làm | 0e9e2de |
 | 20 | Contract_ContractController/Contract_ContractParty_CancelMulti | Chưa làm | - |
 | 21 | Contract_ContractController/ApprovedAndSign_Old | Chưa làm | - |
 | 22 | Contract_ContractController/ApprovedAndSign | Đã làm | 99e91af |
