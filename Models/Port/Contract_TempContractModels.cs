@@ -23,6 +23,8 @@ namespace MiniContract.Models.Port
         public string? FlagChecker { get; set; }
     }
 
+    // port 1:1 Contract_TempContractController.cs — Contract_TempContractParty
+    // Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:6530-6578, 5874-5934
     public class Contract_TempContractParty
     {
         public string? TContractCode { get; set; }
@@ -31,10 +33,16 @@ namespace MiniContract.Models.Port
         public string? MST { get; set; }
         public string? CustomerCode { get; set; }
         public string? CustomerCodeSys { get; set; }
+        public string? BankAccountNo { get; set; }
         public string? CustomerName { get; set; }
         public string? CustomerAddress { get; set; }
         public string? CustomerEmail { get; set; }
         public string? CustomerPhoneNo { get; set; }
+        public string? CustomerWebsite { get; set; }
+        public string? BankCode { get; set; }
+        public string? BankName { get; set; }
+        public string? RepresentName { get; set; }
+        public string? RepresentPosition { get; set; }
         public string? Description { get; set; }
         public string? FlagActive { get; set; }
         public string? LogLUDTimeUTC { get; set; }
