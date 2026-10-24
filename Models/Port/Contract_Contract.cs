@@ -7,8 +7,7 @@ namespace MiniContract.Models.Port;
 // port 1:1 Contract_ContractController.cs — Contract_Contract
 // Nguồn: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:9827-9867 (bảng tạm lọc),
 //        9940-9966 (select Contract_Contract), 10186-10221 (Contract_Contract_Ref)
-// GAP: DDL/model đầy đủ của Contract_Contract KHÔNG nằm trong source_excerpt.txt (đề bài cấm đọc file ngoài excerpt).
-//      Entity dưới đây chỉ khai các cột mà SQL nguồn CHẮC CHẮN dùng (lọc/sắp xếp/join/chiếu) — xem .parity-run\conflicts\10_conflict.md.
+//        + QContract.cs:20042-20221 (Contract_Contract_SaveX_New20240312 — danh sách cột upsert, #31)
 public class Contract_Contract
 {
     // QContract.cs:9831, 9954 — khoá join của mọi bảng con
@@ -23,36 +22,39 @@ public class Contract_Contract
     // QContract.cs:9948 — case when cc.ContractStatus = 'PENDING'
     public string? ContractStatus { get; set; }
 
-    // QContract.cs:9949 — cc.ContractFilePath
-    public string? ContractFilePath { get; set; }
-
-    // QContract.cs:9956 — left join Contract_TempContract on cc.TContractCode
+    // QContract.cs:9949 — cc.ContractFileSpec — không có cột ở đích (GAP)
     public string? TContractCode { get; set; }
-
-    // QContract.cs:9958 — left join Mst_CurrencyEx on cc.CurrencyCode
     public string? CurrencyCode { get; set; }
-
-    // QContract.cs:10188, 10206, 10212, 10218 — Contract_Contract_Ref
     public string? ContractRefNo { get; set; }
-
-    // QContract.cs:10072, 10086, 10092 — Contract_Checker (người tạo)
     public string? UserCodeCreate { get; set; }
     public string? UserNameCreate { get; set; }
     public string? PositionCreate { get; set; }
     public string? CreateBy { get; set; }
 
+    // QContract.cs:20197-20210 — Contract_Contract_SaveX_New20240312 upsert (đủ cột để map model)
+    public string? ContractNo { get; set; }
+    public string? ContractName { get; set; }
+    public string? OrgID { get; set; }
+    public string? FlagContractAnnex { get; set; }
+    public string? FlagOrgCreate { get; set; }        // 20153 — '1' cho org tạo
+    public string? FlagSysGenAccessKey { get; set; }  // 20147 — '1'
+    public string? FlagSendUserAll { get; set; }      // 20148 — '0'
+    public string? FlagCreatePartnerSignFirst { get; set; } // 20149
+    public string? FlagActive { get; set; }           // 20154 — '1'
+    public string? EffDateStart { get; set; }
+    public string? EffDateEnd { get; set; }
+    public string? CurrencyName { get; set; }
+    public string? CurrencyRate { get; set; }
+    public string? NNTFullName { get; set; }          // 20150 — từ Mst_NNT.NNTFullName
+    public string? ContactName { get; set; }          // 20151 — từ Mst_NNT.ContactName
+    public string? PhoneNoCreate { get; set; }        // 20210 — từ Sys_User.PhoneNo
+    public string? EMailCreate { get; set; }          // 20211 — từ Sys_User.EMail
+    public string? ContractFilePath { get; set; }     // cột dùng ở approve/mail
+
     // zTemp.cs:2045-2048, 2103-2106 — ESign/Contract_ContractParty_Cancel
     public string? CancelDTimeUTC { get; set; }
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
-    public string? ContractNo { get; set; }
-
-    // QContract.cs:19922, 21892 — tên hợp đồng (gate Contract_ContractController.cs:1109)
-    public string? ContractName { get; set; }
-
-    // Contract_ContractController.cs:7989-7992 — strWhereClause_Contract_ContractSearch: Contract_Contract.OrgID = OrgID
-    // (gate DoSearch KHÔNG truyền OrgID nên nhánh này không chạy; khai cột để đủ DDL dùng chung)
-    public string? OrgID { get; set; }
 }
 
 public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_Contract>
@@ -80,6 +82,20 @@ public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_
         builder.Property(x => x.ContractNo).HasMaxLength(50);
         builder.Property(x => x.ContractName).HasMaxLength(250);
         builder.Property(x => x.OrgID).HasMaxLength(50);
+        builder.Property(x => x.FlagContractAnnex).HasMaxLength(10);
+        builder.Property(x => x.FlagOrgCreate).HasMaxLength(10);
+        builder.Property(x => x.FlagSysGenAccessKey).HasMaxLength(10);
+        builder.Property(x => x.FlagSendUserAll).HasMaxLength(10);
+        builder.Property(x => x.FlagCreatePartnerSignFirst).HasMaxLength(10);
+        builder.Property(x => x.FlagActive).HasMaxLength(10);
+        builder.Property(x => x.EffDateStart).HasMaxLength(50);
+        builder.Property(x => x.EffDateEnd).HasMaxLength(50);
+        builder.Property(x => x.CurrencyName).HasMaxLength(100);
+        builder.Property(x => x.CurrencyRate).HasMaxLength(50);
+        builder.Property(x => x.NNTFullName).HasMaxLength(500);
+        builder.Property(x => x.ContactName).HasMaxLength(250);
+        builder.Property(x => x.PhoneNoCreate).HasMaxLength(50);
+        builder.Property(x => x.EMailCreate).HasMaxLength(250);
     }
 }
 
