@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 184/295 (62.37%)
+**Tiến độ hiện tại**: 185/295 (62.71%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -268,7 +268,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 256 | ServicesController/ContractPartySend | Đã làm | eef9cb1 |
 | 257 | ServicesController/ContractPartySend_SSO | Đã làm | 366bb4b |
 | 258 | ServicesController/ContractSend | Đã làm | 93b6a88 |
-| 259 | ServicesController/ContractResend | Chưa làm | - |
+| 259 | ServicesController/ContractResend | Đã làm | 27029ec |
 | 260 | Sys_AccessController/Index | Đã làm | c9e3e0f |
 | 261 | Sys_AccessController/GetDetailData | Đã làm | 91ffe84 |
 | 262 | Sys_AccessController/GetFunction | Đã làm | 14b6c92 |
