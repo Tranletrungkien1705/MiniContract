@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 181/295 (61.36%)
+**Tiến độ hiện tại**: 182/295 (61.69%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -265,7 +265,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 253 | ServicesController/Login | Chưa làm | - |
 | 254 | ServicesController/ContractSignLink | Chưa làm | - |
 | 255 | ServicesController/ContractSendHist | Chưa làm | - |
-| 256 | ServicesController/ContractPartySend | Chưa làm | - |
+| 256 | ServicesController/ContractPartySend | Đã làm | eef9cb1 |
 | 257 | ServicesController/ContractPartySend_SSO | Chưa làm | - |
 | 258 | ServicesController/ContractSend | Chưa làm | - |
 | 259 | ServicesController/ContractResend | Chưa làm | - |
