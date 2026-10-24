@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 190/295 (64.41%)
+**Tiến độ hiện tại**: 191/295 (64.75%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -39,7 +39,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 27 | Contract_ContractController/ApprovedSignAndSendMail | Đã làm | d0170c2 |
 | 28 | Contract_ContractController/ApprovedSignServerAndSendMail_Old | Đã làm | 7d39835 |
 | 29 | Contract_ContractController/ApprovedSignServerAndSendMail | Đã làm | 31cb6d5 |
-| 30 | Contract_ContractController/ApprovedSignRemoteAndSendMail | Chưa làm | - |
+| 30 | Contract_ContractController/ApprovedSignRemoteAndSendMail | Đã làm | 2c9df78 |
 | 31 | Contract_ContractController/SaveApprovedSignAndSendMail | Chưa làm | - |
 | 32 | Contract_ContractController/SaveApprovedSignServerAndSendMail | Chưa làm | - |
 | 33 | Contract_ContractController/SaveAndSendMail | Chưa làm | - |
