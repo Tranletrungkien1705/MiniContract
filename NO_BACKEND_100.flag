@@ -1,0 +1,2 @@
+NO_BACKEND — ESignController.Sign: gate gọi trực tiếp dịch vụ ngoài (ESign, iNOS), không có API controller Biz tương ứng để port.
+Xem: 100_conflict.md
