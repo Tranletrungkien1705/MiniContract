@@ -104,4 +104,54 @@ namespace MiniContract.Models.Port
             }
         }
     }
+
+    // port 1:1 Contract_TempContractController.cs:186-273 (DoSearch) — dữ liệu mẫu để join Mst_Org/Mst_NNT/Mst_ContractType ra dòng.
+    // Order nghiệp vụ >= 200, chọn 219 chưa dùng (grep `Order =>` trong Models/Port).
+    public class Contract_TempContractDoSearchSeeder : IPortSeeder
+    {
+        public int Order => 219;
+
+        public async Task SeedAsync(AppDbContext db)
+        {
+            var set = db.Set<Contract_TempContract>();
+            if (await set.AnyAsync(x => x.TContractCode == "TCONT002")) return;
+
+            set.AddRange(
+                new Contract_TempContract
+                {
+                    TContractCode = "TCONT002",
+                    NetworkID = "1001",
+                    OrgID = "7200000001",
+                    TContracName = "Hợp đồng mẫu kinh tế",
+                    ContractType = "HD_KT",
+                    ContractName = "Mẫu HĐ kinh tế",
+                    FlagActive = "1",
+                    TContractFileName = "tcont002.pdf",
+                    CreateDTimeUTC = new DateTime(2026, 10, 20, 8, 0, 0, DateTimeKind.Utc),
+                    CreateBy = "port",
+                    CreateLUBy = "port",
+                    LogLUDTimeUTC = DateTime.UtcNow,
+                    LogLUBy = "port"
+                },
+                new Contract_TempContract
+                {
+                    TContractCode = "TCONT003",
+                    NetworkID = "1001",
+                    OrgID = "7200000002",
+                    TContracName = "Hợp đồng mẫu lao động",
+                    ContractType = "HD_LD",
+                    ContractName = "Mẫu HĐ lao động",
+                    FlagActive = "0",
+                    TContractFileName = "tcont003.pdf",
+                    CreateDTimeUTC = new DateTime(2026, 10, 21, 8, 0, 0, DateTimeKind.Utc),
+                    CreateBy = "port",
+                    CreateLUBy = "port",
+                    LogLUDTimeUTC = DateTime.UtcNow,
+                    LogLUBy = "port"
+                }
+            );
+
+            await db.SaveChangesAsync();
+        }
+    }
 }
