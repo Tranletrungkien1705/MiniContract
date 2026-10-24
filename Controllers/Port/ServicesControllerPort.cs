@@ -4,11 +4,13 @@ using MiniContract.Data;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 ServicesController.cs — ContractPartySend (#256) + ContractPartySend_SSO (#257) + ContractSend (#258)
+// port 1:1 ServicesController.cs — ContractPartySend (#256) + ContractPartySend_SSO (#257) + ContractSend (#258) + ContractResend (#259)
 //   Gate #256: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ServicesController.cs:417-585
 //   Gate #257: cùng file :587-756
 //   Gate #258: cùng file :759-926
+//   Gate #259: cùng file :927-1074 (gửi lại hợp đồng theo kênh Email/Zalo/SMS)
 //   Trích nguồn #258: .parity-run\logs\258_ServicesController_ContractSend\source_excerpt.txt
+//   Trích nguồn #259: .parity-run\logs\259_ServicesController_ContractResend\source_excerpt.txt
 //   Tầng gate #258 chỉ gọi:
 //     - CheckGatewayAuthentication (BaseController.cs:864-872) — so header Gw*, không phải nghiệp vụ
 //     - InitSSO / CheckAuthorize / AccountService / OrgService (BaseController.cs:808-907) — iNOS SSO (dịch vụ ngoài)
@@ -18,13 +20,21 @@ namespace MiniContract.Controllers.Port;
 //     - RT_Contract_Contract_Return_CheckUserToSend (ServicesController.cs:3141-3196) — lọc theo FlagSendAll/FlagSendUser trên dữ liệu API trả về
 //     - SendChannel (ServicesController.cs:1206-1612) → WA_Mst_Channel_Get / WA_Mst_SubmissionForm_Get /
 //       WA_Mst_ContractTypeDtl_Get / EmailChannel / ZaloChannel / SMSChannel (Mailgate / OS_idocNet_SMS_V10 / ZaloOA — dịch vụ ngoài)
-//   API:  excerpt dòng 1616: "API: khong thay controller ServicesController.cs trong ...Biz.Web.Controllers"
-//         ⇒ KHÔNG có tầng API (Biz.Web) cho ContractSend.
+//   Tầng gate #259 (ContractResend, ServicesController.cs:927-1074) gọi (đầy đủ danh sách cho 4 action dưới):
+//     - CheckGatewayAuthentication (BaseController.cs:864-872) — GW header
+//     - InitSSO / CheckAuthorize / AccountService / OrgService (BaseController.cs:808-907) — iNOS SSO (dịch vụ ngoài)
+//     - API_Get (BaseController.cs:959-982) → MasterServerService.Instance.WA_MstSv_Sys_User_Login (dịch vụ ngoài)
+//     - WA_Mst_ColumnConfig_Get (ServicesController.cs:3746-3793) → TClientService...WA_Mst_ColumnConfig_Get (dịch vụ ngoài)
+//     - ContractData_Get (ServicesController.cs:1078-1154) → WA_Contract_Contract_Get (dịch vụ ngoài)
+//     - ResendChannel (ServicesController.cs:1614-2174) → WA_Mst_Channel_Get / WA_Mst_SubmissionForm_Get /
+//       WA_Mst_ContractTypeDtl_Get / ZaloAPI_Get / EmailChannel / ZaloChannel / SMSChannel (dịch vụ ngoài)
+//   API:  excerpt #259 dòng 2066: "API: khong thay controller ServicesController.cs trong ...Biz.Web.Controllers"
+//         ⇒ KHÔNG có tầng API (Biz.Web) cho cả 4 action.
 //   BIZ:  KHÔNG có — mọi WA_* là ClientService gọi HTTP sang API động, không có hàm biz/DDL nội bộ.
-//   Mã lỗi: excerpt dòng 1620-1622: 7 chỗ throw new Exception, danh sách mã TError.* RỖNG (không có mã lỗi nghiệp vụ).
+//   Mã lỗi: excerpt #259 dòng 2070: "Ma loi:" RỖNG (chỉ 8 throw new Exception, gate AddException).
 // ⇒ Toàn bộ dữ liệu + hành vi nằm ở dịch vụ ngoài (iNOS SSO, MasterServer, ClientService API động, Mailgate/SMS/ZaloOA).
 //   Theo đề bài P3 + luật B.7: DỪNG, KHÔNG tự chế bảng/kết quả/giá trị; endpoint trả GAP.NoBackend.
-//   Xem .parity-run\conflicts\258_conflict.md.
+//   Xem .parity-run\conflicts\258_conflict.md và .parity-run\conflicts\259_conflict.md.
 [ApiController]
 [Route("api/services")]
 public class ServicesControllerPort : ControllerBase
@@ -151,5 +161,70 @@ public class ServicesControllerPort : ControllerBase
         return PortResult.Fail("Services_ContractSend", "GAP.NoBackend",
             "CheckGatewayAuthentication+CheckAuthorize/SSO+API_Get+WA_Mst_ColumnConfig_Get+WA_Contract_Contract_Get+WA_Mst_Channel_Get+WA_Mst_SubmissionForm_Get+WA_Mst_ContractTypeDtl_Get+SendChannel",
             "ServicesController.cs:769,781-820,823,825-831,830-831,841-848,856-857,873-889,907,912,1206-1612,3141-3196 (dịch vụ ngoài)");
+    }
+
+    // =====================================================================================
+    // #259 — ServicesController.ContractResend (ServicesController.cs:927-1074)
+    // =====================================================================================
+
+    /// <summary>
+    /// Tham số của gate #259 (ServicesController.cs:927): `strJson` chứa TModelsUI.Contract_ReSendHistUI với
+    /// - RQ_Contract_Contract: AccessToken (SSO khi header FlagUserLogin="1"), WAUserCode/WAUserPassword (khi đó),
+    ///   NetworkID, Lst_Contract_Contract (chỉ dùng phần tử [0].ContractCode — ServicesController.cs:1013-1017).
+    /// - Lst_Contract_SendHist: danh sách kênh gửi lại (ChannelType/PartyCode/UserToken/InfoReceive) —
+    ///   gate ném "Lst_Contract_SendHist_Input is null" khi rỗng (ServicesController.cs:1019-1021).
+    /// Gate đọc thêm header FlagUserLogin / NetworkID / OrgID / Tid / GwUserCode / GwPassword (CheckGatewayAuthentication).
+    /// Không port được phần SSO + tra cứu hợp đồng + gửi lại kênh (dịch vụ ngoài) ⇒ đích chỉ nhận đúng khung req để trả GAP.NoBackend.
+    /// </summary>
+    public class Services_ContractResendReq
+    {
+        public Services_ContractResendContractReq? RQ_Contract_Contract { get; set; }
+        public List<Services_ContractResendSendHist>? Lst_Contract_SendHist { get; set; }
+    }
+
+    public class Services_ContractResendContractReq
+    {
+        public string? AccessToken { get; set; }
+        public string? WAUserCode { get; set; }
+        public string? WAUserPassword { get; set; }
+        public string? NetworkID { get; set; }
+        public List<Services_ContractPartySendContract>? Lst_Contract_Contract { get; set; }
+    }
+
+    public class Services_ContractResendSendHist
+    {
+        public string? ChannelType { get; set; }
+        public string? PartyCode { get; set; }
+        public string? UserToken { get; set; }
+        public string? InfoReceive { get; set; }
+    }
+
+    // Nguồn ServicesController.cs:927-1074 — POST /api/services/contractresend
+    [HttpPost("contractresend")]
+    public IActionResult ContractResend(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Services_ContractResendReq? req)
+    {
+        _ = req;
+        // Dòng 936-942: CheckGatewayAuthentication + đọc header FlagUserLogin/NetworkID/OrgID/Tid.
+        //   CheckGatewayAuthentication ném "GatewayAuthenticateFailed" khi Gw* không khớp (BaseController.cs:864-872) —
+        //   nhưng ở đích KHÔNG có hệ thống GW MasterServer ⇒ không port được, chỉ ghi nhận.
+        // Dòng 945-1011: InitSSO + flagUserLogin="1" → AccountService.RequestToken/GetCurrentUser + OrgService.GetMyOrgUserList
+        //   (iNOS SSO); khác → CheckAuthorize (BaseController.cs:874-907, cũng iNOS SSO). Sau đó:
+        //   API_Get (dòng 1005-1009) → MasterServerService.WA_MstSv_Sys_User_Login
+        //   WA_Mst_ColumnConfig_Get (dòng 1010-1011) → TClientService.Mst_ColumnConfigService.WA_Mst_ColumnConfig_Get
+        // Dòng 1013-1022: ContractCode rỗng → "ContractCode is null";
+        //                  Lst_Contract_SendHist rỗng → "Lst_Contract_SendHist_Input is null".
+        // Dòng 1024-1053: ContractData_Get → TClientService.Contract_ContractService.WA_Contract_Contract_Get (dịch vụ ngoài).
+        //   rỗng ⇒ "ContractCode not found" (1047/1052).
+        // Dòng 1037,1614-2174: ResendChannel → WA_Mst_Channel_Get / WA_Mst_SubmissionForm_Get / WA_Mst_ContractTypeDtl_Get
+        //   (dịch vụ ngoài) + ZaloAPI_Get + EmailChannel / ZaloChannel / SMSChannel
+        //   (Mailgate / OS_idocNet_SMS_V10 / ZaloOA — dịch vụ ngoài).
+        // Dòng 1058-1061: strJson rỗng → "strJson is null".
+        // Không có mã TError.* (mọi chỗ throw new Exception → gate SetFailed().AddException, excerpt #259 dòng 2070 "Ma loi:" rỗng).
+        // Không có tầng Biz.Web (excerpt dòng 2066), không có hàm biz local, không có DDL nghiệp vụ nội bộ ⇒ GAP.NoBackend (P3 + luật B.7).
+        // Xem .parity-run\conflicts\259_conflict.md.
+        return PortResult.Fail("Services_ContractResend", "GAP.NoBackend",
+            "CheckGatewayAuthentication+CheckAuthorize/SSO+API_Get+WA_Mst_ColumnConfig_Get+WA_Contract_Contract_Get+ResendChannel(WA_Mst_Channel_Get+WA_Mst_SubmissionForm_Get+WA_Mst_ContractTypeDtl_Get+EmailChannel/ZaloChannel/SMSChannel)",
+            "ServicesController.cs:936-942,945-1011,1005-1011,1013-1022,1024-1053,1614-2174 (dịch vụ ngoài)");
     }
 }

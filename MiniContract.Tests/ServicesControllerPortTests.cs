@@ -19,9 +19,12 @@ namespace MiniContract.Tests;
 /// <summary>
 /// #256 ServicesController/ContractPartySend (nguồn ServicesController.cs:417-585)
 /// #257 ServicesController/ContractPartySend_SSO (nguồn ServicesController.cs:587-756)
-/// Cả hai: TClientService.*.Instance.WA_*_Get + iNOS SSO + MasterServer + SendChannel (Mailgate/SMS/ZaloOA).
-/// Excerpt dòng 1617-1618: KHÔNG có tầng API/Biz.Web; dòng 1620-1622: KHÔNG có mã TError; DDL chỉ tham chiếu master nguồn.
-/// ⇒ cả hai endpoint trả 400 GAP.NoBackend; xem .parity-run\conflicts\256_conflict.md và 257_conflict.md.
+/// #258 ServicesController/ContractSend (nguồn ServicesController.cs:759-926)
+/// #259 ServicesController/ContractResend (nguồn ServicesController.cs:927-1074)
+/// Cả bốn: TClientService.*.Instance.WA_*_Get + iNOS SSO + MasterServer + SendChannel/ResendChannel
+/// (Mailgate/SMS/ZaloOA). Excerpt #259 dòng 2066: KHÔNG có tầng API/Biz.Web; dòng 2070: KHÔNG có mã TError;
+/// DDL chỉ tham chiếu master nguồn.
+/// ⇒ cả bốn endpoint trả 400 GAP.NoBackend; xem .parity-run\conflicts\256_conflict.md … 259_conflict.md.
 /// </summary>
 public class ServicesControllerPortTests : IDisposable
 {
@@ -121,7 +124,44 @@ public class ServicesControllerPortTests : IDisposable
         MarkDone("s257_contract");
     }
 
-    // ================= Real-server verify (cả #256 lẫn #257) =================
+    // ================= #259 ContractResend =================
+
+    [Fact]
+    public void ContractResend_NullBody_ReturnsGapNoBackend()
+    {
+        // Ca 1: body rỗng — nguồn ném "strJson is null" (ServicesController.cs:1058-1061); đích trả GAP.NoBackend.
+        var root = ExtractJson(_controller.ContractResend(null));
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Services_ContractResend", root.GetProperty("ErrorCode").GetString());
+        Assert.True(root.GetProperty("Params").TryGetProperty("GAP.NoBackend", out var gap));
+        Assert.Contains("ResendChannel", gap.GetString());
+        MarkDone("s259_nullbody");
+    }
+
+    [Fact]
+    public void ContractResend_WithContractAndSendHist_ReturnsGapNoBackend()
+    {
+        // Ca 2: body có RQ_Contract_Contract + Lst_Contract_SendHist — nguồn đi qua SSO iNOS + ContractData_Get +
+        // ResendChannel(WA_Mst_Channel_Get/SubmissionForm/ContractTypeDtl + Email/Zalo/SMS) — dịch vụ ngoài.
+        var root = ExtractJson(_controller.ContractResend(new ServicesControllerPort.Services_ContractResendReq
+        {
+            RQ_Contract_Contract = new()
+            {
+                AccessToken = "sso-tok",
+                NetworkID = "1001",
+                Lst_Contract_Contract = new() { new() { ContractCode = "CTR001" } },
+            },
+            Lst_Contract_SendHist = new()
+            {
+                new() { ChannelType = "EMAIL", PartyCode = "PARTY_A", UserToken = "ut1", InfoReceive = "a@b.c" },
+            },
+        }));
+        Assert.False(root.GetProperty("Success").GetBoolean());
+        Assert.Equal("Erridn.Skycic.QContract.Services_ContractResend", root.GetProperty("ErrorCode").GetString());
+        MarkDone("s259_contract");
+    }
+
+    // ================= Real-server verify (cả #256/#257/#259) =================
 
     [Fact]
     public async Task RealServer_VerifyContractPartySendAndSSOAsync()
@@ -206,6 +246,35 @@ public class ServicesControllerPortTests : IDisposable
             var docSsoContract = JsonDocument.Parse(await resSsoContract.Content.ReadAsStringAsync());
             Assert.Equal("Erridn.Skycic.QContract.Services_ContractPartySend_SSO",
                 docSsoContract.RootElement.GetProperty("ErrorCode").GetString());
+
+            // #259: body rỗng + body đầy đủ
+            var resResendEmpty = await http.PostAsync("/api/services/contractresend",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.BadRequest, resResendEmpty.StatusCode);
+            var docResendEmpty = JsonDocument.Parse(await resResendEmpty.Content.ReadAsStringAsync());
+            Assert.False(docResendEmpty.RootElement.GetProperty("Success").GetBoolean());
+            Assert.Equal("Erridn.Skycic.QContract.Services_ContractResend",
+                docResendEmpty.RootElement.GetProperty("ErrorCode").GetString());
+            Assert.True(docResendEmpty.RootElement.GetProperty("Params").TryGetProperty("GAP.NoBackend", out _));
+
+            var resResendFull = await http.PostAsync("/api/services/contractresend",
+                new StringContent(JsonSerializer.Serialize(new
+                {
+                    RQ_Contract_Contract = new
+                    {
+                        AccessToken = "sso-tok",
+                        NetworkID = "1001",
+                        Lst_Contract_Contract = new[] { new { ContractCode = "CTR001" } },
+                    },
+                    Lst_Contract_SendHist = new[]
+                    {
+                        new { ChannelType = "EMAIL", PartyCode = "PARTY_A", UserToken = "ut1", InfoReceive = "a@b.c" },
+                    },
+                }), Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.BadRequest, resResendFull.StatusCode);
+            var docResendFull = JsonDocument.Parse(await resResendFull.Content.ReadAsStringAsync());
+            Assert.Equal("Erridn.Skycic.QContract.Services_ContractResend",
+                docResendFull.RootElement.GetProperty("ErrorCode").GetString());
 
             MarkDone("s257_realserver");
         }
