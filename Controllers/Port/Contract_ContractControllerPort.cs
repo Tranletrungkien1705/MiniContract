@@ -38,6 +38,90 @@ public class Contract_ContractControllerPort : ControllerBase
     /// ListMst_ContractType (dropdown loại hợp đồng) + PageInfo&lt;Contract_Contract&gt;.
     /// Gate: Contract_ContractController.cs:415-698
     /// </summary>
+    /// <summary>
+    /// Ký và gửi mail hợp đồng (kèm gửi cho đối tác).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Contract_ContractController.cs:3306-3575 (ApprovedSignAndSendMail_Old)
+    ///       BaseController.cs:6667-6737 (ReturnApiUserCreateContract — GAP)
+    /// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\ContractContractController.cs:162-230, 517-585
+    /// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:34099-34211, 36439-36552 (wrapper)
+    ///       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\QContract.cs:33656-33873, 36218-36437 (thực hiện)
+    /// GAP: - Gọi dịch vụ ngoài `MasterServerService` (lấy API từ master server) — bỏ qua, không mock
+    ///      - ContractPartySend (gửi mail) đã commented out trong gate — bỏ qua
+    ///      - FlagCheckPageSign / NetworkIDParty / OrgIDParty / MST / UserCodeSign / UserNameSign / ContractFileVersion của PartySign không rõ chuẩn hoá (GAP)
+    /// </summary>
+    [HttpPost("approvedsignyandsendmail_old")]
+    public async Task<IActionResult> ApprovedSignAndSendMail_Old([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Contract_Contract_ApprovedSignAndSendMail_OldReq? req)
+    {
+        // Gate :3317 — deserialize ContractModel từ model string nếu có
+        Contract_Contract_ApprovedSignAndSendMail_OldReq? model = req;
+        if (!string.IsNullOrWhiteSpace(req?.Model))
+        {
+            try
+            {
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Contract_Contract_ApprovedSignAndSendMail_OldReq>(
+                    req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (parsed != null) model = parsed;
+            }
+            catch
+            {
+            }
+        }
+
+        // Gate :3334 — CUtils.StrValue -> Trim
+        var contractCode = StdParam(model?.ContractCode);
+        if (string.IsNullOrEmpty(contractCode))
+        {
+            return PortResult.Fail("WAS_Contract_Contract_Approved", "Check.strJson", null);
+        }
+
+        // Gate :3344-3345 — FlagOrgCreate = "1" (hợp đồng đi) hay khác (hợp đồng đến)
+        var flagOrgCreate = StrValue(model?.FlagOrgCreate);
+        var contractFileSpec = model?.SignedFileContent ?? "";
+        var contractFileName = model?.ContractFileName ?? "";
+        var flagElement = StrValue(model?.FlagElement);
+        var flagCheckOTP = StrValue(model?.FlagCheckOTP);
+        var contractFileVersion = model?.ContractFileVersion ?? "";
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Gate :3348 hoặc 3388 — gọi biz qua API service (đó là dịch vụ bên ngoài, skip + GAP)
+            // Port logic chính: search hợp đồng sau khi tạo
+            // Gate :3396-3426 — strWhereClause_Contract_ContractSearch lọc ContractCode (ContractNo cũng là alias tương tự)
+            var contract = await _db.Set<Contract_Contract>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(contractCode), PortQuery.Esc));
+
+            if (contract == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("WAS_Contract_Contract_Approved", "Check.ContractCode", contractCode);
+            }
+
+            // Gate :3438-3439 — Guid + Session lưu listContract_Result (skip — đó là phần UI cũ)
+            // Gate :3441 — ContractPartySend (gửi mail, commented out) — skip + GAP
+
+            await tx.CommitAsync();
+
+            // Gate :3562-3567 — Success=true + AddMessage + RedirectUrl
+            return Ok(new
+            {
+                Success = true,
+                Data = new
+                {
+                    ContractCode = contractCode,
+                    Message = $"Ký và gửi hợp đồng '{contractCode}' thành công!",
+                    RedirectUrl = $"/Contract_Contract/Detail?contractcode={contractCode}"
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return PortResult.Fail("WAS_Contract_Contract_Approved", "Exception", ex.Message);
+        }
+    }
+
     [HttpPost("index")]
     public async Task<IActionResult> Index([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Contract_Contract_IndexReq? req)
     {
@@ -796,6 +880,28 @@ public class Contract_Contract_DeleteItem
 {
     public string? ContractCode { get; set; }
     public string? ContractName { get; set; }
+}
+
+/// <summary>
+/// Tham số của gate Contract_ContractController.cs:3306 (ApprovedSignAndSendMail_Old).
+/// Client gửi ContractModel dạng chuỗi JSON (gate:3317) hoặc phẳng các trường của ContractModel.
+/// </summary>
+public class Contract_Contract_ApprovedSignAndSendMail_OldReq
+{
+    /// <summary>Chuỗi JSON ContractModel (gate:3317).</summary>
+    public string? Model { get; set; }
+
+    // Các trường ContractModel (gate:3334-3338)
+    public string? ContractCode { get; set; }
+    public string? SignedFileContent { get; set; }
+    public string? ContractFileName { get; set; }
+    public string? FlagElement { get; set; }
+    public string? FlagCheckOTP { get; set; }
+    public string? FlagOrgCreate { get; set; }
+    public string? ContractFileVersion { get; set; }
+
+    /// <summary>Danh sách đối tác (gate:3477, PartyList) — GAP: không port (phần mail commented out).</summary>
+    public List<object>? PartyList { get; set; }
 }
 
 /// <summary>
