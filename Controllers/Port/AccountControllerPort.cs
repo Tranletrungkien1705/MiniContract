@@ -9,6 +9,7 @@ using MiniContract.Models.Port;
 namespace MiniContract.Controllers.Port;
 
 // port 1:1 AccountController.cs — LoginOS, LogOff, SignOut, LogOffNoLoginOS
+// (Login CAN_XEM_TAY: NO_BACKEND, xem .parity-run/conflicts/2_conflict.md)
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:215-549 (LoginOS)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\AccountController.cs:553-571 (LogOff)
@@ -59,6 +60,7 @@ public class AccountControllerPort : ControllerBase
     /// 9. Thiết lập phiên và trả kết quả thành công khớp gate (dòng 524-526):
     ///    { Success = true, RedirectUrl = "/Dashboard/Index?networkId=" + parentId, Data = ... }
     /// </summary>
+
     [HttpPost("loginos")]
     public async Task<IActionResult> LoginOS([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Account_LoginOSReq? req)
     {
