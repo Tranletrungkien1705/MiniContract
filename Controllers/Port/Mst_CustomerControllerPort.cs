@@ -9,11 +9,11 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 Mst_CustomerController.cs — Mst_Customer
+// port 1:1 Mst_CustomerController.cs — Mst_Customer, Mst_CustomerGroup/AddCustomerGroup
 // Nguồn:
-// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update), 2609-2995 (Edit), 3603-3800 (CreateInOrder), 3804-3859 (GetAllCustomerGroup)
-// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save)
-// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205)
+// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\Mst_CustomerController.cs:35-207 (Index), 211-323 (DoSearch), 435-561 (Export), 567-578 (ExportTemplate), 1372-1461 (Delete), 1466-1799 (Create GET), 1801-2038 (Create POST), 2043-2166 (Customer_Check), 2170-2606 (Update), 2609-2995 (Edit), 3603-3800 (CreateInOrder), 3804-3859 (GetAllCustomerGroup), 3277-3389 (AddCustomerGroup)
+// API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\MstCustomerController.cs:92-162 (WA_Mst_Customer_Get), 19-89 (WA_Mst_Customer_Save); SeqController.cs:164-233 (WA_Seq_Common_Get); MstCustomerGroupController.cs:92-162 (WA_Mst_CustomerGroup_Get)
+// BIZ:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz\Customer\Customer.cs:1464-1612 (WAS_Mst_Customer_Get), 996-1462 (Mst_Customer_Get), 2968-3070 (WAS_Mst_Customer_Save), 1619-1732 (Mst_Customer_Save), 2359-2966 (Mst_Customer_SaveX_New20231205), 4150-4277 (WAS_Mst_CustomerGroup_Get), 4278-4410 (Mst_CustomerGroup_Get); Seq.cs:2762-2839 (WAS_Seq_Common_Get)
 [ApiController]
 [Route("api/mst_customer")]
 public class Mst_CustomerControllerPort : ControllerBase
@@ -2598,6 +2598,113 @@ public class Mst_CustomerControllerPort : ControllerBase
     {
         return s?.Trim() == "1" ? "1" : "0";
     }
+
+    /// <summary>
+    /// Tạo mới nhóm khách hàng.
+    /// Gate: Mst_CustomerController.cs:3277-3389 AddCustomerGroup(...)
+    /// API:  WA_Seq_Common_Get (Seq.cs:164-233), WA_Mst_CustomerGroup_Get (MstCustomerGroupController.cs:92-162)
+    /// BIZ:  Seq_Common_Get (Seq.cs:2796-2807), WAS_Mst_CustomerGroup_Get (Customer.cs:4150-4277), Mst_CustomerGroup_Get (Customer.cs:4278-4410)
+    /// </summary>
+    [HttpPost("addcustomergroup")]
+    public async Task<IActionResult> AddCustomerGroup([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Mst_CustomerGroup_AddCustomerGroupReq? req)
+    {
+        try
+        {
+            // 1. Sinh mã CustomerGrpCode từ Seq_CustomerGrpCode
+            //    Nguồn: Gate Mst_CustomerController.cs:3285 customerGrpCode = WA_Seq_GenCommonCode_Get(SeqType.CustomerGrpCode)
+            var seqCode = (await PortSeq.NextAsync<Seq_CustomerGrpCode>(_db)).ToString();
+
+            // 2. Xây dựng entity Mst_CustomerGroup từ request
+            var grp = new Mst_CustomerGroup
+            {
+                OrgID = StdParam(req?.OrgID) ?? "",
+                NetworkID = StdParam(req?.NetworkID),
+                CustomerGrpCode = seqCode,
+                CustomerGrpCodeParent = !string.IsNullOrEmpty(req?.CustomerGrpCodeParent) ? req.CustomerGrpCodeParent : "ALL",
+                CustomerGrpBUCode = req?.CustomerGrpBUCode,
+                CustomerGrpBUPattern = req?.CustomerGrpBUPattern,
+                CustomerGrpLevel = req?.CustomerGrpLevel,
+                CustomerGrpName = req?.CustomerGrpName,
+                CustomerGrpDesc = req?.CustomerGrpDesc,
+                FlagActive = StdFlag(req?.FlagActive),
+                LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                LogLUBy = "port"
+            };
+
+            // 3. Ghi nhóm khách hàng
+            var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.Set<Mst_CustomerGroup>().Add(grp);
+
+                // 4. Ghi ảnh nhóm nếu có (Mst_CustomerController.cs:3315-3333)
+                if (req?.ListMst_CustomerGroupImages != null && req.ListMst_CustomerGroupImages.Count > 0)
+                {
+                    int idx = 0;
+                    foreach (var img in req.ListMst_CustomerGroupImages)
+                    {
+                        var imgEntity = new Mst_CustomerGroupImages
+                        {
+                            OrgID = grp.OrgID,
+                            CustomerGrpCode = seqCode,
+                            Idx = idx.ToString(),
+                            NetworkID = grp.NetworkID,
+                            ImagePath = img.ImagePath,
+                            FlagPrimaryImage = (idx == 0) ? "1" : img.FlagPrimaryImage ?? "0",
+                            LogLUDTimeUTC = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                            LogLUBy = "port"
+                        };
+                        _db.Set<Mst_CustomerGroupImages>().Add(imgEntity);
+                        idx++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch (Exception)
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+
+            // 5. Đọc lại danh sách nhóm sau khi tạo (Mst_CustomerController.cs:3336-3395)
+            var allGroups = await _db.Set<Mst_CustomerGroup>().AsNoTracking()
+                .Where(g => string.Equals(g.OrgID, grp.OrgID) && string.Equals(g.NetworkID, grp.NetworkID) && g.FlagActive == "1")
+                .ToListAsync();
+
+            var allGroupsExt = allGroups.Select(g => new Mst_CustomerGroup_Ext
+            {
+                OrgID = g.OrgID,
+                CustomerGrpCode = g.CustomerGrpCode,
+                NetworkID = g.NetworkID,
+                CustomerGrpCodeParent = g.CustomerGrpCodeParent,
+                CustomerGrpBUCode = g.CustomerGrpBUCode,
+                CustomerGrpBUPattern = g.CustomerGrpBUPattern,
+                CustomerGrpLevel = g.CustomerGrpLevel,
+                CustomerGrpName = g.CustomerGrpName,
+                CustomerGrpDesc = g.CustomerGrpDesc,
+                FlagActive = g.FlagActive,
+                LogLUDTimeUTC = g.LogLUDTimeUTC,
+                LogLUBy = g.LogLUBy
+            }).ToList();
+
+            // Dựng cây theo mẫu nguồn (Mst_CustomerController.cs:5223-5259, Mst_CustomerGroupExtension.ToGroupBaseTree)
+            var tree = Mst_CustomerGroupExtension.ToGroupBaseTree(allGroupsExt);
+            var flat = tree.ToFlatGroupBaseTree();
+
+            return Ok(new
+            {
+                Success = true,
+                Data = flat,
+                Title = "Tạo mới nhóm khách hàng thành công!"
+            });
+        }
+        catch (Exception ex)
+        {
+            return PortResult.Fail("Mst_CustomerGroup_Create", "Exception", ex.Message);
+        }
+    }
 }
 
 public class Mst_Customer_IndexReq
@@ -3102,6 +3209,120 @@ public static class Mst_AreaExtension
     public static List<Mst_AreaExt> ToFlatGroupBaseTree(this List<Mst_AreaExt> groupBaseList, int level = 0)
     {
         var list = new List<Mst_AreaExt>();
+
+        foreach (var groupBase in groupBaseList)
+        {
+            groupBase.HLevel = level;
+            list.Add(groupBase);
+            if (groupBase.Children != null && groupBase.Children.Count > 0)
+            {
+                list.AddRange(groupBase.Children.ToFlatGroupBaseTree(level + 1));
+            }
+        }
+
+        return list;
+    }
+}
+
+public class Mst_CustomerGroup_AddCustomerGroupReq
+{
+    // Tham số từ Gate Mst_CustomerController.cs:3283-3287, 3313-3314, 3341
+    public string? OrgID { get; set; }
+    public string? NetworkID { get; set; }
+    public string? CustomerGrpCodeParent { get; set; }
+    public string? CustomerGrpBUCode { get; set; }
+    public string? CustomerGrpBUPattern { get; set; }
+    public string? CustomerGrpLevel { get; set; }
+    public string? CustomerGrpName { get; set; }
+    public string? CustomerGrpDesc { get; set; }
+    public string? FlagActive { get; set; }
+    public List<Mst_CustomerGroup_AddCustomerGroupImageItem>? ListMst_CustomerGroupImages { get; set; }
+}
+
+public class Mst_CustomerGroup_AddCustomerGroupImageItem
+{
+    // Tham số từ Gate Mst_CustomerController.cs:3318-3330
+    public string? ImagePath { get; set; }
+    public string? FlagPrimaryImage { get; set; }
+}
+
+public class Mst_CustomerGroup_Ext
+{
+    // Mở rộng Mst_CustomerGroup cho response (Gate Mst_CustomerController.cs:5234-5248)
+    public string OrgID { get; set; } = "";
+    public string CustomerGrpCode { get; set; } = "";
+    public string? NetworkID { get; set; }
+    public string? CustomerGrpCodeParent { get; set; }
+    public string? CustomerGrpBUCode { get; set; }
+    public string? CustomerGrpBUPattern { get; set; }
+    public string? CustomerGrpLevel { get; set; }
+    public string? CustomerGrpName { get; set; }
+    public string? CustomerGrpDesc { get; set; }
+    public string? FlagActive { get; set; }
+    public string? LogLUDTimeUTC { get; set; }
+    public string? LogLUBy { get; set; }
+    // Dùng cho cây phân cấp (Mst_CustomerGroupExtension)
+    public List<Mst_CustomerGroup_Ext>? Children { get; set; }
+    public Mst_CustomerGroup_Ext? Parent { get; set; }
+    public int HLevel { get; set; }
+}
+
+/// <summary>
+/// Helper để dựng cây nhóm khách hàng theo nguồn Mst_CustomerGroupExtension
+/// (D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Common\Extensions\Mst_CustomerGroupExtension.cs).
+/// </summary>
+public static class Mst_CustomerGroupExtension
+{
+    public static List<Mst_CustomerGroup_Ext> GetGroupBaseList(List<Mst_CustomerGroup_Ext>? s)
+    {
+        var listPageBase = new List<Mst_CustomerGroup_Ext>();
+        if (s != null)
+        {
+            listPageBase.AddRange(s);
+        }
+        return listPageBase;
+    }
+
+    public static void BuildGroupBaseTree(this Mst_CustomerGroup_Ext groupBase, List<Mst_CustomerGroup_Ext> groupBaseList)
+    {
+        groupBase.Children ??= new List<Mst_CustomerGroup_Ext>();
+
+        foreach (var c in groupBaseList)
+        {
+            if (c.CustomerGrpCodeParent != null && c.CustomerGrpCodeParent.Equals(groupBase.CustomerGrpCode, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!groupBase.Children.Contains(c))
+                {
+                    groupBase.Children.Add(c);
+                    c.Parent = groupBase;
+
+                    BuildGroupBaseTree(c, groupBaseList);
+                }
+            }
+        }
+    }
+
+    public static List<Mst_CustomerGroup_Ext> ToGroupBaseTree(List<Mst_CustomerGroup_Ext> groupBaseList)
+    {
+        var list = new List<Mst_CustomerGroup_Ext>();
+
+        foreach (var groupBase in groupBaseList)
+        {
+            if (string.IsNullOrEmpty(groupBase.CustomerGrpCodeParent?.Trim()) || groupBase.CustomerGrpCodeParent?.Equals("ALL", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (groupBase.Children == null || groupBase.Children.Count == 0)
+                {
+                    groupBase.BuildGroupBaseTree(groupBaseList);
+                }
+                list.Add(groupBase);
+            }
+        }
+        return list;
+    }
+
+    public static List<Mst_CustomerGroup_Ext> ToFlatGroupBaseTree(this List<Mst_CustomerGroup_Ext> groupBaseList, int level = 0)
+    {
+        var list = new List<Mst_CustomerGroup_Ext>();
 
         foreach (var groupBase in groupBaseList)
         {
