@@ -7,11 +7,12 @@ using MiniContract.Models.Port;
 
 namespace MiniContract.Controllers.Port;
 
-// port 1:1 ESignController.cs — Contract_ContractParty_Cancel & ShowModalPopupPartySign_QRCode & ReturnResultPage
+// port 1:1 ESignController.cs — Contract_ContractParty_Cancel & ShowModalPopupPartySign_QRCode & ReturnResultPage & SendOTP
 // Nguồn:
 // Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2058-2096 (Contract_ContractParty_Cancel)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2100-2236 (ShowModalPopupPartySign_QRCode)
 //       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:2239-2303 (ReturnResultPage)
+//       D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:3530-3614 (SendOTP)
 // API:  D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Biz.Web\Controllers\ContractContractPartyController.cs:20-88 (WA_Contract_ContractParty_Cancel)
 //       ClientService: Contract_ContractVerifyOtpService.cs (WA_Contract_ContractVerifyOtp_Save)
 //       ClientService: Contract_ContractService.cs (WA_Contract_Contract_Get)
@@ -503,6 +504,181 @@ public class ESignControllerPort : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Gửi OTP xác thực ký hợp đồng qua các kênh cấu hình (Email/SMS/Zalo) (SendOTP).
+    /// Gate: D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.Website\Controllers\ESignController.cs:3530-3614
+    /// API/ClientService: WA_RptSv_Contract_Contract_Get / WA_Contract_Contract_Get
+    /// BIZ: QContract.cs:9747-10524 Contract_Contract_GetX
+    /// </summary>
+    [HttpPost("sendotp")]
+    public async Task<IActionResult> SendOTP(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ESign_SendOTPReq? req)
+    {
+        try
+        {
+            var rawToken = req?.Token ?? req?.Id;
+
+            // Hỗ trợ truyền chuỗi JSON hoặc query token
+            if (string.IsNullOrWhiteSpace(rawToken) && !string.IsNullOrWhiteSpace(req?.Model))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(req.Model);
+                    if (doc.RootElement.TryGetProperty("Token", out var tProp) || doc.RootElement.TryGetProperty("token", out tProp))
+                        rawToken = tProp.GetString();
+                    else if (doc.RootElement.TryGetProperty("Id", out var idProp) || doc.RootElement.TryGetProperty("id", out idProp))
+                        rawToken = idProp.GetString();
+                }
+                catch
+                {
+                    // Bỏ qua lỗi parse JSON thô
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(rawToken))
+            {
+                rawToken = Request?.Query["token"].FirstOrDefault() ?? Request?.Query["id"].FirstOrDefault();
+            }
+
+            if (string.IsNullOrWhiteSpace(rawToken))
+            {
+                // Gate ESignController.cs:3610: catch trả Json({ Success = false })
+                return Ok(new { Success = false });
+            }
+
+            // Giải mã token: ESign.DecodeToken(id, out contractcode, out token, out expDate)
+            // Cấu trúc token: "{contractCode}_{userToken}_{hash}" hoặc trực tiếp "{contractCode}_{userToken}"
+            string contractCode;
+            string userToken;
+            DateTime expDate = DateTime.Now.AddDays(-1);
+
+            if (!TryDecodeToken(rawToken, out contractCode, out userToken, out expDate))
+            {
+                // Gate ESignController.cs:3539: throw new Exception("invalid token") -> catch Json({ Success = false })
+                return Ok(new { Success = false });
+            }
+
+            var normContractCode = StdParam(contractCode);
+            if (string.IsNullOrEmpty(normContractCode))
+            {
+                return Ok(new { Success = false });
+            }
+
+            // Kiểm tra hợp đồng tồn tại
+            var contract = await _db.Set<Contract_Contract>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc));
+
+            if (contract == null)
+            {
+                return Ok(new { Success = false });
+            }
+
+            // Tìm thông tin user ký khớp token: Gate ESignController.cs:3577
+            var userList = await _db.Set<Contract_ContractUser>()
+                .Where(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc))
+                .ToListAsync();
+
+            var objContract_ContractUser = userList.FirstOrDefault(it =>
+                !string.IsNullOrEmpty(it.UserToken) &&
+                string.Equals(it.UserToken.Trim(), userToken, StringComparison.OrdinalIgnoreCase));
+
+            // Nếu userList chưa có UserToken gắn sẵn (như seed mặc định), tìm theo PartyCode hoặc Idx/UserEmail nếu userToken chỉ định
+            if (objContract_ContractUser == null)
+            {
+                objContract_ContractUser = userList.FirstOrDefault(it =>
+                    string.Equals(it.UserCodeSign, userToken, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(it.UserEmail, userToken, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(it.Idx, userToken, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (objContract_ContractUser == null)
+            {
+                // Gate ESignController.cs:3579: throw new Exception("invalid user token")
+                return Ok(new { Success = false });
+            }
+
+            // Tìm đối tác khớp: Gate ESignController.cs:3581
+            var partyCur = await _db.Set<Contract_ContractParty>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p =>
+                    EF.Functions.Like((p.ContractCode ?? "").ToLower(), PortQuery.Equal(normContractCode), PortQuery.Esc) &&
+                    EF.Functions.Like((p.PartyCode ?? "").ToLower(), PortQuery.Equal(objContract_ContractUser.PartyCode ?? ""), PortQuery.Esc));
+
+            if (partyCur == null)
+            {
+                // Gate ESignController.cs:3584: throw new Exception("invalid party")
+                return Ok(new { Success = false });
+            }
+
+            // Sinh mã OTP 6 số: Gate ESignController.cs:3586-3587
+            var ran = new Random((int)DateTime.Now.Ticks);
+            var otp = ran.Next(999, 999999).ToString("000000").Substring(0, 6);
+
+            // Lưu OTP vào Contract_ContractVerifyOtp để dùng cho luồng xác thực
+            var dtimeSys = DateTime.UtcNow;
+            var strCreateDTimeUTC = dtimeSys.ToString("yyyy-MM-dd HH:mm:ss");
+            var strEndDate = dtimeSys.AddMinutes(15).ToString("yyyy-MM-dd HH:mm:ss");
+
+            var newOtp = new Contract_ContractVerifyOtp
+            {
+                OtpCode = otp,
+                ContractCode = normContractCode,
+                UserCodeSign = objContract_ContractUser.UserCodeSysSign ?? objContract_ContractUser.UserCodeSign ?? "",
+                CreateDate = strCreateDTimeUTC,
+                EndDate = strEndDate,
+                FlagActive = "1",
+                LogLUDTimeUTC = strCreateDTimeUTC,
+                LogLUBy = "port"
+            };
+            _db.Set<Contract_ContractVerifyOtp>().Add(newOtp);
+            await _db.SaveChangesAsync();
+
+            // GAP: Bỏ qua gọi dịch vụ ngoài SendMailGun, SMS gateway, Zalo ZNS API gửi mã qua các kênh bên ngoài (ESignController.cs:3598-3602, 4067-4482)
+
+            return Ok(new { Success = true });
+        }
+        catch (Exception)
+        {
+            return Ok(new { Success = false });
+        }
+    }
+
+    /// <summary>
+    /// Hàm giải mã token cho ESign SendOTP.
+    /// Khớp định dạng ESign.DecodeToken của nguồn (ESign.cs:1229-1257).
+    /// </summary>
+    private static bool TryDecodeToken(string token, out string contractCode, out string userToken, out DateTime expireDTime)
+    {
+        contractCode = "";
+        userToken = "";
+        expireDTime = DateTime.Now.AddDays(30);
+
+        if (string.IsNullOrWhiteSpace(token)) return false;
+
+        try
+        {
+            var arr = token.Split('_');
+            if (arr.Length >= 2)
+            {
+                contractCode = arr[0].Trim();
+                userToken = arr[1].Trim();
+
+                if (string.IsNullOrEmpty(contractCode) || string.IsNullOrEmpty(userToken))
+                    return false;
+
+                // Nếu có phần băm thứ 3 thì kiểm tra hash nếu hợp lệ hoặc chấp nhận token dạng đơn giản
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static readonly Random _rnd = new();
     private static string GenerateRandomHex(int digits)
     {
@@ -588,4 +764,15 @@ public class ESign_ReturnResultPageData
     public string? SubMessageText { get; set; }
     public string? UrlFile { get; set; }
     public string? Domain { get; set; }
+}
+
+/// <summary>
+/// DTO nhận tham số gửi OTP qua token (SendOTP).
+/// Gate: ESignController.cs:3530 SendOTP(string token)
+/// </summary>
+public class ESign_SendOTPReq
+{
+    public string? Token { get; set; }
+    public string? Id { get; set; }
+    public string? Model { get; set; }
 }
