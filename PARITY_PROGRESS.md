@@ -4,7 +4,7 @@ Nguồn mẫu số: `D:\idocNet\2020.6.QContract\Dev\V10\idn.Skycic.QContract.We
 
 **Mẫu số (N)**: 295
 
-**Tiến độ hiện tại**: 206/295 (69.83%)
+**Tiến độ hiện tại**: 207/295 (70.17%)
 
 Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã có` (đã port từ trước, có bằng chứng) · `Bỏ` (scaffold/không nghiệp vụ, ghi lý do) · `Cần xem tay`.
 
@@ -57,7 +57,7 @@ Trạng thái: `Chưa làm` · `Đã làm` (có commit, review PASS) · `Đã c�
 | 45 | Contract_ContractController/SearchProduct | Chưa làm | - |
 | 46 | Contract_ContractController/SearchCustomer | Chưa làm | - |
 | 47 | Contract_ContractController/SearchUser | Chưa làm | - |
-| 48 | Contract_ContractController/SearchTempContract | Chưa làm | - |
+| 48 | Contract_ContractController/SearchTempContract | Đã làm | 6eccb05 |
 | 49 | Contract_ContractController/GetAddedParamValuesLinkPDF | Chưa làm | - |
 | 50 | Contract_ContractController/AddParamToFilePdf | Chưa làm | - |
 | 51 | Contract_ContractController/SearchContractRefNo | Chưa làm | - |
