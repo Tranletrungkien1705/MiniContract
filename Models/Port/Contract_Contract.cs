@@ -55,6 +55,13 @@ public class Contract_Contract
     public string? CancelDTimeUTC { get; set; }
     public string? LogLUDTimeUTC { get; set; }
     public string? LogLUBy { get; set; }
+
+    // zTemp.cs:3753-3761 — Contract_ContractParty_FinishX UPDATE Contract_Contract
+    // (ContractFinishReasonCode, ContractFinishReasonName, FinishDescription, FinishFileDesc)
+    public string? ContractFinishReasonCode { get; set; }
+    public string? ContractFinishReasonName { get; set; }
+    public string? FinishDescription { get; set; }
+    public string? FinishFileDesc { get; set; }
 }
 
 public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_Contract>
@@ -96,6 +103,10 @@ public class Contract_ContractConfiguration : IEntityTypeConfiguration<Contract_
         builder.Property(x => x.ContactName).HasMaxLength(250);
         builder.Property(x => x.PhoneNoCreate).HasMaxLength(50);
         builder.Property(x => x.EMailCreate).HasMaxLength(250);
+        builder.Property(x => x.ContractFinishReasonCode).HasMaxLength(50);
+        builder.Property(x => x.ContractFinishReasonName).HasMaxLength(250);
+        builder.Property(x => x.FinishDescription).HasMaxLength(500);
+        builder.Property(x => x.FinishFileDesc).HasMaxLength(500);
     }
 }
 

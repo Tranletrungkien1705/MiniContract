@@ -757,6 +757,338 @@ public class Contract_ContractControllerPort : ControllerBase
     }
 
     /// <summary>
+    /// Kết thúc/chấm dứt hợp đồng (FinishAndSign).
+    /// Gate: Contract_ContractController.cs:6767-7014
+    ///       + BaseController.cs:6667-6737 (ReturnApiUserCreateContract — GAP: MasterServer ngoài)
+    ///       + Contract_ContractController.cs:7980-7995 (strWhereClause_Contract_ContractSearch)
+    ///       + BaseController.cs:6138-6144 (RT_Contract_Contract_Get)
+    /// API:  ContractContractPartyController.cs:91-159 (WA_Contract_ContractParty_Finish),
+    ///       ContractContractPartyController.cs:304-372 (WA_Contract_ContractParty_UpdEmailSend)
+    /// BIZ:  zTemp.cs:4485-4638 (WAS_Contract_ContractParty_Finish) → zTemp.cs:3205-4416 (Contract_ContractParty_FinishX)
+    ///       zTemp.1.cs:924-1017 (WAS_Contract_ContractParty_UpdEmailSend) → zTemp.1.cs:770-923 (Contract_ContractParty_UpdEmailSend)
+    ///       zTemp.1.cs:581-769 (Contract_ContractParty_UpdEmailSendX)
+    ///
+    /// GAP — KHÔNG port phần gọi dịch vụ ngoài (PORT_RULES §1 + LESSONS B.7):
+    ///   - ReturnApiUserCreateContract (gate:6831-6836, BaseController.cs:6667-6737) — MasterServer ngoài.
+    ///   - OS_FileCenter_CreateAndMoveFSX (biz:3433, 3627) — FileCenter ngoài ⇒ ContractFinishReasonFilePath /
+    ///     Contract_ContractFiles.ContractFilePath KHÔNG lấy được URL từ FS.
+    ///   - RenderRazorViewToString + SendMailGun (gate:6894-6964) — render view + gateway mail ngoài.
+    ///   - Contract_Contract_HistActionX (biz:3894) — hàm chưa trích (excerpt:4637) ⇒ ghi hist theo mẫu
+    ///     Contract_ContractPartyCancelControllerPort (FunctionActionType='PartyFinsh', Desc='Kết thúc hợp đồng').
+    ///   - Notify iNOS/Firebase (biz:3913-4065) — dịch vụ ngoài.
+    ///   - Contract_Contract_CheckDB / Contract_ContractParty_CheckDB (biz:3305, 3338) — hàm chưa trích; dùng mã lỗi
+    ///     đã xác minh ở các port cùng bảng (Contract_Contract_CheckDB_OrganNotFound,
+    ///     Contract_Contract_CheckDB_CheckDB_ContractStatusNotMatched, Contract_ContractParty_CheckDB_OrganNotFound).
+    ///   - Cột không có trên entity đích: EffStatus, ContractFinishReasonFilePath, ContractFinishReasonFilePathVersion,
+    ///     FinishedDTimeUTC/FinishedBy của party, Contract_ContractFiles (bảng chưa có) ⇒ bỏ các guard/ghi tương ứng.
+    /// </summary>
+    [HttpPost("finishandsign")]
+    public async Task<IActionResult> FinishAndSign([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] Contract_Contract_FinishAndSignReq? req)
+    {
+        // Gate :6789 — model là chuỗi JSON ContractModelFinish; body rỗng ⇒ objContractModelFinish = null
+        // ⇒ Contract_ContractParty.ContractCode = null ⇒ biz StdParam(null) = null ⇒ lỗi CheckDB (OrganNotFound).
+        Contract_Contract_FinishAndSignReq? model = req;
+        if (!string.IsNullOrWhiteSpace(req?.Model))
+        {
+            try
+            {
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Contract_Contract_FinishAndSignReq>(
+                    req.Model, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (parsed != null) model = parsed;
+            }
+            catch
+            {
+                // Bỏ qua lỗi parse — dùng các trường phẳng của req (A.21)
+            }
+        }
+
+        // Gate :6792-6807 — Contract_ContractPartyFinish (CUtils.StrValue: null -> "", KHÔNG Trim/ToUpper)
+        var partyFinish = model?.Contract_ContractPartyFinish;
+        var contractCodeRaw = StrValue(partyFinish?.ContractCode);
+        var contractFinishReasonCodeRaw = StrValue(partyFinish?.ContractFinishReasonCode);
+        var contractFileSpecRaw = StrValue(partyFinish?.ContractFileSpec);
+        var contractFileNameRaw = StrValue(partyFinish?.ContractFileName);
+        var finishFileDescRaw = StrValue(partyFinish?.FinishFileDesc);
+        var contractFinishReasonNameRaw = StrValue(partyFinish?.ContractFinishReasonName);
+        var finishDescriptionRaw = StrValue(partyFinish?.FinishDescription);
+        var finishedDateRaw = StrValue(partyFinish?.FinishedDate);
+        var contractFinishReasonFilePathVersionRaw = StrValue(partyFinish?.ContractFinishReasonFilePathVersion);
+
+        // Gate :6803 — MST lấy từ UserState.Mst_NNT.MST; đích không có phiên ⇒ nhận qua body (A.24)
+        var mstRaw = !string.IsNullOrEmpty(StrValue(model?.MST)) ? StrValue(model?.MST) : StrValue(req?.MST);
+
+        // Gate :6811-6825 — Lst_Contract_ContractFiles (Idx tăng dần, FlagPublic = IsPublic ? "1" : "0")
+        // GAP: bảng Contract_ContractFiles KHÔNG có entity ở đích ⇒ chỉ dựng danh sách để đếm/echo,
+        //      KHÔNG ghi DB (biz:3556-3685 bỏ insert).
+        var fileList = new List<Contract_Contract_FinishAndSignFile>();
+        if (model?.FileList != null && model.FileList.Count > 0)
+        {
+            fileList.AddRange(model.FileList);
+        }
+
+        // Gate :6830 — contractcode = CUtils.StrValue(...ContractCode)
+        var contractcode = contractCodeRaw;
+
+        // Người thực hiện — nguồn lấy UserState.SysUser.UserCode (gate:6781); đích không có phiên (A.24)
+        var waUserCode = StdParam(model?.WAUserCode)
+            ?? StdParam(Request?.Headers["WAUserCode"].FirstOrDefault())
+            ?? "port";
+
+        // Gate :6783-6784 — NetworkID/OrgID của phiên (UserState.Mst_NNT) ⇒ nhận qua body (A.24)
+        var sessionNetworkId = StdParam(model?.NetworkID);
+        var sessionOrgId = StdParam(model?.OrgID);
+
+        // Gate :6780 — AccessToken của phiên; rỗng ⇒ kiểm UserToken (biz:3408-3423)
+        var accessToken = StrValue(model?.AccessToken);
+
+        var dtimeSys = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // ===== biz:3269-3271 — StdParam cho các MÃ =====
+            var strContractCode = StdParam(contractCodeRaw);
+            var strMST = StdParam(mstRaw);
+            var strContractFinishReasonCode = StdParam(contractFinishReasonCodeRaw);
+            // biz:3272-3277 — string.Format("{0}", x).Trim() (KHÔNG ToUpper)
+            var strContractFileSpec = contractFileSpecRaw.Trim();
+            var strContractFileName = contractFileNameRaw.Trim();
+            var strFinishFileDesc = finishFileDescRaw.Trim();
+            var strContractFinishReasonName = contractFinishReasonNameRaw.Trim();
+            var strFinishDescription = finishDescriptionRaw.Trim();
+            var strUserNameSign = StrValue(partyFinish?.UserNameSign).Trim();
+            // biz:3278 — StdDate(objFinishedDate)
+            var strFinishedDate = StdDate(finishedDateRaw);
+            var strContractFinishReasonFilePathVersion = contractFinishReasonFilePathVersionRaw;
+            var strUserTokenInput = StrValue(partyFinish?.UserToken);
+
+            // ===== biz:3305-3311 — Contract_Contract_CheckDB(code, "1", Confirmed) =====
+            var contract = await _db.Set<Contract_Contract>()
+                .FirstOrDefaultAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc));
+            if (contract == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_Contract_CheckDB_OrganNotFound", "Check.ContractCode", strContractCode);
+            }
+            // biz:3309 — ContractStatus phải thuộc danh sách Confirmed
+            if (!string.Equals(contract.ContractStatus, "CONFIRMED", StringComparison.OrdinalIgnoreCase))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_Contract_CheckDB_CheckDB_ContractStatusNotMatched",
+                    "Check.ContractCode", strContractCode,
+                    "Check.strContractListToCheck", "CONFIRMED",
+                    "DB.ContractStatus", contract.ContractStatus);
+            }
+
+            // biz:3312-3316 — OrgID/NetworkID/EffStatus/ContractFinishReasonFilePath(+Version) của hợp đồng
+            // GAP: EffStatus, ContractFinishReasonFilePath, ContractFinishReasonFilePathVersion KHÔNG có trên entity đích.
+            var strOrgID = StdParam(contract.OrgID);
+            var strNetworkID = StdParam(sessionNetworkId ?? contract.OrgID);
+
+            // biz:3338-3345 — Contract_ContractParty_CheckDB(code, MST, "1", Confirmed)
+            var party = await _db.Set<Contract_ContractParty>()
+                .FirstOrDefaultAsync(x =>
+                    EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc) &&
+                    EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(strMST ?? ""), PortQuery.Esc));
+            if (party == null)
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_ContractParty_CheckDB_OrganNotFound",
+                    "Check.ContractCode", strContractCode,
+                    "Check.MST", strMST);
+            }
+            // biz:3343 — ContractPartyStatus phải thuộc danh sách Confirmed
+            if (!string.Equals(party.ContractPartyStatus, "CONFIRMED", StringComparison.OrdinalIgnoreCase))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_ContractParty_CheckDB_CheckDB_ContractPartyStatusNotMatched",
+                    "Check.ContractCode", strContractCode,
+                    "Check.MST", strMST,
+                    "Check.strContractPartyStatusListToCheck", "CONFIRMED",
+                    "DB.ContractPartyStatus", party.ContractPartyStatus);
+            }
+
+            // biz:3347-3351 — OrgID/CustomerCodeSys/NetworkIDParty/OrgIDParty/UserToken của party
+            var strCustomerCodeSys = party.CustomerCodeSys;
+            var strUserToken = party.UserToken;
+
+            // biz:3354-3365 — EffStatus phải = Processing (GAP: cột EffStatus không có ở đích ⇒ bỏ guard)
+
+            // biz:3366-3378 — ContractFinishReasonCode NOT NULL
+            if (string.IsNullOrEmpty(strContractFinishReasonCode))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_ContractParty_FinishX_ContractFinishReasonCodeNotNull",
+                    "Check.ContractCode", strContractCode,
+                    "Check.strMST", strMST,
+                    "Check.strContractFinishReasonCode", strContractFinishReasonCode);
+            }
+
+            // biz:3380-3392 — FinishedDate NOT NULL
+            if (string.IsNullOrEmpty(strFinishedDate))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_ContractParty_FinishX_FinishedDateNotNull",
+                    "Check.ContractCode", strContractCode,
+                    "Check.strMST", strMST,
+                    "Check.strFinishedDate", strFinishedDate);
+            }
+
+            // biz:3394-3406 — ContractFileSpec NOT NULL
+            if (string.IsNullOrEmpty(strContractFileSpec))
+            {
+                await tx.RollbackAsync();
+                return PortResult.Fail("Contract_ContractParty_FinishX_ContractFileSpecNotNull",
+                    "Check.ContractCode", strContractCode,
+                    "Check.strMST", strMST,
+                    "Check.strContractFileSpec", strContractFileSpec);
+            }
+
+            // biz:3408-3423 — không có AccessToken ⇒ UserToken phải khớp party.UserToken
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                if (!string.Equals(strUserToken, strUserTokenInput, StringComparison.Ordinal))
+                {
+                    await tx.RollbackAsync();
+                    return PortResult.Fail("Contract_ContractParty_FinishX_Invalid_UserTokenInput",
+                        "Check.ContractCode", strContractCode,
+                        "Check.MST", strMST,
+                        "Check.UserTokenInput", strUserTokenInput);
+                }
+            }
+
+            // biz:3426-3453 — lần đầu kết thúc: upload file qua FileCenter (GAP: dịch vụ ngoài)
+            //   ⇒ ContractFinishReasonFilePath không có giá trị (cột đích không có).
+
+            // ===== biz:3503-3551 — UPDATE Contract_ContractParty =====
+            // GAP: ContractFinishReasonFilePath, FinishedDTimeUTC, FinishedBy không có trên entity đích.
+            party.ContractFinishReasonCode = strContractFinishReasonCode;
+            party.ContractFinishReasonName = strContractFinishReasonName;
+            party.FinishFileDesc = strFinishFileDesc;
+            party.FinishDescription = strFinishDescription;
+            party.ContractPartyStatus = "FINISHED";
+            party.LogLUDTimeUTC = dtimeSys;
+            party.LogLUBy = waUserCode;
+
+            // ===== biz:3556-3685 — Contract_ContractFiles (GAP: bảng chưa có ở đích ⇒ bỏ insert) =====
+
+            // ===== biz:3749-3770 — UPDATE Contract_Contract =====
+            // GAP: ContractFinishReasonFilePath, ContractFinishReasonFilePathVersion, FinishedDTimeUTC không có trên entity đích.
+            contract.ContractFinishReasonCode = strContractFinishReasonCode;
+            contract.ContractFinishReasonName = strContractFinishReasonName;
+            contract.FinishDescription = strFinishDescription;
+            contract.FinishFileDesc = strFinishFileDesc;
+            contract.LogLUDTimeUTC = dtimeSys;
+            contract.LogLUBy = waUserCode;
+
+            await _db.SaveChangesAsync();
+
+            // ===== biz:3827-3869 — Check PartySign: mọi party FINISHED ⇒ Contract.EffStatus = Finished =====
+            // GAP: cột EffStatus không có ở đích ⇒ chỉ ghi LogLUDTimeUTC/LogLUBy (biz:3852-3853).
+            var anyNotFinished = await _db.Set<Contract_ContractParty>()
+                .AnyAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc)
+                            && !EF.Functions.Like((x.ContractPartyStatus ?? "").ToLower(), PortQuery.Equal("FINISHED"), PortQuery.Esc));
+            if (!anyNotFinished)
+            {
+                contract.LogLUDTimeUTC = dtimeSys;
+                contract.LogLUBy = waUserCode;
+            }
+
+            // ===== biz:3887-3910 — Contract_Contract_HistActionX =====
+            // GAP: hàm chưa trích ⇒ ghi theo mẫu port cùng bảng (Contract_ContractPartyCancelControllerPort).
+            var maxVersion = await _db.Set<Contract_Contract_HistAction>()
+                .Where(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc))
+                .MaxAsync(x => (int?)x.Version) ?? 0;
+            var hist = new Contract_Contract_HistAction
+            {
+                ContractCode = strContractCode ?? "",
+                Version = maxVersion + 1,
+                UserCode = waUserCode,
+                UserName = strUserNameSign,
+                Description = "Kết thúc hợp đồng",
+                LogLUDTimeUTC = dtimeSys,
+                LogLUBy = waUserCode,
+                FunctionName = "Contract_ContractParty_FinishX",
+                FunctionActionType = "PartyFinsh"
+            };
+            _db.Set<Contract_Contract_HistAction>().Add(hist);
+
+            await _db.SaveChangesAsync();
+
+            // ===== GAP: Notify iNOS/Firebase (biz:3913-4065) — dịch vụ ngoài =====
+
+            // ===== Gate :6843-6877 — Search lại hợp đồng để gửi mail =====
+            // strWhereClause_Contract_ContractSearch (gate:7980-7995) chỉ lọc ContractNo/OrgID ⇒ gate KHÔNG lọc gì
+            // (ContractCode không phải tham số của hàm) ⇒ lấy dòng đầu theo ContractDateUTC desc, CreateDTimeUTC desc.
+            var sendMailContract = await _db.Set<Contract_Contract>()
+                .AsNoTracking()
+                .OrderByDescending(x => x.ContractDateUTC)
+                .ThenByDescending(x => x.CreateDTimeUTC)
+                .FirstOrDefaultAsync();
+
+            // ===== Gate :6882-6886 — tổng hợp dữ liệu gửi mail =====
+            var partiesOfContract = await _db.Set<Contract_ContractParty>()
+                .Where(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc))
+                .ToListAsync();
+
+            // Gate :6916-6993 — chỉ gửi khi có ĐÚNG 1 party đã kết thúc (FinishedDTimeUTC NOT NULL)
+            // GAP: cột FinishedDTimeUTC không có trên entity đích ⇒ không xác định được "party đã kết thúc"
+            //      ⇒ nhánh gửi mail + UpdEmailSend KHÔNG chạy (ghi GAP).
+            var partiesToUpdate = new List<Contract_ContractParty>();
+
+            // ===== Gate :6976-6990 — WA_Contract_ContractParty_UpdEmailSend =====
+            // biz zTemp.1.cs:726-751 — UPDATE Contract_ContractParty SET EmailSend ... theo (ContractCode, MST)
+            foreach (var item in partiesToUpdate)
+            {
+                var target = await _db.Set<Contract_ContractParty>()
+                    .FirstOrDefaultAsync(x => EF.Functions.Like((x.ContractCode ?? "").ToLower(), PortQuery.Equal(strContractCode ?? ""), PortQuery.Esc)
+                                            && EF.Functions.Like((x.MST ?? "").ToLower(), PortQuery.Equal(item.MST ?? ""), PortQuery.Esc));
+                if (target != null)
+                {
+                    target.EmailSend = item.EmailSend;
+                    target.SendEmailDTimeUTC = dtimeSys;
+                    target.SendEmailBy = waUserCode;
+                    target.LogLUDTimeUTC = dtimeSys;
+                    target.LogLUBy = waUserCode;
+                }
+            }
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // Gate :7000-7005 — Success=true + AddMessage + RedirectUrl Detail
+            var message = "Kết thúc hợp đồng '" + contractcode + "' thành công!";
+            return Ok(new
+            {
+                Success = true,
+                Data = new
+                {
+                    ContractCode = contractcode,
+                    ContractStatus = contract.ContractStatus,
+                    ContractPartyStatus = party.ContractPartyStatus,
+                    ContractFinishReasonCode = party.ContractFinishReasonCode,
+                    ContractFinishReasonName = party.ContractFinishReasonName,
+                    FinishDescription = party.FinishDescription,
+                    HistActionVersion = hist.Version,
+                    HistActionType = hist.FunctionActionType,
+                    HistActionDescription = hist.Description,
+                    SearchResultFound = sendMailContract != null,
+                    PartiesOfContractCount = partiesOfContract.Count,
+                    PartiesUpdatedCount = partiesToUpdate.Count,
+                    FileListCount = fileList.Count,
+                    Message = message,
+                    RedirectUrl = "/Contract_Contract/Detail?contractcode=" + contractcode
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            // Mã mặc định biz: TError.ErridQContract.Contract_ContractParty_Finish (zTemp.cs:4480)
+            return PortResult.Fail("Contract_ContractParty_Finish", "Exception", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Gate :695 — CurrentUserSigningInfo lấy từ UserState.Mst_NNT (NNT của phiên đăng nhập).
     /// Ở đích không có phiên: nhận OrgID tuỳ chọn trong body, không truyền thì không có thông tin (null).
     /// </summary>
@@ -797,6 +1129,19 @@ public class Contract_ContractControllerPort : ControllerBase
 
     /// <summary>CUtils.StrValue của nguồn: null -> "", KHÔNG Trim/ToUpper (gate :718-721, :751).</summary>
     private static string? StrValue(object? value) => value?.ToString() ?? "";
+
+    /// <summary>
+    /// CUtils.StdDate của nguồn (biz:3278): chuỗi ngày hợp lệ -> "yyyy-MM-dd HH:mm:ss", không hợp lệ/rỗng -> null.
+    /// </summary>
+    private static string? StdDate(object? value)
+    {
+        var s = value?.ToString()?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var dt))
+            return dt.ToString("yyyy-MM-dd HH:mm:ss");
+        return null;
+    }
 }
 
 /// <summary>
@@ -950,4 +1295,55 @@ public class Contract_SignatureRectangleItem
     public string? SignType { get; set; }
     public string? TimeOfSigning { get; set; }
     public object? TokenInfo { get; set; }
+}
+
+/// <summary>
+/// Tham số của gate Contract_ContractController.cs:6767 (FinishAndSign — `string model` = ContractModelFinish).
+/// A.21: body là đối tượng JSON tương ứng model (KHÔNG bọc thêm strJson).
+/// Các trường NetworkID/OrgID/AccessToken/WAUserCode/MST là "UserState" của nguồn — đích nhận qua body (A.24).
+/// </summary>
+public class Contract_Contract_FinishAndSignReq
+{
+    /// <summary>Chuỗi JSON ContractModelFinish (đường dẫn thô của gate: `model`).</summary>
+    public string? Model { get; set; }
+
+    // UserState thay thế (gate:6780-6784, 6803)
+    public string? AccessToken { get; set; }
+    public string? WAUserCode { get; set; }
+    public string? NetworkID { get; set; }
+    public string? OrgID { get; set; }
+    public string? MST { get; set; }
+
+    /// <summary>Gate :6792 — objContractModelFinish.Contract_ContractPartyFinish</summary>
+    public Contract_Contract_FinishAndSignParty? Contract_ContractPartyFinish { get; set; }
+
+    /// <summary>Gate :6808-6825 — objContractModelFinish.FileList</summary>
+    public List<Contract_Contract_FinishAndSignFile>? FileList { get; set; }
+}
+
+/// <summary>Gate :6792-6807 — Contract_ContractPartyFinish (CUtils.StrValue từng trường).</summary>
+public class Contract_Contract_FinishAndSignParty
+{
+    public string? ContractCode { get; set; }
+    public string? ContractFinishReasonCode { get; set; }
+    public string? ContractFileSpec { get; set; }
+    public string? ContractFileName { get; set; }
+    public string? FinishFileDesc { get; set; }
+    public string? ContractFinishReasonName { get; set; }
+    public string? FinishDescription { get; set; }
+    public string? FinishedDate { get; set; }
+    public string? ContractFinishReasonFilePathVersion { get; set; }
+    public string? UserToken { get; set; }
+    public string? UserNameSign { get; set; }
+}
+
+/// <summary>Gate :6811-6825 — phần tử FileList của ContractModelFinish.</summary>
+public class Contract_Contract_FinishAndSignFile
+{
+    public string? FileName { get; set; }
+    public string? Description { get; set; }
+    public string? IsFilePath { get; set; }
+    public bool IsPublic { get; set; }
+    public string? FilePath { get; set; }
+    public string? FileId { get; set; }
 }

@@ -64,6 +64,13 @@ public class Contract_ContractParty
     public string? EmailSend { get; set; }
     public string? SendEmailDTimeUTC { get; set; }
     public string? SendEmailBy { get; set; }
+
+    // zTemp.cs:3507-3527 — Contract_ContractParty_FinishX (#input_Contract_ContractParty)
+    // GAP: ContractFinishReasonFilePath, FinishedDTimeUTC, FinishedBy KHÔNG có trên entity đích.
+    public string? ContractFinishReasonCode { get; set; }
+    public string? ContractFinishReasonName { get; set; }
+    public string? FinishFileDesc { get; set; }
+    public string? FinishDescription { get; set; }
 }
 
 public class Contract_ContractPartyConfiguration : IEntityTypeConfiguration<Contract_ContractParty>
@@ -108,6 +115,10 @@ public class Contract_ContractPartyConfiguration : IEntityTypeConfiguration<Cont
         builder.Property(x => x.EmailSend).HasMaxLength(1000);
         builder.Property(x => x.SendEmailDTimeUTC).HasMaxLength(50);
         builder.Property(x => x.SendEmailBy).HasMaxLength(50);
+        builder.Property(x => x.ContractFinishReasonCode).HasMaxLength(50);
+        builder.Property(x => x.ContractFinishReasonName).HasMaxLength(250);
+        builder.Property(x => x.FinishFileDesc).HasMaxLength(500);
+        builder.Property(x => x.FinishDescription).HasMaxLength(500);
     }
 }
 
